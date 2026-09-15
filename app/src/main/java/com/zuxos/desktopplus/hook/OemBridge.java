@@ -40,6 +40,12 @@ public final class OemBridge {
         if (mode == Const.TAKEOVER_NONE) {
             return;
         }
+        if (content == null) {
+            // The surface is in a window of its own; there is nothing of ours inside the
+            // launcher's view tree to hide things relative to.
+            L.d("takeover skipped: surface is not inside the launcher's view tree");
+            return;
+        }
         Map<View, Integer> hidden = new HashMap<>();
         try {
             List<View> targets = new ArrayList<>();

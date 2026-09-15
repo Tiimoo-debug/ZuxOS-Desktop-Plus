@@ -23,6 +23,7 @@ import com.zuxos.desktopplus.drawer.DrawerPanel;
 import com.zuxos.desktopplus.hook.OemBridge;
 import com.zuxos.desktopplus.hook.Probe;
 import com.zuxos.desktopplus.hook.StockUnlockHooks;
+import com.zuxos.desktopplus.hook.SurfaceAttacher;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DesktopStore;
 import com.zuxos.desktopplus.model.DrawerStore;
@@ -61,6 +62,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private final TextView mTrash;
     private final WidgetHostCtl mWidgets;
 
+    private SurfaceAttacher.Target mTarget;
     private View mDragView;
     private int[] mPendingWidgetCell;
     private int[] mMenuCell;
@@ -117,24 +119,32 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         if (existing != null) {
             return existing;
         }
-        ViewGroup content = activity.findViewById(android.R.id.content);
-        if (content == null) {
-            L.w("activity has no content view: " + activity.getClass().getName());
+        SurfaceAttacher.Target target = SurfaceAttacher.resolve(activity);
+        if (target == null) {
+            // Normal on the first resume of a launcher that installs its layout later; the
+            // activity watcher retries, and hooks setContentView so we attach the moment it does.
+            L.w("nowhere to attach yet: " + SurfaceAttacher.diagnose(activity));
+            if (Cfg.probe()) {
+                Probe.dump(activity, null);
+            }
             return null;
         }
         DesktopHost host = new DesktopHost(activity, external);
-        content.addView(host.mRoot, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (!target.attach(activity, host.mRoot)) {
+            return null;
+        }
+        host.mTarget = target;
         ACTIVE.put(activity, host);
 
-        OemBridge.applyTakeover(activity, content, host.mRoot, Cfg.takeover());
+        OemBridge.applyTakeover(activity, target.container, host.mRoot, Cfg.takeover());
         StockUnlockHooks.loadUserRules(activity);
         if (Cfg.probe()) {
-            Probe.dump(activity, content);
+            Probe.dump(activity, target.container);
         }
         host.mWidgets.start();
         host.mGrid.post(host::rebuildItems);
         L.i("desktop surface attached to " + activity.getClass().getName()
+                + " via " + target.describe()
                 + " (display " + host.mDisplayId + ", external=" + external + ")");
         return host;
     }
@@ -151,9 +161,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         try {
             host.mWidgets.stop();
             host.save();
-            ViewGroup parent = (ViewGroup) host.mRoot.getParent();
-            if (parent != null) {
-                parent.removeView(host.mRoot);
+            if (host.mTarget != null) {
+                host.mTarget.detach(activity, host.mRoot);
             }
             OemBridge.restore(activity);
         } catch (Throwable t) {

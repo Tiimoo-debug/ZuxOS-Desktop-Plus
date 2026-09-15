@@ -2,6 +2,8 @@ package com.zuxos.desktopplus.hook;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
@@ -23,8 +25,14 @@ import de.robv.android.xposed.XposedBridge;
  */
 public final class ActivityWatcher {
 
+    /** Delays for re-attach attempts after a resume that found no window yet. */
+    private static final long[] RETRY_DELAYS_MS = {150, 600, 1500, 3000, 6000};
+
     private static final Set<Class<?>> HOOKED_SUBCLASSES =
             Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Set<Activity> RETRYING =
+            Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean sInstalled;
 
     private ActivityWatcher() {
@@ -70,6 +78,7 @@ public final class ActivityWatcher {
             hookBack(Activity.class);
             hookActivityResult(Activity.class);
             hookKeys(Activity.class);
+            hookContentView(Activity.class);
             L.i("activity hooks installed");
         } catch (Throwable t) {
             L.e("could not install activity hooks", t);
@@ -91,9 +100,67 @@ public final class ActivityWatcher {
                 return;
             }
             hookSubclass(activity.getClass());
-            DesktopHost.attach(activity, HostDetector.isExternal(activity));
+            if (DesktopHost.attach(activity, HostDetector.isExternal(activity)) == null) {
+                scheduleRetries(activity);
+            }
         } catch (Throwable t) {
             L.e("attach failed for " + activity.getClass().getName(), t);
+        }
+    }
+
+    /**
+     * Retries the attach a few times.
+     *
+     * <p>ZuxOS's secondary-display launcher has no window to attach to when it resumes - it
+     * installs its layout once the launcher model has loaded - so the first attempt legitimately
+     * finds nothing and we come back for it.
+     */
+    private static void scheduleRetries(Activity activity) {
+        if (!RETRYING.add(activity)) {
+            return;
+        }
+        for (long delay : RETRY_DELAYS_MS) {
+            MAIN.postDelayed(() -> {
+                try {
+                    if (activity.isDestroyed() || activity.isFinishing()
+                            || DesktopHost.of(activity) != null) {
+                        RETRYING.remove(activity);
+                        return;
+                    }
+                    if (DesktopHost.attach(activity, HostDetector.isExternal(activity)) != null) {
+                        RETRYING.remove(activity);
+                    }
+                } catch (Throwable t) {
+                    L.e("retry attach failed", t);
+                }
+            }, delay);
+        }
+    }
+
+    /** Attaches as soon as the launcher installs its own layout. */
+    private static void hookContentView(Class<?> clazz) {
+        try {
+            XposedBridge.hookAllMethods(clazz, "setContentView", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    final Activity activity = (Activity) param.thisObject;
+                    if (DesktopHost.of(activity) != null || !Cfg.enabled()) {
+                        return;
+                    }
+                    // Post so the launcher's own layout is fully in place first.
+                    MAIN.post(() -> {
+                        try {
+                            if (HostDetector.shouldAttach(activity)) {
+                                DesktopHost.attach(activity, HostDetector.isExternal(activity));
+                            }
+                        } catch (Throwable t) {
+                            L.e("attach after setContentView failed", t);
+                        }
+                    });
+                }
+            });
+        } catch (Throwable t) {
+            L.d("no setContentView on " + clazz.getName());
         }
     }
 
@@ -108,6 +175,7 @@ public final class ActivityWatcher {
         hookBack(clazz);
         hookActivityResult(clazz);
         hookKeys(clazz);
+        hookContentView(clazz);
     }
 
     private static void hookBack(Class<?> clazz) {

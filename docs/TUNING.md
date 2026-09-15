@@ -84,7 +84,19 @@ patches `canX`/`supportX`/`allowX` to `true` and `isXDisabled`/`isXLocked` to `f
 mentioning drag/edit/folder/widget/reorder/move. It is off by default because a wrong guess
 misbehaves in ways that are hard to attribute.
 
-## 5. Where the data lives
+## 5. "nowhere to attach yet"
+
+The desktop home on ZuxOS is `com.zui.launcher.secondarydisplay.SecondaryDisplayLauncher`, and it
+has no window to attach to at the moment it resumes - it installs its own layout later, once the
+launcher model has loaded. The module handles that by retrying and by attaching the instant the
+launcher calls `setContentView`, so a single one of these lines followed by
+`desktop surface attached to ...` is normal.
+
+If you only ever see the warning, it prints why: whether the window, the decor view or both are
+missing, whether the activity is finishing, and whether the launcher may draw overlay windows.
+Send that line - it names the remaining fallback to use.
+
+## 6. Where the data lives
 
 Inside the home app's private data dir, `files/zux_desktop_plus/`:
 

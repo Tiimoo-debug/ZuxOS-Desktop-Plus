@@ -26,6 +26,14 @@ public final class Probe {
 
     public static void dump(Activity activity, ViewGroup content) {
         try {
+            if (content == null && activity.getWindow() != null) {
+                // No content view: dump whatever the window does have, which is the interesting
+                // part when an attach attempt just failed.
+                View decor = activity.getWindow().peekDecorView();
+                if (decor instanceof ViewGroup) {
+                    content = (ViewGroup) decor;
+                }
+            }
             String text = describe(activity, content);
             File out = Storage.exportCopy(activity, Const.FILE_PROBE, text);
             Storage.write(Storage.file(activity, Const.FILE_PROBE), text);
@@ -52,6 +60,7 @@ public final class Probe {
             sb.append("display : unavailable\n");
         }
         sb.append("home act: ").append(HostDetector.isHomeActivity(activity)).append('\n');
+        sb.append("attach  : ").append(SurfaceAttacher.diagnose(activity)).append('\n');
         try {
             sb.append("widgets : ")
                     .append(AppWidgetManager.getInstance(activity).getInstalledProviders().size())

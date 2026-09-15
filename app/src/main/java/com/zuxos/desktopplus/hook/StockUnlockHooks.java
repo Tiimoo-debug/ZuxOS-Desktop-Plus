@@ -46,7 +46,11 @@ public final class StockUnlockHooks {
             "com.android.launcher3.InvariantDeviceProfile",
             "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher",
             "com.android.launcher3.secondarydisplay.SecondaryDragLayer",
+            // ZuxOS keeps Launcher3's package names but moved the secondary-display launcher.
+            "com.zui.launcher.secondarydisplay.SecondaryDisplayLauncher",
+            "com.zui.launcher.secondarydisplay.SecondaryDragLayer",
             "com.zui.launcher.Launcher",
+            "com.zui.launcher.Workspace",
             "com.zui.home.Launcher");
 
     /** Methods that say "editing is blocked" - forced to false. */

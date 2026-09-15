@@ -40,7 +40,10 @@ with public Android APIs (`LauncherApps`, `AppWidgetHost`, the drag-and-drop fra
 OEM-specific things it needs are:
 
 1. *Which activity is the desktop home* — detected from the display id plus the system's own list
-   of home activities, with a name-based fallback.
+   of home activities, with a name-based fallback. On ZuxOS 2.0.10.026 this is
+   `com.zui.launcher.secondarydisplay.SecondaryDisplayLauncher`, an AOSP-derived secondary-display
+   launcher which installs its layout only after the launcher model loads, so the module retries
+   and also attaches the moment `setContentView` runs.
 2. *Which stock view draws the old icon grid* — hidden so you do not see every app twice. If the
    detection misses, switch **Stock home content** to "Hide everything the stock home draws".
 
