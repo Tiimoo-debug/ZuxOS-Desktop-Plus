@@ -88,6 +88,44 @@ public final class Probe {
         return sb.toString();
     }
 
+    /**
+     * Every root view in the process.
+     *
+     * <p>The taskbar and its app drawer are separate windows, so the activity's tree alone does
+     * not show them - this is what identifies the classes behind the stock drawer.
+     */
+    public static String describeAllWindows() {
+        StringBuilder sb = new StringBuilder("\nall windows in this process\n");
+        try {
+            Class<?> global = Class.forName("android.view.WindowManagerGlobal");
+            Object instance = global.getMethod("getInstance").invoke(null);
+            Object roots = global.getMethod("getRootViews").invoke(instance);
+            if (!(roots instanceof java.util.List)) {
+                return sb.append("  (unavailable)\n").toString();
+            }
+            java.util.List<?> list = (java.util.List<?>) roots;
+            sb.append("  ").append(list.size()).append(" window(s)\n");
+            for (Object o : list) {
+                if (!(o instanceof View)) {
+                    continue;
+                }
+                View root = (View) o;
+                sb.append("\n  --- window: ").append(root.getClass().getName());
+                try {
+                    sb.append(" display=").append(root.getDisplay() != null
+                            ? root.getDisplay().getDisplayId() : "?");
+                } catch (Throwable ignored) {
+                    sb.append(" display=?");
+                }
+                sb.append(" visible=").append(root.getVisibility() == View.VISIBLE).append('\n');
+                appendTree(sb, root, 2);
+            }
+        } catch (Throwable t) {
+            sb.append("  (not readable: ").append(t).append(")\n");
+        }
+        return sb.toString();
+    }
+
     private static void appendTree(StringBuilder sb, View v, int depth) {
         for (int i = 0; i < depth; i++) {
             sb.append("  ");

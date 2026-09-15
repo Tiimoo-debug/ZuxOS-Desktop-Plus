@@ -30,6 +30,9 @@ public class XposedEntry implements IXposedHookLoadPackage {
             }
             L.i("loaded into " + lpparam.packageName + " (" + lpparam.processName + ")");
             ActivityWatcher.install(lpparam.classLoader);
+            if (Cfg.nativeDrawer()) {
+                NativeDrawerHooks.install(lpparam.classLoader);
+            }
             if (Cfg.unlockStock()) {
                 StockUnlockHooks.install(lpparam.classLoader);
             }

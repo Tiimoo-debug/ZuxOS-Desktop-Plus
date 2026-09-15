@@ -42,6 +42,8 @@ public final class Const {
 
     // --- Drawer ----------------------------------------------------------
     public static final String KEY_DRAWER_SORT = "drawer_sort";
+    /** Apply the module's folders and order to the launcher's own taskbar drawer too. */
+    public static final String KEY_NATIVE_DRAWER = "native_drawer";
     public static final int SORT_ALPHA = 0;
     public static final int SORT_CUSTOM = 1;
     public static final int SORT_RECENT = 2;

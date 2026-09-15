@@ -9,6 +9,7 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -163,7 +164,8 @@ public class WidgetHostCtl {
             toast("No widgets available");
             return;
         }
-        Collections.sort(providers, (a, b) -> label(a).compareToIgnoreCase(label(b)));
+        final PackageManager pm = mActivity.getPackageManager();
+        Collections.sort(providers, (a, b) -> label(a, pm).compareToIgnoreCase(label(b, pm)));
 
         ListView list = new ListView(mActivity);
         WidgetAdapter adapter = new WidgetAdapter(mActivity, providers);
@@ -273,12 +275,22 @@ public class WidgetHostCtl {
         return true;
     }
 
-    static String label(AppWidgetProviderInfo info) {
-        CharSequence l = info.loadLabel(null);
+    static String label(AppWidgetProviderInfo info, PackageManager pm) {
+        CharSequence l = null;
+        try {
+            l = info.loadLabel(pm);
+        } catch (Throwable t) {
+            L.d("loadLabel failed for " + info.provider + ": " + t);
+        }
         if (l == null || l.length() == 0) {
             l = info.provider != null ? info.provider.getShortClassName() : "widget";
         }
         return String.valueOf(l);
+    }
+
+    /** Provider label resolved against this host's package manager. */
+    public String labelOf(AppWidgetProviderInfo info) {
+        return label(info, mActivity.getPackageManager());
     }
 
     private void toast(String msg) {
@@ -351,7 +363,7 @@ public class WidgetHostCtl {
             LinearLayout texts = new LinearLayout(mCtx);
             texts.setOrientation(LinearLayout.VERTICAL);
             TextView title = new TextView(mCtx);
-            title.setText(label(info));
+            title.setText(label(info, mCtx.getPackageManager()));
             title.setTextSize(16);
             TextView sub = new TextView(mCtx);
             String pkg = info.provider != null ? info.provider.getPackageName() : "";

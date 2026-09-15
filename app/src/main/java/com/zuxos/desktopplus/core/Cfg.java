@@ -130,6 +130,10 @@ public final class Cfg {
         return getBool(Const.KEY_DRAWER_BUTTON, true);
     }
 
+    public static boolean nativeDrawer() {
+        return getBool(Const.KEY_NATIVE_DRAWER, true);
+    }
+
     public static int drawerSort() {
         return getInt(Const.KEY_DRAWER_SORT, Const.SORT_CUSTOM);
     }

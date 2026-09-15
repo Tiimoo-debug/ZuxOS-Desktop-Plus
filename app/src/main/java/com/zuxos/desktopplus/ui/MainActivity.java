@@ -82,6 +82,9 @@ public class MainActivity extends Activity {
         addSlider("Icon size", "dp", Const.KEY_ICON_SIZE, 52, 32, 96);
 
         addHeader("App drawer");
+        addSwitch("Use the stock taskbar drawer too",
+                "Applies your folders, order and hidden apps to the launcher's own app drawer",
+                Const.KEY_NATIVE_DRAWER, true);
         addSpinner("Default order", new String[]{
                         "Alphabetical",
                         "My own order",

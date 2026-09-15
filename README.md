@@ -25,12 +25,18 @@ On the external-display desktop:
 - **Widgets** — a real `AppWidgetHost` runs inside the launcher, so widgets work even though the
   stock desktop mode has no widget support at all. Add, move and resize them from the menus.
 
-In the app drawer (opened with the **Apps** button, or the All-Apps / Search key on a keyboard):
+In the app drawer - both the module's own (the **Apps** button, or the All-Apps / Search key) and,
+where the launcher's list can be reached, **the stock drawer the taskbar opens**:
 
 - **Your own order** — drag apps around; the order is remembered. Or keep A–Z.
 - **Drawer folders** — drop one app onto another to group them; apps inside a folder stop
   cluttering the flat list.
 - **Search**, **hide apps**, and drag any app straight out of the drawer onto the desktop.
+
+Folders, ordering and hidden apps are one shared set of data, so whatever you arrange in the
+module's drawer shows up in the stock one as well. Tapping a folder there opens it in a window of
+its own. Turn this off with **Use the stock taskbar drawer too** if you would rather leave the
+launcher's drawer untouched.
 
 ## How it works (and why it works on an OEM launcher nobody can read)
 
@@ -111,10 +117,9 @@ Everything you arrange is stored inside the launcher's own data directory
   hand is confirm which activity and which stock view ZuxOS 2.0.10.026 actually uses. If the
   surface does not appear, the probe dump (above) has everything needed to fix it, and
   `docs/TUNING.md` explains what to do with it.
-- The **stock drawer** (the one the ZUI taskbar opens) stays the stock drawer — the module adds
-  *its own* drawer with ordering and folders, reachable from the Apps button or the All-Apps key.
-  Replacing the taskbar's drawer needs launcher internals that differ per build; `rules.json`
-  is the escape hatch.
+- The **stock drawer** integration works by rewriting Launcher3's own app list, which ZuxOS uses
+  under its original class names. If a firmware update renames those classes the module says so in
+  the log and leaves the stock drawer alone; the module's own drawer keeps working either way.
 - **Widgets** need the home app to be allowed to bind them. System launchers normally hold
   `BIND_APPWIDGET`; if yours does not, Android's own "allow this widget?" dialog appears instead.
 - **Deep shortcuts** require the home app to be the default launcher (it normally is).

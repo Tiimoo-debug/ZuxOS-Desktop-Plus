@@ -14,6 +14,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
@@ -70,6 +71,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     private DesktopHost(Activity activity, boolean external) {
         mActivity = activity;
+        AppCtx.set(activity);
         mExternal = external;
         mDisplayId = displayIdOf(activity);
         mSortMode = Cfg.drawerSort();
@@ -738,6 +740,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         ViewGroup content = mRoot.getParent() instanceof ViewGroup
                 ? (ViewGroup) mRoot.getParent() : null;
         sb.append(Probe.describe(mActivity, content));
+        sb.append(Probe.describeAllWindows());
         sb.append("\n\n--- desktop layout ---\n").append(mStore.exportJson());
         java.io.File out = Storage.exportCopy(mActivity, Const.FILE_PROBE, sb.toString());
         Dialogs.message(mActivity, "Exported", out != null
@@ -821,7 +824,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onWidgetReady(int widgetId, AppWidgetProviderInfo info) {
         try {
             int[] spans = mWidgets.minSpans(info, mGrid.getCellWidth(), mGrid.getCellHeight());
-            String label = info != null ? WidgetHostCtl.label(info) : "Widget";
+            String label = info != null ? mWidgets.labelOf(info) : "Widget";
             ComponentName provider = info != null ? info.provider : null;
             Item item = Item.widget(widgetId,
                     provider != null ? provider.getPackageName() : null,
