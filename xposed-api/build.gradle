@@ -1,0 +1,15 @@
+// Compile-only stubs of the classic Xposed API (de.robv.android.xposed, API 82).
+//
+// The real implementation is provided by LSPosed at runtime. We ship stubs instead
+// of depending on https://api.xposed.info/ because that maven repo is frequently
+// unreachable, which would make this project impossible to build offline/in CI.
+//
+// This module is consumed with `compileOnly`, so none of these classes end up in
+// the APK and they can never shadow the real ones.
+plugins {
+    id 'java-library'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}

@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.zuxos.desktopplus'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.zuxos.desktopplus'
+        minSdk 29
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed with the debug key so CI artifacts are directly installable.
+            // Replace with your own signing config if you distribute the module.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    // Provided by LSPosed at runtime - never packaged into the APK.
+    compileOnly project(':xposed-api')
+}

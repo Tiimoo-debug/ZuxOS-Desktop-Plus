@@ -1,0 +1,101 @@
+# Tuning the module to your ZuxOS build
+
+Everything here is only needed when something does not work out of the box. The desktop surface
+itself does not depend on any of it.
+
+## 1. Get a probe dump
+
+Settings → Diagnostics → **Dump launcher info on attach**, then go back to the desktop mode.
+The dump lands in two places:
+
+- the LSPosed log (Manager → Logs), and
+- `/sdcard/Android/data/<home package>/files/zux_desktop_plus/probe.txt`
+
+You can also trigger it any time from the desktop: right-click empty space →
+**Export layout + launcher info**.
+
+It contains:
+
+```
+package : com.zui.home
+activity: com.zui.home.desktop.SomeDesktopLauncher
+display : id=2 name=... flags=0x...        <- id != 0 means external display
+home act: true
+widgets : 37 providers visible
+view tree
+  com.android.internal.policy.DecorView [1920x1200]
+    android.widget.FrameLayout #content
+      com.zui.home.desktop.DesktopDragLayer #drag_layer
+        com.zui.home.desktop.DesktopWorkspace #workspace_grid   <- the stock icon grid
+        ...
+boolean methods on the activity class (candidates for rules.json)
+  isEditModeDisabled(0 args)
+  ...
+```
+
+## 2. The surface never appears
+
+Check the dump for the activity name and the display id.
+
+- **No dump at all** → the module was never loaded into the home app. Check the LSPosed scope and
+  that the process really is the package you scoped.
+- **Dump exists but nothing attached** → the activity was not recognised as a home screen. Turn on
+  **Attach to any activity**. If the package itself is not in the known list, add it under
+  **Extra launcher packages**.
+- **Display id is 0 while you are on the external screen** → the desktop-mode home renders on the
+  internal display id; switch **Which desktop mode** to "Both".
+
+## 3. You see every icon twice
+
+The stock icon grid was not recognised. Either:
+
+- set **Stock home content** to "Hide everything the stock home draws", or
+- tell me the `#id` of the stock grid container from the view tree so it can be added to the
+  built-in list in `OemBridge.GRID_ID_HINTS`.
+
+## 4. rules.json — unlocking the stock launcher's own features
+
+Some ZuxOS builds implement rearranging/folders/widgets already and merely *disable* them in
+desktop mode. When the probe dump shows a promising boolean (`isEditModeDisabled`,
+`isSupportDrag`, `canAddWidget`, …), you can flip it without recompiling anything.
+
+Create `/data/data/<home package>/files/zux_desktop_plus/rules.json` (root needed — the same
+directory the module writes its layout to):
+
+```json
+{
+  "rules": [
+    { "class": "com.zui.home.desktop.DesktopLauncher", "method": "isEditModeDisabled", "returns": false },
+    { "class": "com.zui.home.desktop.DesktopWorkspace", "methodContains": "candrag", "returns": true },
+    { "class": "com.zui.home.desktop.DesktopWorkspace", "method": "isWidgetSupported", "returns": true }
+  ]
+}
+```
+
+- `class` — fully qualified, exactly as printed in the dump.
+- `method` — exact name, or `methodContains` for a case-insensitive substring match.
+- `returns` — the constant the method should return. Only `boolean` methods are patched.
+
+Rules are applied when the desktop surface attaches, so a restart of the home app is enough
+(no reboot). Applied and failed rules are both reported in the LSPosed log.
+
+**Aggressive unlocking** (a settings switch) additionally guesses from method names alone — it
+patches `canX`/`supportX`/`allowX` to `true` and `isXDisabled`/`isXLocked` to `false` for names
+mentioning drag/edit/folder/widget/reorder/move. It is off by default because a wrong guess
+misbehaves in ways that are hard to attribute.
+
+## 5. Where the data lives
+
+Inside the home app's private data dir, `files/zux_desktop_plus/`:
+
+| File | Contents |
+|---|---|
+| `desktop.json` | the external-display desktop layout |
+| `desktop-internal.json` | the tablet-screen layout (when attached there) |
+| `drawer.json` | drawer order, drawer folders, hidden apps |
+| `overrides.json` | icon/cell size changed from the desktop menu |
+| `rules.json` | your unlock rules (you create this) |
+| `probe.txt` | the last diagnostic dump |
+
+Deleting a file resets that part. Uninstalling the module leaves them behind; clearing the home
+app's data removes them.

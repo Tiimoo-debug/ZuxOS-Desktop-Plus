@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZuxOS Desktop Plus</string>
+    <string name="module_description">Adds icon rearranging, folders, shortcuts and widgets to the ZuxOS external-display desktop mode, plus a sortable app drawer with folders.</string>
+</resources>

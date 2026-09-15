@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Default LSPosed scope. ZuxOS/ZUI ships the desktop-mode home under one of these
+      package names depending on firmware; anything that is not installed is simply
+      ignored by LSPosed. Add your own package in LSPosed Manager if yours differs -
+      the module figures out at runtime whether a package is really a home app.
+    -->
+    <string-array name="xposed_scope">
+        <item>com.zui.home</item>
+        <item>com.zui.launcher</item>
+        <item>com.zui.desktop</item>
+        <item>com.zui.pcmode</item>
+        <item>com.lenovo.launcher</item>
+        <item>com.android.launcher3</item>
+        <item>com.android.systemui</item>
+    </string-array>
+</resources>

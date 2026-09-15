@@ -1,0 +1,406 @@
+package com.zuxos.desktopplus.drawer;
+
+import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
+import android.view.DragEvent;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import com.zuxos.desktopplus.core.Const;
+import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.desktop.DragPayload;
+import com.zuxos.desktopplus.desktop.ItemView;
+import com.zuxos.desktopplus.model.AppsRepo;
+import com.zuxos.desktopplus.model.DrawerStore;
+import com.zuxos.desktopplus.model.Item;
+
+import java.text.Collator;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * The app drawer: a bottom sheet with search, a custom app order and drawer folders.
+ *
+ * <p>It deliberately does not cover the whole screen - leaving the upper part of the desktop
+ * visible is what lets you drag an app straight out of the drawer onto the desktop.
+ */
+public class DrawerPanel extends FrameLayout implements View.OnDragListener {
+
+    public interface Listener {
+        void onLaunch(Item item, View source);
+
+        void onOpenFolder(Item folder);
+
+        void onItemMenu(Item item, View source, float rawX, float rawY);
+
+        void onStartDrag(Item item, View source);
+
+        void onDrawerChanged();
+
+        void onOrderCustomised();
+
+        int iconSizePx();
+
+        boolean showLabels();
+
+        boolean labelShadow();
+
+        int sortMode();
+
+        void onSortModeMenu(View anchor, float rawX, float rawY);
+    }
+
+    private final AppsRepo mRepo;
+    private final DrawerStore mStore;
+    private final Listener mListener;
+    private final WrapGrid mGrid;
+    private final EditText mSearch;
+    private final List<Item> mEntries = new ArrayList<>();
+    private final LinearLayout mSheet;
+
+    private String mQuery = "";
+
+    public DrawerPanel(Context ctx, AppsRepo repo, DrawerStore store, Listener listener) {
+        super(ctx);
+        mRepo = repo;
+        mStore = store;
+        mListener = listener;
+        setVisibility(GONE);
+
+        LinearLayout sheet = new LinearLayout(ctx);
+        mSheet = sheet;
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = Ui.roundRect(Ui.COLOR_PANEL, Ui.dp(ctx, 28));
+        bg.setCornerRadii(new float[]{
+                Ui.dp(ctx, 28), Ui.dp(ctx, 28), Ui.dp(ctx, 28), Ui.dp(ctx, 28), 0, 0, 0, 0});
+        sheet.setBackground(bg);
+        sheet.setClickable(true);
+
+        LinearLayout header = new LinearLayout(ctx);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(ctx, 14);
+        header.setPadding(pad, pad, pad, Ui.dp(ctx, 6));
+
+        mSearch = new EditText(ctx);
+        mSearch.setHint("Search apps");
+        mSearch.setSingleLine(true);
+        mSearch.setTextColor(Ui.COLOR_TEXT);
+        mSearch.setHintTextColor(Ui.COLOR_TEXT_DIM);
+        mSearch.setBackground(Ui.roundRect(0x22FFFFFF, Ui.dp(ctx, 18)));
+        int sp = Ui.dp(ctx, 12);
+        mSearch.setPadding(sp, sp / 2, sp, sp / 2);
+        mSearch.addTextChangedListener(new com.zuxos.desktopplus.desktop.Dialogs.SimpleWatcher(text -> {
+            mQuery = text.toLowerCase();
+            rebuild();
+        }));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        header.addView(mSearch, slp);
+
+        TextView more = new TextView(ctx);
+        more.setText("⋮");
+        more.setTextSize(20);
+        more.setTextColor(Ui.COLOR_TEXT);
+        more.setPadding(Ui.dp(ctx, 12), 0, Ui.dp(ctx, 6), 0);
+        more.setOnClickListener(v -> {
+            int[] loc = new int[2];
+            v.getLocationOnScreen(loc);
+            mListener.onSortModeMenu(v, loc[0], loc[1] + v.getHeight());
+        });
+        header.addView(more);
+
+        TextView close = new TextView(ctx);
+        close.setText("✕");
+        close.setTextSize(18);
+        close.setTextColor(Ui.COLOR_TEXT);
+        close.setPadding(Ui.dp(ctx, 10), 0, Ui.dp(ctx, 4), 0);
+        close.setOnClickListener(v -> hide());
+        header.addView(close);
+
+        sheet.addView(header, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(ctx);
+        mGrid = new WrapGrid(ctx, Ui.dp(ctx, 96), Ui.dp(ctx, 112));
+        mGrid.setPadding(Ui.dp(ctx, 8), Ui.dp(ctx, 4), Ui.dp(ctx, 8), Ui.dp(ctx, 16));
+        mGrid.setOnDragListener(this);
+        scroll.addView(mGrid, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        sheet.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        lp.gravity = Gravity.BOTTOM;
+        addView(sheet, lp);
+
+        // Tapping the desktop above the sheet closes the drawer.
+        setClickable(true);
+        setOnClickListener(v -> hide());
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        // A bottom sheet rather than a full-screen drawer: the visible strip of desktop above it
+        // is what lets you drag an app straight out of the drawer onto the desktop.
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mSheet.getLayoutParams();
+        int target = (int) (h * 0.62f);
+        if (lp.height != target) {
+            lp.height = target;
+            mSheet.setLayoutParams(lp);
+        }
+    }
+
+    public boolean isOpen() {
+        return getVisibility() == VISIBLE;
+    }
+
+    public void show() {
+        mSearch.setText("");
+        mQuery = "";
+        rebuild();
+        setVisibility(VISIBLE);
+        bringToFront();
+    }
+
+    public void hide() {
+        setVisibility(GONE);
+    }
+
+    public void toggle() {
+        if (isOpen()) {
+            hide();
+        } else {
+            show();
+        }
+    }
+
+    // --- content ---------------------------------------------------------
+
+    /** Rebuilds the visible entry list from the repo, the folders and the saved order. */
+    public void rebuild() {
+        mEntries.clear();
+        Set<String> inFolders = mStore.keysInFolders();
+        for (AppsRepo.AppEntry app : mRepo.apps()) {
+            String key = app.key();
+            if (mStore.hidden().contains(key) || inFolders.contains(key)) {
+                continue;
+            }
+            mEntries.add(app.toItem());
+        }
+        mEntries.addAll(mStore.folders());
+        sortEntries();
+        if (!mQuery.isEmpty()) {
+            List<Item> filtered = new ArrayList<>();
+            for (Item i : mEntries) {
+                if (i.label != null && i.label.toLowerCase().contains(mQuery)) {
+                    filtered.add(i);
+                }
+            }
+            mEntries.clear();
+            mEntries.addAll(filtered);
+        }
+
+        mGrid.removeAllViews();
+        int iconSize = mListener.iconSizePx();
+        mGrid.setCellSize(iconSize + Ui.dp(getContext(), 44),
+                iconSize + Ui.dp(getContext(), mListener.showLabels() ? 52 : 20));
+        for (final Item entry : mEntries) {
+            ItemView iv = new ItemView(getContext(), iconSize, mListener.showLabels(),
+                    mListener.labelShadow());
+            iv.bind(entry, mRepo);
+            iv.setOnClickListener(v -> {
+                if (entry.type == Item.TYPE_FOLDER) {
+                    mListener.onOpenFolder(entry);
+                } else {
+                    mListener.onLaunch(entry, v);
+                }
+            });
+            iv.setOnLongClickListener(v -> {
+                mListener.onStartDrag(entry, v);
+                return true;
+            });
+            iv.setOnContextClickListener(v -> {
+                int[] loc = new int[2];
+                v.getLocationOnScreen(loc);
+                mListener.onItemMenu(entry, v, loc[0] + v.getWidth() / 2f, loc[1] + v.getHeight() / 2f);
+                return true;
+            });
+            mGrid.addView(iv);
+        }
+    }
+
+    private void sortEntries() {
+        final Collator collator = Collator.getInstance();
+        if (mListener.sortMode() == Const.SORT_CUSTOM && !mStore.order().isEmpty()) {
+            final List<String> order = mStore.order();
+            Collections.sort(mEntries, (a, b) -> {
+                int ia = order.indexOf(a.key());
+                int ib = order.indexOf(b.key());
+                if (ia < 0 && ib < 0) {
+                    return collator.compare(nz(a.label), nz(b.label));
+                }
+                if (ia < 0) {
+                    return 1;
+                }
+                if (ib < 0) {
+                    return -1;
+                }
+                return Integer.compare(ia, ib);
+            });
+        } else {
+            Collections.sort(mEntries, (a, b) -> collator.compare(nz(a.label), nz(b.label)));
+        }
+    }
+
+    private static String nz(String s) {
+        return s != null ? s : "";
+    }
+
+    /** Persists the current visible order as the custom order. */
+    public void commitOrder() {
+        List<String> order = mStore.order();
+        order.clear();
+        for (Item i : mEntries) {
+            order.add(i.key());
+        }
+        mListener.onDrawerChanged();
+    }
+
+    // --- drag & drop inside the drawer -----------------------------------
+
+    @Override
+    public boolean onDrag(View v, DragEvent event) {
+        Object local = event.getLocalState();
+        if (!(local instanceof DragPayload)) {
+            return false;
+        }
+        DragPayload payload = (DragPayload) local;
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                // Only drags that started in the drawer rearrange the drawer.
+                return payload.source == DragPayload.SRC_DRAWER;
+            case DragEvent.ACTION_DROP:
+                return handleDrop(payload, event.getX(), event.getY());
+            default:
+                return true;
+        }
+    }
+
+    private boolean handleDrop(DragPayload payload, float x, float y) {
+        try {
+            int index = mGrid.indexAt(x, y);
+            View target = index < mGrid.getChildCount() ? mGrid.getChildAt(index) : null;
+            Item targetItem = target instanceof ItemView ? ((ItemView) target).getItem() : null;
+
+            if (targetItem != null && targetItem != payload.item
+                    && payload.item.type != Item.TYPE_FOLDER) {
+                if (targetItem.type == Item.TYPE_FOLDER) {
+                    addToFolder(targetItem, payload.item);
+                    return true;
+                }
+                if (targetItem.type == Item.TYPE_APP || targetItem.type == Item.TYPE_SHORTCUT) {
+                    createFolder(targetItem, payload.item);
+                    return true;
+                }
+            }
+            reorder(payload.item, index);
+            return true;
+        } catch (Throwable t) {
+            L.e("drawer drop failed", t);
+            return false;
+        }
+    }
+
+    private void reorder(Item item, int index) {
+        int from = indexOfKey(item.key());
+        if (from < 0) {
+            return;
+        }
+        Item moved = mEntries.remove(from);
+        index = Math.max(0, Math.min(index, mEntries.size()));
+        mEntries.add(index, moved);
+        commitOrder();
+        // Rearranging by hand means the user wants their own order, not A-Z.
+        mListener.onOrderCustomised();
+        rebuild();
+    }
+
+    private int indexOfKey(String key) {
+        for (int i = 0; i < mEntries.size(); i++) {
+            if (mEntries.get(i).key().equals(key)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void createFolder(Item first, Item second) {
+        Item folder = Item.folder("Folder");
+        folder.children.add(copyOf(first));
+        folder.children.add(copyOf(second));
+        mStore.folders().add(folder);
+        // Keep the folder where the first app was so it does not jump to the end.
+        int at = indexOfKey(first.key());
+        List<String> order = mStore.order();
+        order.remove(first.key());
+        order.remove(second.key());
+        if (at >= 0 && at <= order.size()) {
+            order.add(at, folder.key());
+        } else {
+            order.add(folder.key());
+        }
+        mListener.onDrawerChanged();
+        rebuild();
+    }
+
+    public void addToFolder(Item folder, Item item) {
+        folder.children.add(copyOf(item));
+        mStore.order().remove(item.key());
+        mListener.onDrawerChanged();
+        rebuild();
+    }
+
+    public void removeFromFolder(Item folder, Item child) {
+        folder.children.remove(child);
+        if (folder.children.size() <= 1) {
+            // A folder with one app left is just an app: dissolve it.
+            for (Item remaining : folder.children) {
+                mStore.order().add(remaining.key());
+            }
+            mStore.folders().remove(folder);
+            mStore.order().remove(folder.key());
+        }
+        mListener.onDrawerChanged();
+        rebuild();
+    }
+
+    private static Item copyOf(Item src) {
+        Item copy;
+        switch (src.type) {
+            case Item.TYPE_SHORTCUT:
+                copy = src.intentUri != null
+                        ? Item.intentShortcut(src.intentUri, src.label)
+                        : Item.shortcut(src.pkg, src.shortcutId, src.userSerial, src.label);
+                break;
+            case Item.TYPE_FOLDER:
+                copy = Item.folder(src.label);
+                copy.children.addAll(src.children);
+                break;
+            default:
+                copy = Item.app(src.pkg, src.cls, src.userSerial, src.label);
+                break;
+        }
+        return copy;
+    }
+}
