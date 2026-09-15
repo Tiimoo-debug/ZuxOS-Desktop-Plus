@@ -43,7 +43,8 @@ import java.util.WeakHashMap;
  * widgets are implemented here and only the wallpaper and the system bars stay the OEM's.
  */
 public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
-        WidgetHostCtl.PlacementListener, FolderOverlay.Listener, DrawerPanel.Listener {
+        WidgetHostCtl.PlacementListener, FolderOverlay.Listener, DrawerPanel.Listener,
+        WidgetResizeFrame.Callback {
 
     private static final Map<Activity, DesktopHost> ACTIVE = new WeakHashMap<>();
 
@@ -64,6 +65,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private final WidgetHostCtl mWidgets;
 
     private SurfaceAttacher.Target mTarget;
+    private WidgetResizeFrame mResizeFrame;
+    private View mResizeScrim;
     private View mDragView;
     private int[] mPendingWidgetCell;
     private int[] mMenuCell;
@@ -184,6 +187,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     }
 
     public boolean onBackPressed() {
+        if (mResizeFrame != null) {
+            endResize();
+            return true;
+        }
         if (mFolders.isOpen()) {
             mFolders.close();
             return true;
@@ -198,6 +205,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void closeOverlays() {
         mFolders.close();
         mDrawer.hide();
+        endResize();
     }
 
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -324,6 +332,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             return;
         }
         try {
+            endResize();
             mGrid.removeAllViews();
             List<Item> dead = new ArrayList<>();
             for (Item item : mStore.items()) {
@@ -590,7 +599,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 rebuildItems();
             }));
         } else if (item.type == Item.TYPE_WIDGET) {
-            entries.add(new Menus.Entry("Resize widget", () -> Dialogs.resize(mActivity, item,
+            entries.add(new Menus.Entry("Resize widget", () -> beginResize(item)));
+            entries.add(new Menus.Entry("Resize by numbers", () -> Dialogs.resize(mActivity, item,
                     mGrid.getCols(), mGrid.getRows(), (spanX, spanY) -> {
                         item.spanX = spanX;
                         item.spanY = spanY;
@@ -810,7 +820,75 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     @Override
     public void onWidgetLongPress(WidgetFrame frame) {
-        startDrag(frame.getItem(), frame, DragPayload.SRC_DESKTOP, null);
+        beginResize(frame.getItem());
+    }
+
+    /**
+     * Shows the resize frame around a widget: drag an edge to resize, the middle to move, and
+     * tap anywhere else to finish.
+     */
+    public void beginResize(Item item) {
+        endResize();
+        View target = mGrid.viewForItem(item);
+        if (target == null) {
+            return;
+        }
+        mResizeScrim = new View(mActivity);
+        mResizeScrim.setClickable(true);
+        mResizeScrim.setOnClickListener(v -> endResize());
+        mRoot.addView(mResizeScrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        mResizeFrame = new WidgetResizeFrame(mActivity, mGrid, item, target, this);
+        mRoot.addView(mResizeFrame);
+        mResizeFrame.syncToItem();
+        toast("Drag the edges to resize, the middle to move");
+    }
+
+    public void endResize() {
+        if (mResizeFrame != null) {
+            Item item = mResizeFrame.getItem();
+            mRoot.removeView(mResizeFrame);
+            mResizeFrame = null;
+            resizeWidgetView(item);
+            save();
+        }
+        if (mResizeScrim != null) {
+            mRoot.removeView(mResizeScrim);
+            mResizeScrim = null;
+        }
+    }
+
+    @Override
+    public void onFrameChanged(Item item, int cellX, int cellY, int spanX, int spanY) {
+        View target = mGrid.viewForItem(item);
+        if (target == null) {
+            return;
+        }
+        item.x = cellX;
+        item.y = cellY;
+        item.spanX = spanX;
+        item.spanY = spanY;
+        mGrid.setItemCell(target, cellX, cellY, spanX, spanY);
+    }
+
+    @Override
+    public void onFrameReleased(Item item) {
+        resizeWidgetView(item);
+        save();
+    }
+
+    /** Tells the widget its new size so its layout adapts, not just its bounds. */
+    private void resizeWidgetView(Item item) {
+        View target = mGrid.viewForItem(item);
+        if (!(target instanceof WidgetFrame)) {
+            return;
+        }
+        View widget = ((WidgetFrame) target).widgetView();
+        if (widget instanceof android.appwidget.AppWidgetHostView) {
+            mWidgets.updateSize((android.appwidget.AppWidgetHostView) widget,
+                    mGrid.getCellWidth() * item.spanX, mGrid.getCellHeight() * item.spanY);
+        }
     }
 
     @Override

@@ -171,6 +171,16 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         addView(v, new CellParams(clampX(cellX), clampY(cellY), spanX, spanY));
     }
 
+    /** Moves and resizes in one step, used by the widget resize frame. */
+    public void setItemCell(View v, int cellX, int cellY, int spanX, int spanY) {
+        CellParams lp = params(v);
+        lp.cellX = clampX(cellX);
+        lp.cellY = clampY(cellY);
+        lp.spanX = Math.max(1, Math.min(spanX, mCols - lp.cellX));
+        lp.spanY = Math.max(1, Math.min(spanY, mRows - lp.cellY));
+        requestLayout();
+    }
+
     public void moveItemView(View v, int cellX, int cellY) {
         CellParams lp = params(v);
         lp.cellX = clampX(cellX);

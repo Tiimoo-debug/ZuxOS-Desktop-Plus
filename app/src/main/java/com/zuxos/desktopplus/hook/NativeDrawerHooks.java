@@ -56,6 +56,8 @@ public final class NativeDrawerHooks {
     private static Class<?> sAppInfoCls;
     private static Class<?> sBitmapInfoCls;
     private static final Map<String, Object> sFolderEntries = new HashMap<>();
+    private static final ThreadLocal<Boolean> sRefreshing = new ThreadLocal<>();
+    private static String sLastNote;
 
     private NativeDrawerHooks() {
     }
@@ -80,16 +82,41 @@ public final class NativeDrawerHooks {
                 "com.android.launcher3.AppInfo");
         sBitmapInfoCls = findFirst(loader, "com.android.launcher3.icons.BitmapInfo");
 
-        try {
-            XposedBridge.hookAllMethods(listCls, "updateAdapterItems", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    customise(param.thisObject);
+        // Rewrite the list just before it becomes adapter items.
+        int hooked = hookUpTheHierarchy(listCls, "updateAdapterItems", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                customise(param.thisObject);
+            }
+        });
+
+        // Fallback for builds where that method is named something else: rewrite after the list
+        // is rebuilt and ask it to refresh, guarding against re-entering ourselves.
+        int hookedUpdates = hookUpTheHierarchy(listCls, "onAppsUpdated", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                if (Boolean.TRUE.equals(sRefreshing.get())) {
+                    return;
                 }
-            });
-            L.i("native drawer: hooked " + listCls.getName());
-        } catch (Throwable t) {
-            L.e("native drawer: could not hook the app list", t);
+                if (!customise(param.thisObject)) {
+                    return;
+                }
+                sRefreshing.set(Boolean.TRUE);
+                try {
+                    Reflect.call(param.thisObject, "updateAdapterItems");
+                } finally {
+                    sRefreshing.set(Boolean.FALSE);
+                }
+            }
+        });
+
+        L.i("native drawer: " + listCls.getName() + " - hooked updateAdapterItems x" + hooked
+                + ", onAppsUpdated x" + hookedUpdates);
+        if (hooked == 0 && hookedUpdates == 0) {
+            L.w("native drawer: neither entry point exists on this build. Candidates follow; "
+                    + "send them and they can be targeted directly.");
+            dumpCandidateMethods(listCls);
+            return;
         }
 
         Class<?> clickCls = findFirst(loader,
@@ -99,21 +126,63 @@ public final class NativeDrawerHooks {
             L.w("native drawer: ItemClickHandler not found - folders will show but not open");
             return;
         }
-        try {
-            XposedBridge.hookAllMethods(clickCls, "onClick", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    if (param.args.length >= 1 && param.args[0] instanceof View
-                            && openFolderFor((View) param.args[0])) {
-                        // Our entry: never let the launcher try to launch it.
-                        param.setResult(null);
-                    }
+        int clicks = hookUpTheHierarchy(clickCls, "onClick", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                if (param.args.length >= 1 && param.args[0] instanceof View
+                        && openFolderFor((View) param.args[0])) {
+                    // Our entry: never let the launcher try to launch it.
+                    param.setResult(null);
                 }
-            });
-            L.i("native drawer: hooked " + clickCls.getName() + ".onClick");
-        } catch (Throwable t) {
-            L.e("native drawer: could not hook item clicks", t);
+            }
+        });
+        L.i("native drawer: hooked " + clickCls.getName() + ".onClick x" + clicks);
+        if (clicks == 0) {
+            L.w("native drawer: no onClick to hook - folder entries will not open");
+            dumpCandidateMethods(clickCls);
         }
+    }
+
+    /**
+     * Hooks {@code name} wherever it is declared, walking up the hierarchy.
+     *
+     * <p>{@code hookAllMethods} only looks at one class's declared methods, so a launcher that
+     * inherits the method - or renames it - silently gets no hooks at all. Returns how many
+     * methods were actually hooked, which is the only honest success signal.
+     */
+    private static int hookUpTheHierarchy(Class<?> clazz, String name, XC_MethodHook callback) {
+        int count = 0;
+        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                count += XposedBridge.hookAllMethods(c, name, callback).size();
+            } catch (Throwable t) {
+                L.d("native drawer: hooking " + c.getName() + "." + name + " failed: " + t);
+            }
+        }
+        return count;
+    }
+
+    private static void dumpCandidateMethods(Class<?> clazz) {
+        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
+            StringBuilder sb = new StringBuilder("  " + c.getName() + ":");
+            try {
+                for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                    sb.append(' ').append(m.getName()).append('/').append(m.getParameterCount());
+                }
+            } catch (Throwable t) {
+                sb.append(" <unreadable>");
+            }
+            L.i(sb.toString());
+        }
+        StringBuilder fields = new StringBuilder("  fields:");
+        try {
+            for (java.lang.reflect.Field f : clazz.getDeclaredFields()) {
+                fields.append(' ').append(f.getName());
+            }
+        } catch (Throwable ignored) {
+            fields.append(" <unreadable>");
+        }
+        L.i(fields.toString());
     }
 
     private static Class<?> findFirst(ClassLoader loader, String... names) {
@@ -129,33 +198,39 @@ public final class NativeDrawerHooks {
     // --- list rewriting --------------------------------------------------
 
     @SuppressWarnings("unchecked")
-    private static void customise(Object appsList) {
+    private static boolean customise(Object appsList) {
         try {
             if (!Cfg.enabled() || !Cfg.nativeDrawer()) {
-                return;
+                return false;
             }
             // Search results are a different list; leave them exactly as the user typed them.
             if (Reflect.field(appsList, "mSearchResults") != null) {
-                return;
+                note("skipped: the list is showing search results");
+                return false;
             }
             Object appsField = Reflect.field(appsList, "mApps");
             if (!(appsField instanceof List)) {
-                return;
+                note("no mApps list on " + appsList.getClass().getName()
+                        + " - fields: " + fieldNames(appsList));
+                return false;
             }
             List<Object> apps = (List<Object>) appsField;
             if (apps.isEmpty()) {
-                return;
+                return false;
             }
             Context ctx = AppCtx.get();
             if (ctx == null) {
-                return;
+                note("no context yet - open the desktop once so the module can find one");
+                return false;
             }
             DrawerStore store = store(ctx);
             Set<String> filed = store.keysInFolders();
             Set<String> hidden = store.hidden();
             if (filed.isEmpty() && hidden.isEmpty() && store.order().isEmpty()
                     && store.folders().isEmpty()) {
-                return;
+                note("nothing to apply yet: no folders, no saved order, no hidden apps. "
+                        + "Make a folder in the module's drawer first.");
+                return false;
             }
 
             List<Object> kept = new ArrayList<>(apps.size());
@@ -185,9 +260,31 @@ public final class NativeDrawerHooks {
             sortEntries(ctx, kept, store);
             apps.clear();
             apps.addAll(kept);
+            note("applied: " + kept.size() + " entries, " + store.folders().size() + " folder(s), "
+                    + hidden.size() + " hidden, order " + store.order().size());
+            return true;
         } catch (Throwable t) {
             L.e("native drawer: rewriting the app list failed", t);
+            return false;
         }
+    }
+
+    /** Logs a state message once, so a per-frame hook cannot flood the log. */
+    private static void note(String message) {
+        if (!message.equals(sLastNote)) {
+            sLastNote = message;
+            L.i("native drawer: " + message);
+        }
+    }
+
+    private static String fieldNames(Object o) {
+        StringBuilder sb = new StringBuilder();
+        for (Class<?> c = o.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                sb.append(f.getName()).append(' ');
+            }
+        }
+        return sb.toString();
     }
 
     private static void sortEntries(Context ctx, List<Object> entries, DrawerStore store) {
