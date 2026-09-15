@@ -53,7 +53,23 @@ The stock icon grid was not recognised. Either:
 - tell me the `#id` of the stock grid container from the view tree so it can be added to the
   built-in list in `OemBridge.GRID_ID_HINTS`.
 
-## 4. rules.json — unlocking the stock launcher's own features
+## 4. The launcher is obfuscated - what that means
+
+ZuxOS ships a minified Launcher3. Class names survive (`com.android.launcher3.allapps.
+AlphabeticalAppsList` is really called that), but fields and many methods are renamed to `a`,
+`b`, `c`... A probe line like this is the giveaway:
+
+```
+fields: PRIVATE_SPACE_PACKAGE TAG a b c d e f g h i j k l m n o p q
+```
+
+So the stock-drawer integration never looks anything up by name. It finds the app list by
+looking for the `List` whose entries carry a `ComponentName`, learns which field holds the label
+by matching it against the label the system reports for that same app, and intercepts clicks on
+`View.performClick`, which is framework code the obfuscator cannot rename. If a firmware update
+reshuffles things, the log says which of those steps failed.
+
+## 5. rules.json — unlocking the stock launcher's own features
 
 Some ZuxOS builds implement rearranging/folders/widgets already and merely *disable* them in
 desktop mode. When the probe dump shows a promising boolean (`isEditModeDisabled`,
@@ -84,7 +100,7 @@ patches `canX`/`supportX`/`allowX` to `true` and `isXDisabled`/`isXLocked` to `f
 mentioning drag/edit/folder/widget/reorder/move. It is off by default because a wrong guess
 misbehaves in ways that are hard to attribute.
 
-## 5. "nowhere to attach yet"
+## 6. "nowhere to attach yet"
 
 The desktop home on ZuxOS is `com.zui.launcher.secondarydisplay.SecondaryDisplayLauncher`, and it
 has no window to attach to at the moment it resumes - it installs its own layout later, once the
@@ -96,7 +112,7 @@ If you only ever see the warning, it prints why: whether the window, the decor v
 missing, whether the activity is finishing, and whether the launcher may draw overlay windows.
 Send that line - it names the remaining fallback to use.
 
-## 6. Where the data lives
+## 7. Where the data lives
 
 Inside the home app's private data dir, `files/zux_desktop_plus/`:
 

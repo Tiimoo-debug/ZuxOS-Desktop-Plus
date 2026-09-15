@@ -11,6 +11,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -67,6 +68,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private SurfaceAttacher.Target mTarget;
     private WidgetResizeFrame mResizeFrame;
     private View mResizeScrim;
+    private View mResizeBar;
     private View mDragView;
     private int[] mPendingWidgetCell;
     private int[] mMenuCell;
@@ -842,7 +844,45 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mResizeFrame = new WidgetResizeFrame(mActivity, mGrid, item, target, this);
         mRoot.addView(mResizeFrame);
         mResizeFrame.syncToItem();
-        toast("Drag the edges to resize, the middle to move");
+        mResizeBar = buildResizeBar(item);
+        mRoot.addView(mResizeBar);
+    }
+
+    /** Remove / Done buttons shown while a widget is being resized. */
+    private View buildResizeBar(Item item) {
+        LinearLayout bar = new LinearLayout(mActivity);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBackground(Ui.roundRect(0xEE2B2B2E, Ui.dp(mActivity, 22)));
+        int padH = Ui.dp(mActivity, 8);
+        bar.setPadding(padH, padH / 2, padH, padH / 2);
+
+        bar.addView(barButton("Remove widget", 0xFFFF6B6B, () -> {
+            endResize();
+            mWidgets.deleteWidget(item.widgetId);
+            mStore.remove(item);
+            save();
+            rebuildItems();
+        }));
+        bar.addView(barButton("Done", Ui.COLOR_TEXT, this::endResize));
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        lp.topMargin = Ui.dp(mActivity, 16);
+        bar.setLayoutParams(lp);
+        return bar;
+    }
+
+    private TextView barButton(String text, int color, Runnable action) {
+        TextView tv = new TextView(mActivity);
+        tv.setText(text);
+        tv.setTextColor(color);
+        tv.setGravity(Gravity.CENTER);
+        int pad = Ui.dp(mActivity, 14);
+        tv.setPadding(pad, Ui.dp(mActivity, 8), pad, Ui.dp(mActivity, 8));
+        tv.setBackground(Ui.ripple(mActivity, 0x00000000, Ui.dp(mActivity, 18)));
+        tv.setOnClickListener(v -> action.run());
+        return tv;
     }
 
     public void endResize() {
@@ -850,12 +890,37 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             Item item = mResizeFrame.getItem();
             mRoot.removeView(mResizeFrame);
             mResizeFrame = null;
-            resizeWidgetView(item);
+            rebuildWidgetView(item);
             save();
         }
         if (mResizeScrim != null) {
             mRoot.removeView(mResizeScrim);
             mResizeScrim = null;
+        }
+        if (mResizeBar != null) {
+            mRoot.removeView(mResizeBar);
+            mResizeBar = null;
+        }
+    }
+
+    /**
+     * Rebuilds a widget's view after a resize.
+     *
+     * <p>Telling a widget its new size is not always enough: content that animates (a spinning
+     * disc, say) keeps the pivot and bounds it was inflated with, so it ends up drawing outside
+     * the frame. A fresh host view inflates against the new size and behaves.
+     */
+    private void rebuildWidgetView(Item item) {
+        if (item.type != Item.TYPE_WIDGET) {
+            return;
+        }
+        View old = mGrid.viewForItem(item);
+        if (old == null) {
+            return;
+        }
+        mGrid.removeView(old);
+        if (!addItemView(item)) {
+            mStore.remove(item);
         }
     }
 
@@ -870,11 +935,13 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         item.spanX = spanX;
         item.spanY = spanY;
         mGrid.setItemCell(target, cellX, cellY, spanX, spanY);
+        // Live feedback while dragging; the view is rebuilt properly on release.
+        resizeWidgetView(item);
     }
 
     @Override
     public void onFrameReleased(Item item) {
-        resizeWidgetView(item);
+        rebuildWidgetView(item);
         save();
     }
 

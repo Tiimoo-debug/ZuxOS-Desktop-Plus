@@ -22,10 +22,15 @@ import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DrawerStore;
 import com.zuxos.desktopplus.model.Item;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,11 +40,13 @@ import de.robv.android.xposed.XposedBridge;
 
 /**
  * Brings the module's folders and custom order to the launcher's own app drawer - the one the
- * taskbar opens - rather than only to the drawer this module draws itself.
+ * taskbar opens.
  *
- * <p>The drawer is Launcher3's, so the list it renders is Launcher3's {@code AlphabeticalAppsList}.
- * We reorder that list before it becomes adapter items, drop apps the user hid or filed away, and
- * splice in one synthetic entry per folder which opens the folder instead of launching anything.
+ * <p>ZuxOS ships a minified Launcher3: the class names survive but every field and many methods
+ * are renamed to single letters, so nothing here is looked up by name. The app list is found by
+ * looking for the {@code List} whose elements are app entries, an app entry's fields are learned
+ * from a real instance (see {@link Mirror}), and clicks are intercepted at {@code View} level,
+ * which the obfuscator cannot touch.
  */
 public final class NativeDrawerHooks {
 
@@ -47,14 +54,18 @@ public final class NativeDrawerHooks {
     private static final String FOLDER_PKG = Const.MODULE_PKG;
     private static final String FOLDER_PREFIX = "folder.";
 
-    private static ClassLoader sLoader;
     private static boolean sInstalled;
 
     private static DrawerStore sStore;
     private static long sStoreStamp = -1;
     private static AppsRepo sRepo;
+
+    private static Field sAppsField;
+    private static Class<?> sAppsFieldOwner;
     private static Class<?> sAppInfoCls;
-    private static Class<?> sBitmapInfoCls;
+    private static Mirror.AppInfoShape sShape;
+    private static final Map<Class<?>, Field> sComponentFields = new HashMap<>();
+    private static final Set<Class<?>> sWithoutComponent = new HashSet<>();
     private static final Map<String, Object> sFolderEntries = new HashMap<>();
     private static final ThreadLocal<Boolean> sRefreshing = new ThreadLocal<>();
     private static String sLastNote;
@@ -67,38 +78,24 @@ public final class NativeDrawerHooks {
             return;
         }
         sInstalled = true;
-        sLoader = loader;
 
-        Class<?> listCls = findFirst(loader,
-                "com.android.launcher3.allapps.AlphabeticalAppsList",
-                "com.zui.launcher.allapps.AlphabeticalAppsList");
+        Class<?> listCls = Reflect.findClass(
+                "com.android.launcher3.allapps.AlphabeticalAppsList", loader);
         if (listCls == null) {
-            L.w("native drawer: AlphabeticalAppsList not found - the stock drawer is left alone. "
-                    + "Use 'Export layout + launcher info' and send the dump.");
+            L.w("native drawer: AlphabeticalAppsList not found - the stock drawer is left alone");
             return;
         }
-        sAppInfoCls = findFirst(loader,
-                "com.android.launcher3.model.data.AppInfo",
-                "com.android.launcher3.AppInfo");
-        sBitmapInfoCls = findFirst(loader, "com.android.launcher3.icons.BitmapInfo");
 
-        // Rewrite the list just before it becomes adapter items.
         int hooked = hookUpTheHierarchy(listCls, "updateAdapterItems", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
                 customise(param.thisObject);
             }
         });
-
-        // Fallback for builds where that method is named something else: rewrite after the list
-        // is rebuilt and ask it to refresh, guarding against re-entering ourselves.
         int hookedUpdates = hookUpTheHierarchy(listCls, "onAppsUpdated", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
-                if (Boolean.TRUE.equals(sRefreshing.get())) {
-                    return;
-                }
-                if (!customise(param.thisObject)) {
+                if (Boolean.TRUE.equals(sRefreshing.get()) || !customise(param.thisObject)) {
                     return;
                 }
                 sRefreshing.set(Boolean.TRUE);
@@ -109,47 +106,33 @@ public final class NativeDrawerHooks {
                 }
             }
         });
-
-        L.i("native drawer: " + listCls.getName() + " - hooked updateAdapterItems x" + hooked
+        L.i("native drawer: " + listCls.getName() + " - updateAdapterItems x" + hooked
                 + ", onAppsUpdated x" + hookedUpdates);
         if (hooked == 0 && hookedUpdates == 0) {
-            L.w("native drawer: neither entry point exists on this build. Candidates follow; "
-                    + "send them and they can be targeted directly.");
-            dumpCandidateMethods(listCls);
+            L.w("native drawer: no entry point on this build");
+            dumpCandidates(listCls);
             return;
         }
 
-        Class<?> clickCls = findFirst(loader,
-                "com.android.launcher3.touch.ItemClickHandler",
-                "com.zui.launcher.touch.ItemClickHandler");
-        if (clickCls == null) {
-            L.w("native drawer: ItemClickHandler not found - folders will show but not open");
-            return;
-        }
-        int clicks = hookUpTheHierarchy(clickCls, "onClick", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                if (param.args.length >= 1 && param.args[0] instanceof View
-                        && openFolderFor((View) param.args[0])) {
-                    // Our entry: never let the launcher try to launch it.
-                    param.setResult(null);
-                }
-            }
-        });
-        L.i("native drawer: hooked " + clickCls.getName() + ".onClick x" + clicks);
-        if (clicks == 0) {
-            L.w("native drawer: no onClick to hook - folder entries will not open");
-            dumpCandidateMethods(clickCls);
+        // Clicks are intercepted on View itself: ItemClickHandler's methods are minified away,
+        // but every click still goes through performClick, and the check below is just a tag test.
+        try {
+            int clicks = XposedBridge.hookAllMethods(View.class, "performClick",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof View
+                                    && openFolderFor((View) param.thisObject)) {
+                                param.setResult(Boolean.TRUE);
+                            }
+                        }
+                    }).size();
+            L.i("native drawer: click interception installed x" + clicks);
+        } catch (Throwable t) {
+            L.e("native drawer: could not intercept clicks", t);
         }
     }
 
-    /**
-     * Hooks {@code name} wherever it is declared, walking up the hierarchy.
-     *
-     * <p>{@code hookAllMethods} only looks at one class's declared methods, so a launcher that
-     * inherits the method - or renames it - silently gets no hooks at all. Returns how many
-     * methods were actually hooked, which is the only honest success signal.
-     */
     private static int hookUpTheHierarchy(Class<?> clazz, String name, XC_MethodHook callback) {
         int count = 0;
         for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
@@ -162,11 +145,11 @@ public final class NativeDrawerHooks {
         return count;
     }
 
-    private static void dumpCandidateMethods(Class<?> clazz) {
+    private static void dumpCandidates(Class<?> clazz) {
         for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
             StringBuilder sb = new StringBuilder("  " + c.getName() + ":");
             try {
-                for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                for (Method m : c.getDeclaredMethods()) {
                     sb.append(' ').append(m.getName()).append('/').append(m.getParameterCount());
                 }
             } catch (Throwable t) {
@@ -174,25 +157,6 @@ public final class NativeDrawerHooks {
             }
             L.i(sb.toString());
         }
-        StringBuilder fields = new StringBuilder("  fields:");
-        try {
-            for (java.lang.reflect.Field f : clazz.getDeclaredFields()) {
-                fields.append(' ').append(f.getName());
-            }
-        } catch (Throwable ignored) {
-            fields.append(" <unreadable>");
-        }
-        L.i(fields.toString());
-    }
-
-    private static Class<?> findFirst(ClassLoader loader, String... names) {
-        for (String name : names) {
-            Class<?> c = Reflect.findClass(name, loader);
-            if (c != null) {
-                return c;
-            }
-        }
-        return null;
     }
 
     // --- list rewriting --------------------------------------------------
@@ -203,24 +167,13 @@ public final class NativeDrawerHooks {
             if (!Cfg.enabled() || !Cfg.nativeDrawer()) {
                 return false;
             }
-            // Search results are a different list; leave them exactly as the user typed them.
-            if (Reflect.field(appsList, "mSearchResults") != null) {
-                note("skipped: the list is showing search results");
-                return false;
-            }
-            Object appsField = Reflect.field(appsList, "mApps");
-            if (!(appsField instanceof List)) {
-                note("no mApps list on " + appsList.getClass().getName()
-                        + " - fields: " + fieldNames(appsList));
-                return false;
-            }
-            List<Object> apps = (List<Object>) appsField;
-            if (apps.isEmpty()) {
-                return false;
-            }
             Context ctx = AppCtx.get();
             if (ctx == null) {
                 note("no context yet - open the desktop once so the module can find one");
+                return false;
+            }
+            List<Object> apps = appsListOf(appsList);
+            if (apps == null || apps.isEmpty()) {
                 return false;
             }
             DrawerStore store = store(ctx);
@@ -228,15 +181,17 @@ public final class NativeDrawerHooks {
             Set<String> hidden = store.hidden();
             if (filed.isEmpty() && hidden.isEmpty() && store.order().isEmpty()
                     && store.folders().isEmpty()) {
-                note("nothing to apply yet: no folders, no saved order, no hidden apps. "
-                        + "Make a folder in the module's drawer first.");
+                note("nothing to apply yet: make a folder in the module's drawer first");
+                return false;
+            }
+            if (!learnShape(ctx, apps)) {
                 return false;
             }
 
             List<Object> kept = new ArrayList<>(apps.size());
             int iconPx = 0;
             for (Object app : apps) {
-                if (isOurs(app)) {
+                if (folderIdOf(app) != null) {
                     // Left over from an earlier pass - rebuilt below.
                     continue;
                 }
@@ -249,9 +204,14 @@ public final class NativeDrawerHooks {
                 }
                 kept.add(app);
             }
+            if (kept.isEmpty()) {
+                note("refusing to empty the drawer - no entries survived filtering");
+                return false;
+            }
 
+            Object sample = kept.get(0);
             for (Item folder : store.folders()) {
-                Object entry = folderEntry(ctx, folder, iconPx);
+                Object entry = folderEntry(ctx, folder, sample, iconPx);
                 if (entry != null) {
                     kept.add(entry);
                 }
@@ -269,22 +229,66 @@ public final class NativeDrawerHooks {
         }
     }
 
-    /** Logs a state message once, so a per-frame hook cannot flood the log. */
-    private static void note(String message) {
-        if (!message.equals(sLastNote)) {
-            sLastNote = message;
-            L.i("native drawer: " + message);
+    /** The launcher's app list, found by element type because its field name is minified. */
+    @SuppressWarnings("unchecked")
+    private static List<Object> appsListOf(Object appsList) {
+        if (sAppsField != null && sAppsFieldOwner == appsList.getClass()) {
+            Object value = Mirror.get(sAppsField, appsList);
+            return value instanceof List ? (List<Object>) value : null;
         }
+        // The element type is whatever the launcher puts in there; identify it by finding the
+        // list whose entries carry a ComponentName, which app entries always do.
+        for (Field f : Mirror.fields(appsList.getClass())) {
+            if (!List.class.isAssignableFrom(f.getType())) {
+                continue;
+            }
+            Object value = Mirror.get(f, appsList);
+            if (!(value instanceof List) || ((List<?>) value).isEmpty()) {
+                continue;
+            }
+            Object first = ((List<?>) value).get(0);
+            if (first == null || componentOf(first) == null) {
+                continue;
+            }
+            sAppsField = f;
+            sAppsFieldOwner = appsList.getClass();
+            sAppInfoCls = first.getClass();
+            L.i("native drawer: app list is field '" + f.getName() + "' holding "
+                    + sAppInfoCls.getName());
+            return (List<Object>) value;
+        }
+        note("no app list found on " + appsList.getClass().getName());
+        return null;
     }
 
-    private static String fieldNames(Object o) {
-        StringBuilder sb = new StringBuilder();
-        for (Class<?> c = o.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
-            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
-                sb.append(f.getName()).append(' ');
+    /** Learns which fields of an app entry hold the component, label, icon and user. */
+    private static boolean learnShape(Context ctx, List<Object> apps) {
+        if (sShape != null && sShape.usable()) {
+            return true;
+        }
+        for (Object app : apps) {
+            ComponentName cn = componentOf(app);
+            if (cn == null) {
+                continue;
+            }
+            CharSequence label = labelFor(ctx, cn);
+            sShape = Mirror.learnAppInfo(app, label);
+            if (sShape.usable()) {
+                L.i("native drawer: app entry shape - " + sShape);
+                return true;
             }
         }
-        return sb.toString();
+        note("could not work out the shape of an app entry");
+        return false;
+    }
+
+    private static CharSequence labelFor(Context ctx, ComponentName cn) {
+        for (AppsRepo.AppEntry e : repo(ctx).apps()) {
+            if (e.cn.equals(cn)) {
+                return e.label;
+            }
+        }
+        return null;
     }
 
     private static void sortEntries(Context ctx, List<Object> entries, DrawerStore store) {
@@ -322,22 +326,26 @@ public final class NativeDrawerHooks {
 
     // --- synthetic folder entries ----------------------------------------
 
-    private static Object folderEntry(Context ctx, Item folder, int iconPx) {
+    private static Object folderEntry(Context ctx, Item folder, Object sample, int iconPx) {
+        String label = folder.label != null ? folder.label : "Folder";
         Object cached = sFolderEntries.get(folder.id);
-        if (cached != null && titleOf(cached).equals(folder.label != null ? folder.label : "Folder")) {
+        if (cached != null && label.equals(titleOf(cached))) {
             return cached;
         }
-        if (sAppInfoCls == null) {
-            return null;
-        }
         try {
-            Object info = sAppInfoCls.getDeclaredConstructor().newInstance();
+            Object info = Mirror.instantiateLike(sample);
+            if (info == null) {
+                return null;
+            }
             ComponentName cn = new ComponentName(FOLDER_PKG, FOLDER_PREFIX + folder.id);
-            setField(info, "title", folder.label != null ? folder.label : "Folder");
-            setField(info, "componentName", cn);
-            setField(info, "user", android.os.Process.myUserHandle());
-            Intent intent = new Intent(Intent.ACTION_MAIN).setComponent(cn);
-            setField(info, "intent", intent);
+            Mirror.set(sShape.component, info, cn);
+            Mirror.set(sShape.title, info, label);
+            if (sShape.user != null) {
+                Mirror.set(sShape.user, info, android.os.Process.myUserHandle());
+            }
+            if (sShape.intent != null) {
+                Mirror.set(sShape.intent, info, new Intent(Intent.ACTION_MAIN).setComponent(cn));
+            }
             applyFolderIcon(ctx, info, folder, iconPx > 0 ? iconPx : Ui.dp(ctx, 48));
             sFolderEntries.put(folder.id, info);
             return info;
@@ -348,7 +356,7 @@ public final class NativeDrawerHooks {
     }
 
     private static void applyFolderIcon(Context ctx, Object info, Item folder, int sizePx) {
-        if (sBitmapInfoCls == null) {
+        if (sShape.bitmap == null) {
             return;
         }
         try {
@@ -368,23 +376,67 @@ public final class NativeDrawerHooks {
             FolderIconDrawable icon = new FolderIconDrawable(previews, sizePx);
             icon.setBounds(0, 0, sizePx, sizePx);
             icon.draw(canvas);
-            Object bitmapInfo = sBitmapInfoCls
-                    .getMethod("fromBitmap", Bitmap.class).invoke(null, bitmap);
-            setField(info, "bitmap", bitmapInfo);
+
+            Object bitmapInfo = makeBitmapInfo(sShape.bitmap.getType(), bitmap);
+            if (bitmapInfo != null) {
+                Mirror.set(sShape.bitmap, info, bitmapInfo);
+            }
         } catch (Throwable t) {
             L.d("native drawer: folder icon fell back to the default: " + t);
         }
     }
 
+    /** BitmapInfo's factory is minified too, so it is matched by signature. */
+    private static Object makeBitmapInfo(Class<?> bitmapInfoCls, Bitmap bitmap) {
+        for (Method m : bitmapInfoCls.getDeclaredMethods()) {
+            if (Modifier.isStatic(m.getModifiers()) && m.getParameterCount() == 1
+                    && m.getParameterTypes()[0] == Bitmap.class
+                    && bitmapInfoCls.isAssignableFrom(m.getReturnType())) {
+                try {
+                    m.setAccessible(true);
+                    return m.invoke(null, bitmap);
+                } catch (Throwable ignored) {
+                    // Try the next candidate.
+                }
+            }
+        }
+        for (Constructor<?> c : bitmapInfoCls.getDeclaredConstructors()) {
+            Class<?>[] types = c.getParameterTypes();
+            if (types.length >= 1 && types[0] == Bitmap.class) {
+                try {
+                    c.setAccessible(true);
+                    Object[] args = new Object[types.length];
+                    args[0] = bitmap;
+                    for (int i = 1; i < types.length; i++) {
+                        args[i] = types[i] == int.class ? Integer.valueOf(0) : null;
+                    }
+                    return c.newInstance(args);
+                } catch (Throwable ignored) {
+                    // Try the next candidate.
+                }
+            }
+        }
+        L.d("native drawer: no way to build a BitmapInfo - folder keeps a default icon");
+        return null;
+    }
+
     private static boolean openFolderFor(View view) {
+        if (sFolderEntries.isEmpty()) {
+            // No synthetic entries exist, so no view can be carrying one.
+            return false;
+        }
         try {
-            String folderId = folderIdOf(view.getTag());
+            Object tag = view.getTag();
+            if (tag == null) {
+                return false;
+            }
+            String folderId = folderIdOf(tag);
             if (folderId == null) {
                 return false;
             }
             Context ctx = view.getContext();
-            DrawerStore store = store(AppCtx.get() != null ? AppCtx.get() : ctx);
-            for (Item folder : store.folders()) {
+            Context store = AppCtx.get() != null ? AppCtx.get() : ctx;
+            for (Item folder : store(store).folders()) {
                 if (folder.id.equals(folderId)) {
                     int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
                     DrawerFolderWindow.show(ctx, folder, repo(ctx), displayId,
@@ -400,20 +452,37 @@ public final class NativeDrawerHooks {
 
     // --- small helpers ---------------------------------------------------
 
-    private static boolean isOurs(Object entry) {
-        return folderIdOf(entry) != null;
-    }
-
-    private static String folderIdOf(Object entry) {
+    /** The ComponentName an app entry carries, located by type and cached per class. */
+    private static ComponentName componentOf(Object entry) {
         if (entry == null) {
             return null;
         }
-        Object cn = Reflect.field(entry, "componentName");
-        if (!(cn instanceof ComponentName)) {
+        Class<?> cls = entry.getClass();
+        if (sWithoutComponent.contains(cls)) {
             return null;
         }
-        ComponentName component = (ComponentName) cn;
-        if (!FOLDER_PKG.equals(component.getPackageName())
+        Field f = sComponentFields.get(cls);
+        if (f == null) {
+            for (Field candidate : Mirror.fields(cls)) {
+                if (ComponentName.class.isAssignableFrom(candidate.getType())) {
+                    f = candidate;
+                    sComponentFields.put(cls, f);
+                    break;
+                }
+            }
+            if (f == null) {
+                // Remember the miss: this runs on every click in the launcher.
+                sWithoutComponent.add(cls);
+                return null;
+            }
+        }
+        Object value = Mirror.get(f, entry);
+        return value instanceof ComponentName ? (ComponentName) value : null;
+    }
+
+    private static String folderIdOf(Object entry) {
+        ComponentName component = componentOf(entry);
+        if (component == null || !FOLDER_PKG.equals(component.getPackageName())
                 || !component.getClassName().startsWith(FOLDER_PREFIX)) {
             return null;
         }
@@ -421,26 +490,30 @@ public final class NativeDrawerHooks {
     }
 
     private static String titleOf(Object entry) {
-        Object title = Reflect.field(entry, "title");
+        if (sShape == null || sShape.title == null) {
+            return "";
+        }
+        Object title = Mirror.get(sShape.title, entry);
         return title != null ? title.toString() : "";
     }
 
     private static String keyOf(Context ctx, Object entry) {
-        Object cn = Reflect.field(entry, "componentName");
-        if (!(cn instanceof ComponentName)) {
+        ComponentName component = componentOf(entry);
+        if (component == null) {
             return null;
         }
-        ComponentName component = (ComponentName) cn;
         long serial = 0;
-        Object user = Reflect.field(entry, "user");
-        if (user instanceof UserHandle) {
-            try {
-                UserManager um = (UserManager) ctx.getSystemService(Context.USER_SERVICE);
-                if (um != null) {
-                    serial = um.getSerialNumberForUser((UserHandle) user);
+        if (sShape != null && sShape.user != null) {
+            Object user = Mirror.get(sShape.user, entry);
+            if (user instanceof UserHandle) {
+                try {
+                    UserManager um = (UserManager) ctx.getSystemService(Context.USER_SERVICE);
+                    if (um != null) {
+                        serial = um.getSerialNumberForUser((UserHandle) user);
+                    }
+                } catch (Throwable ignored) {
+                    // Fall through with the default profile.
                 }
-            } catch (Throwable ignored) {
-                // Fall through with the default profile.
             }
         }
         return component.getPackageName() + "/" + component.getClassName() + "#" + serial;
@@ -448,8 +521,15 @@ public final class NativeDrawerHooks {
 
     private static int iconSizeOf(Object entry) {
         try {
-            Object bitmapInfo = Reflect.field(entry, "bitmap");
-            Object icon = Reflect.field(bitmapInfo, "icon");
+            if (sShape == null || sShape.bitmap == null) {
+                return 0;
+            }
+            Object bitmapInfo = Mirror.get(sShape.bitmap, entry);
+            if (bitmapInfo == null) {
+                return 0;
+            }
+            Field iconField = Mirror.fieldOfType(bitmapInfo.getClass(), Bitmap.class);
+            Object icon = iconField != null ? Mirror.get(iconField, bitmapInfo) : null;
             if (icon instanceof Bitmap) {
                 return ((Bitmap) icon).getWidth();
             }
@@ -459,18 +539,12 @@ public final class NativeDrawerHooks {
         return 0;
     }
 
-    private static void setField(Object target, String name, Object value) {
-        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
-            try {
-                java.lang.reflect.Field f = c.getDeclaredField(name);
-                f.setAccessible(true);
-                f.set(target, value);
-                return;
-            } catch (Throwable ignored) {
-                // Try the superclass.
-            }
+    /** Logs a state message once, so a per-frame hook cannot flood the log. */
+    private static void note(String message) {
+        if (!message.equals(sLastNote)) {
+            sLastNote = message;
+            L.i("native drawer: " + message);
         }
-        L.d("native drawer: no field " + name + " on " + target.getClass().getName());
     }
 
     /** Re-read the drawer state whenever our own drawer has written to it. */
