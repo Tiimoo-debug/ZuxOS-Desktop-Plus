@@ -9,4 +9,5 @@ captures/
 .cxx/
 *.apk
 *.keystore
-!debug.keystore
+# The module's shared signing key is committed on purpose - see app/build.gradle.
+!keystore/zuxos-desktop-plus.jks

@@ -81,12 +81,15 @@ frequently-offline Xposed maven repo).
 Or open the project in Android Studio, or grab the APK from the **Build module APK** GitHub
 Actions run for any pushed commit.
 
-The release APK is signed with the debug key so it installs directly. Swap in your own signing
-config if you distribute it.
+Both the release and debug APKs are signed with the key committed in `keystore/`, and the version
+code climbs with the commit count. That means **every build installs over the previous one** - no
+uninstall, no lost settings. The key is deliberately not a secret; it exists so updates are
+painless. Swap in your own signing config if you ever distribute this.
 
 ## Using it
 
 1. Install the APK, enable the module in LSPosed, scope it to the home app, reboot.
+   (Updates after that are a plain install over the top - same key, higher version code.)
 2. Open the settings app once ("ZuxOS Desktop Plus"). The banner at the top says whether LSPosed
    really has the module loaded.
 3. Connect the external display and enter desktop mode.

@@ -2,6 +2,22 @@ plugins {
     id 'com.android.application'
 }
 
+// Version code climbs with the commit count so every build is an upgrade of the last one,
+// and falls back to 1 outside a git checkout (source zip, CI without history).
+def buildNumber = {
+    try {
+        def proc = new ProcessBuilder('git', 'rev-list', '--count', 'HEAD')
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+        def text = proc.inputStream.text.trim()
+        proc.waitFor()
+        return text.isInteger() ? Math.max(1, text.toInteger()) : 1
+    } catch (Exception ignored) {
+        return 1
+    }
+}()
+
 android {
     namespace 'com.zuxos.desktopplus'
     compileSdk 36
@@ -10,8 +26,20 @@ android {
         applicationId 'com.zuxos.desktopplus'
         minSdk 29
         targetSdk 36
-        versionCode 1
-        versionName '1.0.0'
+        versionCode buildNumber
+        versionName "1.0.${buildNumber}"
+    }
+
+    signingConfigs {
+        shared {
+            // Committed on purpose: this is a personal Xposed module, and a stable key is what
+            // makes every build install over the previous one instead of forcing an uninstall.
+            // It is not a secret - anyone can sign an APK with it, so do not reuse it elsewhere.
+            storeFile file('../keystore/zuxos-desktop-plus.jks')
+            storePassword 'zuxosdesktopplus'
+            keyAlias 'zuxos'
+            keyPassword 'zuxosdesktopplus'
+        }
     }
 
     buildFeatures {
@@ -26,9 +54,11 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            // Signed with the debug key so CI artifacts are directly installable.
-            // Replace with your own signing config if you distribute the module.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.shared
+        }
+        debug {
+            // Same key as release, so debug and release builds replace each other too.
+            signingConfig signingConfigs.shared
         }
     }
 
