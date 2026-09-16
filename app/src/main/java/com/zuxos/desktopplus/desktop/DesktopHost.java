@@ -154,6 +154,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         host.mTarget = target;
         ACTIVE.put(activity, host);
 
+        View backdrop = target.container != null ? target.container : host.mRoot;
+        host.mDrawer.setBackdropSource(backdrop);
+        host.mFolders.setBackdropSource(backdrop);
         OemBridge.applyTakeover(activity, target.container, host.mRoot, Cfg.takeover());
         StockUnlockHooks.loadUserRules(activity);
         if (Cfg.probe()) {
@@ -1350,6 +1353,23 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onSortModeMenu(View anchor, float rawX, float rawY) {
         float[] local = Menus.toLocal(mRoot, rawX, rawY);
         List<Menus.Entry> entries = Menus.list();
+        entries.add(new Menus.Entry("New folder with apps", () -> Dialogs.pickApps(mActivity,
+                mRepo, "Apps for the new drawer folder", picked -> {
+                    if (picked.size() < 2) {
+                        toast("Pick at least two apps");
+                        return;
+                    }
+                    Item folder = mDrawer.createFolder(
+                            picked.get(0).toItem(), picked.get(1).toItem());
+                    for (int i = 2; i < picked.size(); i++) {
+                        mDrawer.addToFolder(folder, picked.get(i).toItem());
+                    }
+                    Dialogs.prompt(mActivity, "Folder name", folder.label, name -> {
+                        folder.label = name.isEmpty() ? "Folder" : name;
+                        mDrawerStore.save();
+                        mDrawer.rebuild();
+                    });
+                })));
         entries.add(new Menus.Entry("Sort A-Z", () -> {
             mSortMode = Const.SORT_ALPHA;
             mDrawer.rebuild();

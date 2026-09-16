@@ -12,7 +12,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Anim;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
@@ -35,7 +34,7 @@ public class FolderOverlay extends FrameLayout {
     private final GridLayout mGrid;
     private final EditText mName;
     private final TextView mEmpty;
-    private LinearLayout mPanel;
+    private GlassPanel mPanel;
     private Item mFolder;
 
     public FolderOverlay(Context ctx, AppsRepo repo, Listener listener) {
@@ -49,7 +48,6 @@ public class FolderOverlay extends FrameLayout {
 
         final LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackground(Glass.panel(ctx, Ui.dp(ctx, 24)));
         int pad = Ui.dp(ctx, 20);
         panel.setPadding(pad, pad, pad, pad);
         // Swallow clicks so tapping the panel itself does not close the folder.
@@ -92,11 +90,19 @@ public class FolderOverlay extends FrameLayout {
         mEmpty.setVisibility(GONE);
         panel.addView(mEmpty);
 
+        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 24), 0xB0202024);
+        glass.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         plp.gravity = Gravity.CENTER;
-        addView(panel, plp);
-        mPanel = panel;
+        addView(glass, plp);
+        mPanel = glass;
+    }
+
+    /** The view the folder's glass samples. */
+    public void setBackdropSource(View source) {
+        mPanel.setSource(source);
     }
 
     public Item getFolder() {
@@ -113,6 +119,7 @@ public class FolderOverlay extends FrameLayout {
         rebuild(iconSizePx, showLabels, labelShadow);
         bringToFront();
         Anim.popIn(this, mPanel);
+        post(mPanel::refresh);
     }
 
     public void rebuild(int iconSizePx, boolean showLabels, boolean labelShadow) {

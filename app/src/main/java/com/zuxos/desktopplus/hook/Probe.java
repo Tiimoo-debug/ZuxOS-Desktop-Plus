@@ -99,11 +99,27 @@ public final class Probe {
         try {
             Class<?> global = Class.forName("android.view.WindowManagerGlobal");
             Object instance = global.getMethod("getInstance").invoke(null);
-            Object roots = global.getMethod("getRootViews").invoke(instance);
-            if (!(roots instanceof java.util.List)) {
-                return sb.append("  (unavailable)\n").toString();
+            java.util.List<?> list = null;
+            try {
+                // Present on some builds only; the backing field is the reliable route.
+                Object roots = global.getMethod("getRootViews").invoke(instance);
+                if (roots instanceof java.util.List) {
+                    list = (java.util.List<?>) roots;
+                }
+            } catch (Throwable ignored) {
+                // Fall through to the field.
             }
-            java.util.List<?> list = (java.util.List<?>) roots;
+            if (list == null) {
+                java.lang.reflect.Field views = global.getDeclaredField("mViews");
+                views.setAccessible(true);
+                Object value = views.get(instance);
+                if (value instanceof java.util.List) {
+                    list = (java.util.List<?>) value;
+                }
+            }
+            if (list == null) {
+                return sb.append("  (no window list on this build)\n").toString();
+            }
             sb.append("  ").append(list.size()).append(" window(s)\n");
             for (Object o : list) {
                 if (!(o instanceof View)) {

@@ -12,10 +12,10 @@ import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.Const;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.DragPayload;
+import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DrawerStore;
@@ -65,9 +65,10 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     private final WrapGrid mGrid;
     private final EditText mSearch;
     private final List<Item> mEntries = new ArrayList<>();
-    private final LinearLayout mSheet;
+    private final GlassPanel mSheet;
 
     private String mQuery = "";
+    private boolean mOpenRequested;
 
     public DrawerPanel(Context ctx, AppsRepo repo, DrawerStore store, Listener listener) {
         super(ctx);
@@ -76,11 +77,14 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mListener = listener;
         setVisibility(GONE);
 
-        LinearLayout sheet = new LinearLayout(ctx);
+        GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0xC01A1A1E);
         mSheet = sheet;
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setBackground(Glass.sheet(ctx, Ui.dp(ctx, 28)));
         sheet.setClickable(true);
+
+        LinearLayout column = new LinearLayout(ctx);
+        column.setOrientation(LinearLayout.VERTICAL);
+        sheet.addView(column, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -124,7 +128,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         close.setOnClickListener(v -> hide());
         header.addView(close);
 
-        sheet.addView(header, new LinearLayout.LayoutParams(
+        column.addView(header, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         ScrollView scroll = new ScrollView(ctx);
@@ -133,7 +137,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mGrid.setOnDragListener(this);
         scroll.addView(mGrid, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-        sheet.addView(scroll, new LinearLayout.LayoutParams(
+        column.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -160,7 +164,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     }
 
     public boolean isOpen() {
-        return getVisibility() == VISIBLE;
+        return mOpenRequested || getVisibility() == VISIBLE;
     }
 
     public void show() {
@@ -168,11 +172,29 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mQuery = "";
         rebuild();
         bringToFront();
-        Anim.slideUp(this, mSheet);
+        // Laid out but not yet drawn: the glass captures what is behind it, then slides in.
+        mOpenRequested = true;
+        setVisibility(INVISIBLE);
+        post(() -> {
+            if (!mOpenRequested) {
+                // Closed again before the capture ran.
+                setVisibility(GONE);
+                return;
+            }
+            mSheet.refresh();
+            Anim.slideUp(this, mSheet);
+        });
+    }
+
+    /** The view the drawer's glass samples, normally the launcher's content root. */
+    public void setBackdropSource(View source) {
+        mSheet.setSource(source);
     }
 
     public void hide() {
+        mOpenRequested = false;
         if (getVisibility() != VISIBLE) {
+            setVisibility(GONE);
             return;
         }
         Anim.slideDown(this, mSheet, null);
@@ -346,7 +368,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         return -1;
     }
 
-    public void createFolder(Item first, Item second) {
+    public Item createFolder(Item first, Item second) {
         Item folder = Item.folder("Folder");
         folder.children.add(copyOf(first));
         folder.children.add(copyOf(second));
@@ -363,6 +385,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         }
         mListener.onDrawerChanged();
         rebuild();
+        return folder;
     }
 
     public void addToFolder(Item folder, Item item) {

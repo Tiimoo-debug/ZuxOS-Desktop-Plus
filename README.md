@@ -30,8 +30,15 @@ On the external-display desktop:
 - **Pinned shortcuts land here** — a web page or file pinned from any app (a browser's "add to
   home screen") normally goes to the tablet's home screen and never appears in desktop mode. The
   module catches the request and puts it on the desktop too.
-- **Multi-select** — build a folder by ticking a list of apps rather than one drag at a time, on
-  the desktop and in the drawer.
+- **Multi-select** — build a folder by ticking a list of apps rather than one drag at a time:
+  right-click the desktop for *New folder with apps*, or the drawer's three-dot menu for
+  *New folder with apps*; an existing folder's menu has *Add apps to folder*.
+- **Liquid glass** — the drawer and folder panels refract what is behind them through a
+  signed-distance lens: the rim compresses the backdrop, fringes it with chromatic dispersion and
+  carries a two-lobe specular highlight. The optical model is ported from
+  [LiquidGlass for Android](https://github.com/QWEA0/Liquid-Glass-Android) (MIT) - see
+  [NOTICE.md](NOTICE.md). Needs Android 13+; older versions fall back to blur, then to layered
+  translucency.
 
 In the app drawer - both the module's own (the **Apps** button, or the All-Apps / Search key) and,
 where the launcher's list can be reached, **the stock drawer the taskbar opens**:
@@ -135,8 +142,13 @@ These were asked for and are honestly not built:
   grant from the user; a real feature in its own right rather than a tweak.
 - **Dragging out of the *stock* drawer** onto the desktop — that is a cross-window drag. The
   module's own drawer already supports dragging apps straight out onto the desktop.
-- **Glass on the stock drawer** — same dependency as the taskbar. The module's own panels use
-  layered translucency, and windows it owns outright (folder popups) use real backdrop blur.
+- **Glass on the stock drawer** — same dependency as the taskbar. The module's own panels are
+  real liquid glass; the stock drawer is the launcher's own view tree and restyling it needs the
+  taskbar dump above.
+- **The wallpaper is not refracted.** It is drawn by the system behind the window, not by any
+  view, so it cannot be captured and bent. Panels stay honestly translucent over it and refract
+  what they *can* see - the desktop's own icons and widgets. Windows the module owns ask the
+  system for real blur behind them, which does cover the wallpaper.
 
 ## Known limits — read before filing a bug
 

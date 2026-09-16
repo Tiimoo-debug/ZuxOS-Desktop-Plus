@@ -16,6 +16,7 @@ import android.widget.Toast;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
@@ -47,7 +48,9 @@ public final class DrawerFolderWindow {
 
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
-            panel.setBackground(Glass.panel(ctx, Ui.dp(ctx, 24)));
+            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 24), 0xB0202024);
+            glass.addView(panel, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
             int pad = Ui.dp(ctx, 20);
             panel.setPadding(pad, pad, pad, pad);
 
@@ -80,15 +83,17 @@ public final class DrawerFolderWindow {
             FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
             plp.gravity = Gravity.CENTER;
-            root.addView(panel, plp);
+            root.addView(glass, plp);
+            glass.setSource(root);
+            glass.post(glass::refresh);
             root.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_OUTSIDE
                         || event.getAction() == MotionEvent.ACTION_DOWN) {
                     // A tap anywhere outside the panel closes the folder.
                     float x = event.getX();
                     float y = event.getY();
-                    boolean insidePanel = x >= panel.getLeft() && x <= panel.getRight()
-                            && y >= panel.getTop() && y <= panel.getBottom();
+                    boolean insidePanel = x >= glass.getLeft() && x <= glass.getRight()
+                            && y >= glass.getTop() && y <= glass.getBottom();
                     if (!insidePanel) {
                         dismiss();
                         return true;
