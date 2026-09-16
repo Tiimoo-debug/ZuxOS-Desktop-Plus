@@ -13,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.ItemView;
@@ -46,7 +47,7 @@ public final class DrawerFolderWindow {
 
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
-            panel.setBackground(Ui.roundRect(Ui.COLOR_PANEL, Ui.dp(ctx, 24)));
+            panel.setBackground(Glass.panel(ctx, Ui.dp(ctx, 24)));
             int pad = Ui.dp(ctx, 20);
             panel.setPadding(pad, pad, pad, pad);
 
@@ -104,6 +105,7 @@ public final class DrawerFolderWindow {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus folder");
+            Glass.blurBehind(ctx, lp, 40);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

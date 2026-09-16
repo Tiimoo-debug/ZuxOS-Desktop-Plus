@@ -64,6 +64,7 @@ public final class NativeDrawerHooks {
     private static Class<?> sAppsFieldOwner;
     private static Class<?> sAppInfoCls;
     private static Mirror.AppInfoShape sShape;
+    private static List<Field> sLabelFields = Collections.emptyList();
     private static final Map<Class<?>, Field> sComponentFields = new HashMap<>();
     private static final Set<Class<?>> sWithoutComponent = new HashSet<>();
     private static final Map<String, Object> sFolderEntries = new HashMap<>();
@@ -266,17 +267,14 @@ public final class NativeDrawerHooks {
         if (sShape != null && sShape.usable()) {
             return true;
         }
-        for (Object app : apps) {
-            ComponentName cn = componentOf(app);
-            if (cn == null) {
-                continue;
-            }
-            CharSequence label = labelFor(ctx, cn);
-            sShape = Mirror.learnAppInfo(app, label);
-            if (sShape.usable()) {
-                L.i("native drawer: app entry shape - " + sShape);
-                return true;
-            }
+        sShape = Mirror.learnAppInfo(apps, entry -> {
+            ComponentName cn = componentOf(entry);
+            return cn != null ? labelFor(ctx, cn) : null;
+        });
+        if (sShape.usable()) {
+            L.i("native drawer: app entry shape - " + sShape);
+            sLabelFields = Mirror.labelFields(apps.get(0).getClass());
+            return true;
         }
         note("could not work out the shape of an app entry");
         return false;
@@ -340,6 +338,16 @@ public final class NativeDrawerHooks {
             ComponentName cn = new ComponentName(FOLDER_PKG, FOLDER_PREFIX + folder.id);
             Mirror.set(sShape.component, info, cn);
             Mirror.set(sShape.title, info, label);
+            // The entry is a copy of a real app, so any label field left holding that app's name
+            // would show through. Overwrite every one of them.
+            for (Field f : sLabelFields) {
+                Mirror.set(f, info, label);
+            }
+            String shown = titleOf(info);
+            if (!label.equals(shown)) {
+                L.w("native drawer: folder label did not take (shows '" + shown + "', wanted '"
+                        + label + "') - title field was " + sShape);
+            }
             if (sShape.user != null) {
                 Mirror.set(sShape.user, info, android.os.Process.myUserHandle());
             }

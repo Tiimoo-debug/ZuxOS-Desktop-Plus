@@ -15,8 +15,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Storage;
@@ -48,6 +50,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         WidgetResizeFrame.Callback {
 
     private static final Map<Activity, DesktopHost> ACTIVE = new WeakHashMap<>();
+    private static java.lang.ref.WeakReference<DesktopHost> sCurrent =
+            new java.lang.ref.WeakReference<>(null);
 
     private final Activity mActivity;
     private final boolean mExternal;
@@ -73,6 +77,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private int[] mPendingWidgetCell;
     private int[] mMenuCell;
     private int mSortMode;
+    private int mPage;
+    private TextView mPrevPage;
+    private TextView mNextPage;
+    private LinearLayout mDots;
 
     private DesktopHost(Activity activity, boolean external) {
         mActivity = activity;
@@ -95,6 +103,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mGrid.setFoldersEnabled(Cfg.foldersEnabled());
         int gridPad = Ui.dp(activity, 8);
         mGrid.setPadding(gridPad, gridPad, gridPad, gridPad);
+        Anim.enableLayoutTransitions(mGrid);
         mRoot.addView(mGrid, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -113,6 +122,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
         mAppsButton = buildAppsButton();
         mRoot.addView(mAppsButton);
+
+        buildPageControls();
 
         mWidgets = new WidgetHostCtl(activity, this);
 
@@ -148,6 +159,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         if (Cfg.probe()) {
             Probe.dump(activity, target.container);
         }
+        sCurrent = new java.lang.ref.WeakReference<>(host);
         host.mWidgets.start();
         host.mGrid.post(host::rebuildItems);
         L.i("desktop surface attached to " + activity.getClass().getName()
@@ -158,6 +170,23 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     public static synchronized DesktopHost of(Activity activity) {
         return ACTIVE.get(activity);
+    }
+
+    /** The desktop currently on screen, for hooks with no activity of their own. */
+    public static synchronized DesktopHost current() {
+        DesktopHost host = sCurrent.get();
+        return host != null && ACTIVE.containsValue(host) ? host : null;
+    }
+
+    /** Puts a shortcut the system just pinned onto the desktop. */
+    public void addPinnedItem(Item item) {
+        mRoot.post(() -> {
+            item.page = mPage;
+            mStore.add(item);
+            addItemView(item);
+            save();
+            toast("Added " + (item.label != null ? item.label : "shortcut") + " to the desktop");
+        });
     }
 
     public static synchronized void detach(Activity activity) {
@@ -242,7 +271,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         btn.setText("Apps");
         btn.setTextColor(Ui.COLOR_TEXT);
         btn.setGravity(Gravity.CENTER);
-        btn.setBackground(Ui.ripple(mActivity, 0xCC2B2B2E, Ui.dp(mActivity, 22)));
+        btn.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 22), 0xCC2B2B2E));
         int h = Ui.dp(mActivity, 44);
         btn.setPadding(Ui.dp(mActivity, 20), 0, Ui.dp(mActivity, 20), 0);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -260,12 +289,138 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         return btn;
     }
 
+    private void buildPageControls() {
+        mPrevPage = buildArrow("\u2039", Gravity.START, -1);
+        mNextPage = buildArrow("\u203A", Gravity.END, 1);
+        mRoot.addView(mPrevPage);
+        mRoot.addView(mNextPage);
+
+        mDots = new LinearLayout(mActivity);
+        mDots.setOrientation(LinearLayout.HORIZONTAL);
+        mDots.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = Ui.dp(mActivity, 10);
+        mDots.setLayoutParams(lp);
+        mRoot.addView(mDots);
+    }
+
+    /**
+     * A page arrow. It doubles as a drop target: dragging an icon onto it sends the icon to the
+     * neighbouring page, which is how items move between pages.
+     */
+    private TextView buildArrow(String glyph, int gravity, final int delta) {
+        TextView arrow = new TextView(mActivity);
+        arrow.setText(glyph);
+        arrow.setTextSize(26);
+        arrow.setTextColor(Ui.COLOR_TEXT);
+        arrow.setGravity(Gravity.CENTER);
+        arrow.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 20), 0x66202024));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                Ui.dp(mActivity, 40), Ui.dp(mActivity, 64));
+        lp.gravity = gravity | Gravity.CENTER_VERTICAL;
+        lp.leftMargin = Ui.dp(mActivity, 8);
+        lp.rightMargin = Ui.dp(mActivity, 8);
+        arrow.setLayoutParams(lp);
+        arrow.setVisibility(View.GONE);
+        arrow.setOnClickListener(v -> goToPage(mPage + delta));
+        arrow.setOnDragListener((v, event) -> {
+            Object local = event.getLocalState();
+            if (!(local instanceof DragPayload)) {
+                return false;
+            }
+            switch (event.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_STARTED:
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                    v.setAlpha(1f);
+                    return true;
+                case android.view.DragEvent.ACTION_DRAG_EXITED:
+                    v.setAlpha(0.8f);
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    moveToPage((DragPayload) local, mPage + delta);
+                    return true;
+                default:
+                    return true;
+            }
+        });
+        return arrow;
+    }
+
+    private void showArrow(View arrow, boolean visible) {
+        arrow.setAlpha(0.8f);
+        arrow.setVisibility(visible ? View.VISIBLE : View.GONE);
+        arrow.bringToFront();
+    }
+
+    private void updatePageControls() {
+        if (!Cfg.pages()) {
+            mPrevPage.setVisibility(View.GONE);
+            mNextPage.setVisibility(View.GONE);
+            mDots.setVisibility(View.GONE);
+            return;
+        }
+        int pages = Math.max(mStore.pageCount(), mPage + 1);
+        mPrevPage.setVisibility(mPage > 0 ? View.VISIBLE : View.GONE);
+        mNextPage.setVisibility(mPage < pages - 1 ? View.VISIBLE : View.GONE);
+
+        mDots.removeAllViews();
+        mDots.setVisibility(pages > 1 ? View.VISIBLE : View.GONE);
+        for (int i = 0; i < pages; i++) {
+            View dot = new View(mActivity);
+            int size = Ui.dp(mActivity, 7);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            lp.setMargins(Ui.dp(mActivity, 4), 0, Ui.dp(mActivity, 4), 0);
+            dot.setBackground(Ui.roundRect(i == mPage ? 0xFFFFFFFF : 0x66FFFFFF, size / 2));
+            final int target = i;
+            dot.setOnClickListener(v -> goToPage(target));
+            mDots.addView(dot, lp);
+        }
+    }
+
+    public void goToPage(int page) {
+        int pages = Math.max(mStore.pageCount(), mPage + 1);
+        final int target = Math.max(0, Math.min(page, pages - 1));
+        if (target == mPage) {
+            return;
+        }
+        boolean forward = target > mPage;
+        Anim.slidePage(mGrid, forward, () -> {
+            mPage = target;
+            rebuildItems();
+        });
+    }
+
+    private void moveToPage(DragPayload payload, int page) {
+        if (page < 0) {
+            return;
+        }
+        Item item = payload.source == DragPayload.SRC_DRAWER
+                ? copyForDesktop(payload.item) : payload.item;
+        if (payload.source == DragPayload.SRC_FOLDER && payload.folder != null) {
+            payload.folder.children.remove(item);
+            dissolveIfEmpty(payload.folder);
+        }
+        item.page = page;
+        // Unplaced: the target page finds it a free cell when it is next built.
+        item.x = -1;
+        item.y = -1;
+        if (!mStore.items().contains(item)) {
+            mStore.add(item);
+        }
+        save();
+        rebuildItems();
+        toast("Moved to page " + (page + 1));
+    }
+
     private TextView buildTrash() {
         TextView trash = new TextView(mActivity);
         trash.setText("Remove");
         trash.setTextColor(Ui.COLOR_TEXT);
         trash.setGravity(Gravity.CENTER);
-        trash.setBackground(Ui.roundRect(0xCCB3261E, Ui.dp(mActivity, 20)));
+        trash.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 20), 0xCCB3261E));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 Ui.dp(mActivity, 180), Ui.dp(mActivity, 40));
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
@@ -338,10 +493,14 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             mGrid.removeAllViews();
             List<Item> dead = new ArrayList<>();
             for (Item item : mStore.items()) {
+                if (Cfg.pages() && item.page != mPage) {
+                    continue;
+                }
                 if (!addItemView(item)) {
                     dead.add(item);
                 }
             }
+            updatePageControls();
             for (Item item : dead) {
                 mStore.remove(item);
             }
@@ -430,6 +589,11 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             mTrash.setVisibility(dragSource == DragPayload.SRC_DRAWER ? View.GONE : View.VISIBLE);
             mTrash.setAlpha(0.75f);
             mTrash.bringToFront();
+            if (Cfg.pages()) {
+                // Both arrows show during a drag: dragging past the last one starts a new page.
+                showArrow(mPrevPage, mPage > 0);
+                showArrow(mNextPage, true);
+            }
         } catch (Throwable t) {
             L.e("could not start drag", t);
         }
@@ -442,7 +606,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         try {
             switch (payload.source) {
                 case DragPayload.SRC_DRAWER: {
-                    Item copy = copyForDesktop(payload.item);
+                    Item copy = adopt(copyForDesktop(payload.item));
                     copy.x = cellX;
                     copy.y = cellY;
                     mStore.add(copy);
@@ -455,6 +619,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                         payload.folder.children.remove(payload.item);
                         dissolveIfEmpty(payload.folder);
                     }
+                    adopt(payload.item);
                     payload.item.x = cellX;
                     payload.item.y = cellY;
                     mStore.add(payload.item);
@@ -497,6 +662,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 target.children.add(dragged);
             } else {
                 Item folder = Item.folder("Folder");
+                folder.page = target.page;
                 folder.x = target.x;
                 folder.y = target.y;
                 folder.children.add(target);
@@ -524,6 +690,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             mDragView = null;
         }
         mTrash.setVisibility(View.GONE);
+        updatePageControls();
     }
 
     @Override
@@ -556,6 +723,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         for (Item remaining : new ArrayList<>(folder.children)) {
             remaining.x = folder.x;
             remaining.y = folder.y;
+            remaining.page = folder.page;
             mStore.add(remaining);
         }
         folder.children.clear();
@@ -591,6 +759,14 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             entries.add(new Menus.Entry("Rename folder", () -> Dialogs.prompt(mActivity,
                     "Rename folder", item.label, name -> {
                         item.label = name;
+                        save();
+                        rebuildItems();
+                    })));
+            entries.add(new Menus.Entry("Add apps to folder", () -> Dialogs.pickApps(mActivity,
+                    mRepo, "Add to " + (item.label != null ? item.label : "folder"), picked -> {
+                        for (AppsRepo.AppEntry entry : picked) {
+                            item.children.add(entry.toItem());
+                        }
                         save();
                         rebuildItems();
                     })));
@@ -644,7 +820,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         List<Menus.Entry> entries = Menus.list();
         entries.add(new Menus.Entry("Add app", () -> Dialogs.pickApp(mActivity, mRepo, "Add app",
                 entry -> {
-                    Item item = entry.toItem();
+                    Item item = adopt(entry.toItem());
                     placeAtMenuCell(item);
                     mStore.add(item);
                     addItemView(item);
@@ -655,9 +831,25 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             mWidgets.showPicker();
         }).disabledIf(!Cfg.widgetsEnabled()));
         entries.add(new Menus.Entry("Add shortcut", this::addShortcutFlow));
+        entries.add(new Menus.Entry("New folder with apps", () -> Dialogs.pickApps(mActivity,
+                mRepo, "Apps for the new folder", picked -> {
+                    Item folder = adopt(Item.folder("Folder"));
+                    for (AppsRepo.AppEntry entry : picked) {
+                        folder.children.add(entry.toItem());
+                    }
+                    placeAtMenuCell(folder);
+                    mStore.add(folder);
+                    addItemView(folder);
+                    save();
+                    Dialogs.prompt(mActivity, "Folder name", "Folder", name -> {
+                        folder.label = name.isEmpty() ? "Folder" : name;
+                        save();
+                        rebuildItems();
+                    });
+                })).disabledIf(!Cfg.foldersEnabled()));
         entries.add(new Menus.Entry("New empty folder", () -> Dialogs.prompt(mActivity,
                 "Folder name", "Folder", name -> {
-                    Item folder = Item.folder(name.isEmpty() ? "Folder" : name);
+                    Item folder = adopt(Item.folder(name.isEmpty() ? "Folder" : name));
                     placeAtMenuCell(folder);
                     mStore.add(folder);
                     addItemView(folder);
@@ -666,6 +858,11 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         entries.add(new Menus.Entry(mDrawer.isOpen() ? "Close app drawer" : "Open app drawer",
                 mDrawer::toggle));
         entries.add(new Menus.Entry("Tidy up icons", this::tidyUp));
+        if (Cfg.pages()) {
+            entries.add(new Menus.Entry("Add a page", this::addPage));
+            entries.add(new Menus.Entry("Remove this page", this::removeCurrentPage)
+                    .disabledIf(mStore.pageCount() < 2 || !mStore.isPageEmpty(mPage)));
+        }
         entries.add(new Menus.Entry("Icon size", () -> Dialogs.slider(mActivity, "Icon size", "dp",
                 override(mActivity, Const.KEY_ICON_SIZE, Cfg.iconSizeDp()), 32, 96, value -> {
                     writeSetting(Const.KEY_ICON_SIZE, value);
@@ -683,6 +880,12 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         Menus.showAt(mActivity, mRoot, x, y, entries);
     }
 
+    /** New items belong to the page currently on screen. */
+    private Item adopt(Item item) {
+        item.page = mPage;
+        return item;
+    }
+
     /** Places a newly created item where the menu was opened, if that spot is free. */
     private void placeAtMenuCell(Item item) {
         if (mMenuCell == null) {
@@ -694,10 +897,30 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
     }
 
+    private void addPage() {
+        // A page exists once something is on it, so switch to the next slot and let the first
+        // item that lands there create it.
+        mPage = Math.max(mStore.pageCount(), mPage + 1);
+        rebuildItems();
+        toast("Page " + (mPage + 1));
+    }
+
+    private void removeCurrentPage() {
+        if (mStore.pageCount() < 2 || !mStore.isPageEmpty(mPage)) {
+            toast("Only an empty page can be removed");
+            return;
+        }
+        mStore.removePage(mPage);
+        mPage = Math.max(0, mPage - 1);
+        save();
+        rebuildItems();
+    }
+
     private void unpack(Item folder) {
         for (Item child : new ArrayList<>(folder.children)) {
             child.x = -1;
             child.y = -1;
+            child.page = folder.page;
             mStore.add(child);
         }
         folder.children.clear();
@@ -710,7 +933,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         int cols = Math.max(1, mGrid.getCols());
         int index = 0;
         for (Item item : mStore.items()) {
-            if (item.type == Item.TYPE_WIDGET) {
+            if (item.type == Item.TYPE_WIDGET || (Cfg.pages() && item.page != mPage)) {
                 continue;
             }
             item.x = index % cols;
@@ -729,8 +952,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     private void pinShortcut(ShortcutInfo info) {
         CharSequence label = info.getShortLabel() != null ? info.getShortLabel() : info.getLongLabel();
-        Item item = Item.shortcut(info.getPackage(), info.getId(), serialOf(info),
-                label != null ? label.toString() : info.getId());
+        Item item = adopt(Item.shortcut(info.getPackage(), info.getId(), serialOf(info),
+                label != null ? label.toString() : info.getId()));
         placeAtMenuCell(item);
         mStore.add(item);
         addItemView(item);
@@ -844,15 +1067,17 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mResizeFrame = new WidgetResizeFrame(mActivity, mGrid, item, target, this);
         mRoot.addView(mResizeFrame);
         mResizeFrame.syncToItem();
+        Anim.fadeIn(mResizeFrame);
         mResizeBar = buildResizeBar(item);
         mRoot.addView(mResizeBar);
+        Anim.fadeIn(mResizeBar);
     }
 
     /** Remove / Done buttons shown while a widget is being resized. */
     private View buildResizeBar(Item item) {
         LinearLayout bar = new LinearLayout(mActivity);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackground(Ui.roundRect(0xEE2B2B2E, Ui.dp(mActivity, 22)));
+        bar.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 22), 0xEE2B2B2E));
         int padH = Ui.dp(mActivity, 8);
         bar.setPadding(padH, padH / 2, padH, padH / 2);
 
@@ -971,10 +1196,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             int[] spans = mWidgets.minSpans(info, mGrid.getCellWidth(), mGrid.getCellHeight());
             String label = info != null ? mWidgets.labelOf(info) : "Widget";
             ComponentName provider = info != null ? info.provider : null;
-            Item item = Item.widget(widgetId,
+            Item item = adopt(Item.widget(widgetId,
                     provider != null ? provider.getPackageName() : null,
                     provider != null ? provider.getClassName() : null,
-                    spans[0], spans[1], label);
+                    spans[0], spans[1], label));
             if (mPendingWidgetCell != null) {
                 item.x = mPendingWidgetCell[0];
                 item.y = mPendingWidgetCell[1];
@@ -1048,6 +1273,12 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                         item.label = name;
                         mDrawerStore.save();
                         mDrawer.rebuild();
+                    })));
+            entries.add(new Menus.Entry("Add apps to folder", () -> Dialogs.pickApps(mActivity,
+                    mRepo, "Add to " + (item.label != null ? item.label : "folder"), picked -> {
+                        for (AppsRepo.AppEntry entry : picked) {
+                            mDrawer.addToFolder(item, entry.toItem());
+                        }
                     })));
             entries.add(new Menus.Entry("Break up folder", () -> {
                 for (Item child : new ArrayList<>(item.children)) {

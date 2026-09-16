@@ -112,13 +112,20 @@ If you only ever see the warning, it prints why: whether the window, the decor v
 missing, whether the activity is finishing, and whether the launcher may draw overlay windows.
 Send that line - it names the remaining fallback to use.
 
-## 7. Where the data lives
+## 7. Dumping the taskbar
+
+The taskbar and its drawer are separate windows, so they are not in the activity's view tree.
+With the taskbar on screen, use **Export layout + launcher info** from the desktop's right-click
+menu: it walks every root view in the launcher process and prints each window's tree. That dump is
+what any work inside the stock taskbar - status info, toggles, restyling - has to be built from.
+
+## 8. Where the data lives
 
 Inside the home app's private data dir, `files/zux_desktop_plus/`:
 
 | File | Contents |
 |---|---|
-| `desktop.json` | the external-display desktop layout |
+| `desktop.json` | the external-display desktop layout, including which page each item is on |
 | `desktop-internal.json` | the tablet-screen layout (when attached there) |
 | `drawer.json` | drawer order, drawer folders, hidden apps |
 | `overrides.json` | icon/cell size changed from the desktop menu |

@@ -11,6 +11,8 @@ import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.zuxos.desktopplus.core.Anim;
+import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
@@ -33,6 +35,7 @@ public class FolderOverlay extends FrameLayout {
     private final GridLayout mGrid;
     private final EditText mName;
     private final TextView mEmpty;
+    private LinearLayout mPanel;
     private Item mFolder;
 
     public FolderOverlay(Context ctx, AppsRepo repo, Listener listener) {
@@ -44,9 +47,9 @@ public class FolderOverlay extends FrameLayout {
         setVisibility(GONE);
         setOnClickListener(v -> close());
 
-        LinearLayout panel = new LinearLayout(ctx);
+        final LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackground(Ui.roundRect(Ui.COLOR_PANEL, Ui.dp(ctx, 24)));
+        panel.setBackground(Glass.panel(ctx, Ui.dp(ctx, 24)));
         int pad = Ui.dp(ctx, 20);
         panel.setPadding(pad, pad, pad, pad);
         // Swallow clicks so tapping the panel itself does not close the folder.
@@ -93,6 +96,7 @@ public class FolderOverlay extends FrameLayout {
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         plp.gravity = Gravity.CENTER;
         addView(panel, plp);
+        mPanel = panel;
     }
 
     public Item getFolder() {
@@ -107,8 +111,8 @@ public class FolderOverlay extends FrameLayout {
         mFolder = folder;
         mName.setText(folder.label != null ? folder.label : "Folder");
         rebuild(iconSizePx, showLabels, labelShadow);
-        setVisibility(VISIBLE);
         bringToFront();
+        Anim.popIn(this, mPanel);
     }
 
     public void rebuild(int iconSizePx, boolean showLabels, boolean labelShadow) {
@@ -142,11 +146,12 @@ public class FolderOverlay extends FrameLayout {
         if (getVisibility() != VISIBLE) {
             return;
         }
-        setVisibility(GONE);
-        Item folder = mFolder;
+        final Item folder = mFolder;
         mFolder = null;
-        if (folder != null) {
-            mListener.onClosed(folder);
-        }
+        Anim.fadeOut(this, () -> {
+            if (folder != null) {
+                mListener.onClosed(folder);
+            }
+        });
     }
 }

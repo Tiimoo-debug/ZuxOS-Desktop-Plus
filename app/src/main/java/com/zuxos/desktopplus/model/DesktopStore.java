@@ -99,6 +99,33 @@ public final class DesktopStore {
         }
     }
 
+    /** Pages in use, always at least one. */
+    public int pageCount() {
+        int max = 0;
+        for (Item i : mItems) {
+            max = Math.max(max, i.page);
+        }
+        return max + 1;
+    }
+
+    public boolean isPageEmpty(int page) {
+        for (Item i : mItems) {
+            if (i.page == page) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Closes the gap left by an emptied page so pages stay consecutive. */
+    public synchronized void removePage(int page) {
+        for (Item i : mItems) {
+            if (i.page > page) {
+                i.page--;
+            }
+        }
+    }
+
     public Item findById(String id) {
         for (Item i : mItems) {
             if (i.id.equals(id)) {

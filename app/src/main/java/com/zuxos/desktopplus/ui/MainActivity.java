@@ -76,8 +76,19 @@ public class MainActivity extends Activity {
         addSwitch("Show icon labels", null, Const.KEY_SHOW_LABELS, true);
         addSwitch("Shadow behind labels", "Keeps labels readable on light wallpapers",
                 Const.KEY_LABEL_SHADOW, true);
-        addSwitch("Show the Apps button", "Bottom-left button that opens the app drawer",
-                Const.KEY_DRAWER_BUTTON, true);
+        addSwitch("Show the Apps button",
+                "Off by default - the stock taskbar covers it. The drawer still opens from the "
+                        + "desktop menu or the All-apps key",
+                Const.KEY_DRAWER_BUTTON, false);
+        addSwitch("Desktop pages", "Arrows and dots for more than one page of icons",
+                Const.KEY_PAGES, true);
+        addSwitch("Catch pinned shortcuts",
+                "A web page or file pinned from any app also lands on the desktop",
+                Const.KEY_CATCH_PINS, true);
+        addSwitch("Glass style", "Translucent panels, with real blur where Android allows it",
+                Const.KEY_GLASS, true);
+        addSwitch("Animations", "Sliding, fading and page transitions",
+                Const.KEY_ANIMATIONS, true);
         addSlider("Grid cell size", "dp", Const.KEY_CELL_SIZE, 104, 72, 180);
         addSlider("Icon size", "dp", Const.KEY_ICON_SIZE, 52, 32, 96);
 

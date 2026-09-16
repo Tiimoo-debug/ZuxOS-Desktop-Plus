@@ -30,6 +30,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
             }
             L.i("loaded into " + lpparam.packageName + " (" + lpparam.processName + ")");
             ActivityWatcher.install(lpparam.classLoader);
+            PinRequestHooks.install();
             if (Cfg.nativeDrawer()) {
                 NativeDrawerHooks.install(lpparam.classLoader);
             }

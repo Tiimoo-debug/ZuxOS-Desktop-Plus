@@ -12,6 +12,7 @@ public final class Cfg {
 
     private static XSharedPreferences sPrefs;
     private static boolean sUnavailable;
+    private static long sLastCheck;
 
     private Cfg() {
     }
@@ -25,8 +26,12 @@ public final class Cfg {
                 sPrefs = new XSharedPreferences(Const.MODULE_PKG, Const.PREFS);
                 sPrefs.makeWorldReadable();
             }
-            if (sPrefs.hasFileChanged()) {
-                sPrefs.reload();
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - sLastCheck > 500) {
+                sLastCheck = now;
+                if (sPrefs.hasFileChanged()) {
+                    sPrefs.reload();
+                }
             }
             return sPrefs;
         } catch (Throwable t) {
@@ -127,7 +132,24 @@ public final class Cfg {
     }
 
     public static boolean drawerButton() {
-        return getBool(Const.KEY_DRAWER_BUTTON, true);
+        // Off by default: the stock taskbar sits on top of it.
+        return getBool(Const.KEY_DRAWER_BUTTON, false);
+    }
+
+    public static boolean catchPinnedShortcuts() {
+        return getBool(Const.KEY_CATCH_PINS, true);
+    }
+
+    public static boolean pages() {
+        return getBool(Const.KEY_PAGES, true);
+    }
+
+    public static boolean glass() {
+        return getBool(Const.KEY_GLASS, true);
+    }
+
+    public static boolean animations() {
+        return getBool(Const.KEY_ANIMATIONS, true);
     }
 
     public static boolean nativeDrawer() {

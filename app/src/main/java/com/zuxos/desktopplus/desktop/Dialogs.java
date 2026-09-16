@@ -35,6 +35,10 @@ public final class Dialogs {
         void onApp(AppsRepo.AppEntry entry);
     }
 
+    public interface AppsCallback {
+        void onApps(List<AppsRepo.AppEntry> entries);
+    }
+
     public interface ShortcutCallback {
         void onShortcut(ShortcutInfo info);
     }
@@ -128,6 +132,76 @@ public final class Dialogs {
             cb.onApp(shown.get(position));
         });
         show(dialog);
+    }
+
+    /**
+     * Multi-select app picker.
+     *
+     * <p>Filling a folder one app at a time gets old fast, so folders are built by ticking a
+     * list. Searching keeps the ticks - the selection lives outside the filtered view.
+     */
+    public static void pickApps(Activity a, AppsRepo repo, String title, AppsCallback cb) {
+        final List<AppsRepo.AppEntry> all = new ArrayList<>(repo.apps());
+        final List<AppsRepo.AppEntry> shown = new ArrayList<>(all);
+        final java.util.LinkedHashSet<String> picked = new java.util.LinkedHashSet<>();
+
+        LinearLayout root = new LinearLayout(a);
+        root.setOrientation(LinearLayout.VERTICAL);
+        EditText search = new EditText(a);
+        search.setHint("Search");
+        search.setSingleLine(true);
+        int pad = Ui.dp(a, 16);
+        search.setPadding(pad, pad / 2, pad, pad / 2);
+        root.addView(search, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final TextView count = new TextView(a);
+        count.setPadding(pad, 0, pad, pad / 2);
+        count.setText("None selected");
+        root.addView(count);
+
+        ListView list = new ListView(a);
+        final MultiAppAdapter adapter = new MultiAppAdapter(a, repo, shown, picked);
+        list.setAdapter(adapter);
+        root.addView(list, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(a, 400)));
+
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            AppsRepo.AppEntry entry = shown.get(position);
+            if (!picked.remove(entry.key())) {
+                picked.add(entry.key());
+            }
+            count.setText(picked.isEmpty() ? "None selected" : picked.size() + " selected");
+            adapter.notifyDataSetChanged();
+        });
+        search.addTextChangedListener(new SimpleWatcher(text -> {
+            shown.clear();
+            String q = text.toLowerCase();
+            for (AppsRepo.AppEntry e : all) {
+                if (q.isEmpty() || e.label.toLowerCase().contains(q)) {
+                    shown.add(e);
+                }
+            }
+            adapter.notifyDataSetChanged();
+        }));
+
+        show(new AlertDialog.Builder(a)
+                .setTitle(title)
+                .setView(root)
+                .setPositiveButton("Add", (d, w) -> {
+                    List<AppsRepo.AppEntry> result = new ArrayList<>();
+                    for (String key : picked) {
+                        AppsRepo.AppEntry entry = repo.byKey(key);
+                        if (entry != null) {
+                            result.add(entry);
+                        }
+                    }
+                    if (!result.isEmpty()) {
+                        cb.onApps(result);
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .create());
     }
 
     /** Deep shortcuts published by an app, so users can pin "New message", "New tab", ... */
@@ -296,6 +370,69 @@ public final class Dialogs {
             icon.setImageDrawable(mRepo.iconFor(e));
             int size = Ui.dp(mCtx, 36);
             row.addView(icon, new LinearLayout.LayoutParams(size, size));
+            TextView tv = new TextView(mCtx);
+            tv.setText(e.label);
+            tv.setTextSize(16);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            lp.leftMargin = Ui.dp(mCtx, 12);
+            row.addView(tv, lp);
+            return row;
+        }
+    }
+
+    /** Rows with a tick box for {@link #pickApps}. */
+    private static final class MultiAppAdapter extends BaseAdapter {
+        private final Context mCtx;
+        private final AppsRepo mRepo;
+        private final List<AppsRepo.AppEntry> mItems;
+        private final java.util.Set<String> mPicked;
+
+        MultiAppAdapter(Context ctx, AppsRepo repo, List<AppsRepo.AppEntry> items,
+                java.util.Set<String> picked) {
+            mCtx = ctx;
+            mRepo = repo;
+            mItems = items;
+            mPicked = picked;
+        }
+
+        @Override
+        public int getCount() {
+            return mItems.size();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            return mItems.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            LinearLayout row = new LinearLayout(mCtx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            int pad = Ui.dp(mCtx, 10);
+            row.setPadding(pad, pad, pad, pad);
+
+            AppsRepo.AppEntry e = mItems.get(position);
+            android.widget.CheckBox box = new android.widget.CheckBox(mCtx);
+            box.setChecked(mPicked.contains(e.key()));
+            box.setClickable(false);
+            box.setFocusable(false);
+            row.addView(box);
+
+            ImageView icon = new ImageView(mCtx);
+            icon.setImageDrawable(mRepo.iconFor(e));
+            int size = Ui.dp(mCtx, 36);
+            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(size, size);
+            ilp.leftMargin = Ui.dp(mCtx, 4);
+            row.addView(icon, ilp);
+
             TextView tv = new TextView(mCtx);
             tv.setText(e.label);
             tv.setTextSize(16);

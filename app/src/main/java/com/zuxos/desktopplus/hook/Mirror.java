@@ -141,49 +141,120 @@ public final class Mirror {
         }
     }
 
+    /** Supplies the label the system reports for an entry, used to identify the title field. */
+    public interface LabelResolver {
+        CharSequence labelOf(Object entry);
+    }
+
     /**
-     * Learns the shape of AppInfo from a real instance.
+     * Learns the shape of an app entry from real instances.
      *
-     * <p>{@code title} is the one that cannot be found by type alone - several fields hold a
-     * CharSequence - so it is identified by matching the label the system reports for that same
-     * component.
+     * <p>The label is the one field that cannot be found by type - an entry holds several
+     * CharSequences, and {@code contentDescription} usually mirrors the title closely enough to
+     * fool a single-sample guess. So: prefer a field actually called {@code title} when the
+     * obfuscator left the name intact, otherwise score every candidate against the labels the
+     * system reports, across many entries, and take the one that agrees most often.
      */
-    public static AppInfoShape learnAppInfo(Object sample, CharSequence knownLabel) {
-        Class<?> cls = sample.getClass();
+    public static AppInfoShape learnAppInfo(List<Object> samples, LabelResolver labels) {
+        if (samples.isEmpty()) {
+            return new AppInfoShape(null, null, null, null, null);
+        }
+        Object first = samples.get(0);
+        Class<?> cls = first.getClass();
+
         Field component = null;
         Field user = null;
         Field intent = null;
         Field bitmap = null;
-        Field title = null;
-        Field firstCharSequence = null;
+        List<Field> textFields = new ArrayList<>();
 
         for (Field f : fields(cls)) {
-            Object value = get(f, sample);
-            if (component == null && value instanceof ComponentName) {
+            Object value = get(f, first);
+            if (component == null && ComponentName.class.isAssignableFrom(f.getType())) {
                 component = f;
-            } else if (user == null && value instanceof UserHandle) {
+            } else if (user == null && UserHandle.class.isAssignableFrom(f.getType())) {
                 user = f;
-            } else if (intent == null && value instanceof Intent) {
+            } else if (intent == null && Intent.class.isAssignableFrom(f.getType())) {
                 intent = f;
             } else if (bitmap == null && f.getType().getName().contains("BitmapInfo")) {
                 bitmap = f;
-            } else if (value instanceof CharSequence) {
-                if (firstCharSequence == null) {
-                    firstCharSequence = f;
-                }
-                if (title == null && knownLabel != null
-                        && knownLabel.toString().contentEquals((CharSequence) value)) {
+            } else if (CharSequence.class.isAssignableFrom(f.getType())
+                    || value instanceof CharSequence) {
+                textFields.add(f);
+            }
+        }
+
+        Field title = byName(textFields, "title");
+        if (title == null) {
+            title = bestLabelField(textFields, samples, labels);
+        }
+        if (title == null) {
+            // Last resort: anything but the accessibility text, which is not the label.
+            for (Field f : textFields) {
+                if (!"contentDescription".equals(f.getName())) {
                     title = f;
+                    break;
                 }
             }
         }
-        if (title == null) {
-            title = firstCharSequence;
-        }
-        if (bitmap == null) {
-            bitmap = fieldOfTypeNamed(cls, "BitmapInfo");
-        }
         return new AppInfoShape(component, user, title, intent, bitmap);
+    }
+
+    private static Field byName(List<Field> candidates, String name) {
+        for (Field f : candidates) {
+            if (f.getName().equals(name)) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    /** The CharSequence field that matches the system's label for the most entries. */
+    private static Field bestLabelField(List<Field> candidates, List<Object> samples,
+            LabelResolver labels) {
+        Field best = null;
+        int bestScore = 0;
+        for (Field f : candidates) {
+            if ("contentDescription".equals(f.getName())) {
+                // Mirrors the title often enough to win by luck; only used as a fallback.
+                continue;
+            }
+            int score = 0;
+            int checked = 0;
+            for (Object sample : samples) {
+                if (checked >= 25) {
+                    break;
+                }
+                CharSequence expected = labels.labelOf(sample);
+                if (expected == null) {
+                    continue;
+                }
+                checked++;
+                Object value = get(f, sample);
+                if (value instanceof CharSequence
+                        && expected.toString().contentEquals((CharSequence) value)) {
+                    score++;
+                }
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = f;
+            }
+        }
+        return best;
+    }
+
+    /** Every CharSequence field named like a label, so a folder's name lands wherever it is read. */
+    public static List<Field> labelFields(Class<?> cls) {
+        List<Field> out = new ArrayList<>();
+        for (Field f : fields(cls)) {
+            String name = f.getName();
+            if (CharSequence.class.isAssignableFrom(f.getType())
+                    && (name.equals("title") || name.equals("contentDescription"))) {
+                out.add(f);
+            }
+        }
+        return out;
     }
 
     /** Creates an AppInfo: no-arg constructor if there is one, otherwise a copy of a sample. */

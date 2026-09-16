@@ -23,7 +23,15 @@ On the external-display desktop:
 - **Shortcuts** — pin an app's deep shortcuts ("New message", "New private tab", …) straight onto
   the desktop.
 - **Widgets** — a real `AppWidgetHost` runs inside the launcher, so widgets work even though the
-  stock desktop mode has no widget support at all. Add, move and resize them from the menus.
+  stock desktop mode has no widget support at all. Long-press one for a resize frame: drag an edge
+  to resize, the middle to move, and Remove / Done in the bar at the top.
+- **Pages** — arrows at the edges and dots at the bottom. Drag an icon onto an arrow to send it to
+  the next page; dragging past the last page starts a new one.
+- **Pinned shortcuts land here** — a web page or file pinned from any app (a browser's "add to
+  home screen") normally goes to the tablet's home screen and never appears in desktop mode. The
+  module catches the request and puts it on the desktop too.
+- **Multi-select** — build a folder by ticking a list of apps rather than one drag at a time, on
+  the desktop and in the drawer.
 
 In the app drawer - both the module's own (the **Apps** button, or the All-Apps / Search key) and,
 where the launcher's list can be reached, **the stock drawer the taskbar opens**:
@@ -112,6 +120,23 @@ Everything you arrange is stored inside the launcher's own data directory
 | **Attach to any activity** | Last resort if the desktop home is not detected. |
 | **Extra launcher packages** | If your ZuxOS build ships the home app under a package the module does not know. |
 | **Dump launcher info on attach** | Writes the activity name, display info and full view tree to the LSPosed log and to `Android/data/<home app>/files/zux_desktop_plus/probe.txt`. This is the file to look at (or attach to a bug report) when something does not appear. |
+| **Desktop pages / Glass style / Animations** | All three are on by default and can be turned off individually. |
+| **Show the Apps button** | Off by default, because the stock taskbar sits on top of it. The drawer still opens from the desktop menu or the All-apps key. |
+
+## Not done yet
+
+These were asked for and are honestly not built:
+
+- **Anything inside the stock taskbar** — notifications, network info, quick toggles, or restyling
+  it as glass. The taskbar is a separate window owned by the launcher, and injecting views into it
+  needs its view tree identified first (`Export layout + launcher info` now dumps every window in
+  the process, which is the missing input).
+- **Notifications** — needs a `NotificationListenerService` in the settings app plus an explicit
+  grant from the user; a real feature in its own right rather than a tweak.
+- **Dragging out of the *stock* drawer** onto the desktop — that is a cross-window drag. The
+  module's own drawer already supports dragging apps straight out onto the desktop.
+- **Glass on the stock drawer** — same dependency as the taskbar. The module's own panels use
+  layered translucency, and windows it owns outright (folder popups) use real backdrop blur.
 
 ## Known limits — read before filing a bug
 

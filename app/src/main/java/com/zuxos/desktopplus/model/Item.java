@@ -22,6 +22,8 @@ public class Item {
     public int y = -1;
     public int spanX = 1;
     public int spanY = 1;
+    /** Which desktop page this item lives on. */
+    public int page;
 
     public String pkg;
     public String cls;
@@ -109,6 +111,7 @@ public class Item {
         o.put("y", y);
         o.put("spanX", spanX);
         o.put("spanY", spanY);
+        o.put("page", page);
         putIfSet(o, "pkg", pkg);
         putIfSet(o, "cls", cls);
         o.put("user", userSerial);
@@ -140,6 +143,7 @@ public class Item {
         i.y = o.optInt("y", -1);
         i.spanX = Math.max(1, o.optInt("spanX", 1));
         i.spanY = Math.max(1, o.optInt("spanY", 1));
+        i.page = Math.max(0, o.optInt("page", 0));
         i.pkg = o.has("pkg") ? o.getString("pkg") : null;
         i.cls = o.has("cls") ? o.getString("cls") : null;
         i.userSerial = o.optLong("user", 0);

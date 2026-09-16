@@ -1,7 +1,6 @@
 package com.zuxos.desktopplus.drawer;
 
 import android.content.Context;
-import android.graphics.drawable.GradientDrawable;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
@@ -11,7 +10,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.Const;
+import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.DragPayload;
@@ -78,10 +79,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         LinearLayout sheet = new LinearLayout(ctx);
         mSheet = sheet;
         sheet.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = Ui.roundRect(Ui.COLOR_PANEL, Ui.dp(ctx, 28));
-        bg.setCornerRadii(new float[]{
-                Ui.dp(ctx, 28), Ui.dp(ctx, 28), Ui.dp(ctx, 28), Ui.dp(ctx, 28), 0, 0, 0, 0});
-        sheet.setBackground(bg);
+        sheet.setBackground(Glass.sheet(ctx, Ui.dp(ctx, 28)));
         sheet.setClickable(true);
 
         LinearLayout header = new LinearLayout(ctx);
@@ -169,12 +167,15 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mSearch.setText("");
         mQuery = "";
         rebuild();
-        setVisibility(VISIBLE);
         bringToFront();
+        Anim.slideUp(this, mSheet);
     }
 
     public void hide() {
-        setVisibility(GONE);
+        if (getVisibility() != VISIBLE) {
+            return;
+        }
+        Anim.slideDown(this, mSheet, null);
     }
 
     public void toggle() {
