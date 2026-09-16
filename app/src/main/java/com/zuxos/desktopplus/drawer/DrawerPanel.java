@@ -69,6 +69,14 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
 
     private String mQuery = "";
     private boolean mOpenRequested;
+    private int mBuiltIconSize;
+    private boolean mBuiltLabels = true;
+    private boolean mBuiltShadow = true;
+
+    /** Shared by every item view: the view knows which item it is bound to. */
+    private final OnClickListener mItemClick;
+    private final OnLongClickListener mItemLongClick;
+    private final OnContextClickListener mItemContextClick;
 
     public DrawerPanel(Context ctx, AppsRepo repo, DrawerStore store, Listener listener) {
         super(ctx);
@@ -76,6 +84,35 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mStore = store;
         mListener = listener;
         setVisibility(GONE);
+
+        mItemClick = v -> {
+            Item item = ((ItemView) v).getItem();
+            if (item == null) {
+                return;
+            }
+            if (item.type == Item.TYPE_FOLDER) {
+                mListener.onOpenFolder(item);
+            } else {
+                mListener.onLaunch(item, v);
+            }
+        };
+        mItemLongClick = v -> {
+            Item item = ((ItemView) v).getItem();
+            if (item != null) {
+                mListener.onStartDrag(item, v);
+            }
+            return true;
+        };
+        mItemContextClick = v -> {
+            Item item = ((ItemView) v).getItem();
+            if (item != null) {
+                int[] loc = new int[2];
+                v.getLocationOnScreen(loc);
+                mListener.onItemMenu(item, v, loc[0] + v.getWidth() / 2f,
+                        loc[1] + v.getHeight() / 2f);
+            }
+            return true;
+        };
 
         GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0xC01A1A1E);
         mSheet = sheet;
@@ -234,42 +271,52 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
             mEntries.addAll(filtered);
         }
 
-        mGrid.removeAllViews();
         int iconSize = mListener.iconSizePx();
+        boolean labels = mListener.showLabels();
+        boolean shadow = mListener.labelShadow();
+        if (iconSize != mBuiltIconSize || labels != mBuiltLabels || shadow != mBuiltShadow) {
+            // Icon geometry is baked into the views, so only a size change needs new ones.
+            mGrid.removeAllViews();
+            mBuiltIconSize = iconSize;
+            mBuiltLabels = labels;
+            mBuiltShadow = shadow;
+        }
         mGrid.setCellSize(iconSize + Ui.dp(getContext(), 44),
-                iconSize + Ui.dp(getContext(), mListener.showLabels() ? 52 : 20));
-        for (final Item entry : mEntries) {
-            ItemView iv = new ItemView(getContext(), iconSize, mListener.showLabels(),
-                    mListener.labelShadow());
+                iconSize + Ui.dp(getContext(), labels ? 52 : 20));
+
+        // Rebind the views that are already there instead of building a fresh one per app:
+        // this runs on every keystroke in the search box.
+        while (mGrid.getChildCount() > mEntries.size()) {
+            mGrid.removeViewAt(mGrid.getChildCount() - 1);
+        }
+        for (int i = 0; i < mEntries.size(); i++) {
+            Item entry = mEntries.get(i);
+            ItemView iv;
+            if (i < mGrid.getChildCount()) {
+                iv = (ItemView) mGrid.getChildAt(i);
+            } else {
+                iv = new ItemView(getContext(), iconSize, labels, shadow);
+                mGrid.addView(iv);
+            }
             iv.bind(entry, mRepo);
-            iv.setOnClickListener(v -> {
-                if (entry.type == Item.TYPE_FOLDER) {
-                    mListener.onOpenFolder(entry);
-                } else {
-                    mListener.onLaunch(entry, v);
-                }
-            });
-            iv.setOnLongClickListener(v -> {
-                mListener.onStartDrag(entry, v);
-                return true;
-            });
-            iv.setOnContextClickListener(v -> {
-                int[] loc = new int[2];
-                v.getLocationOnScreen(loc);
-                mListener.onItemMenu(entry, v, loc[0] + v.getWidth() / 2f, loc[1] + v.getHeight() / 2f);
-                return true;
-            });
-            mGrid.addView(iv);
+            iv.setOnClickListener(mItemClick);
+            iv.setOnLongClickListener(mItemLongClick);
+            iv.setOnContextClickListener(mItemContextClick);
         }
     }
 
     private void sortEntries() {
         final Collator collator = Collator.getInstance();
         if (mListener.sortMode() == Const.SORT_CUSTOM && !mStore.order().isEmpty()) {
-            final List<String> order = mStore.order();
+            // Positions up front: indexOf inside a comparator is a linear scan per comparison.
+            final java.util.Map<String, Integer> order = new java.util.HashMap<>();
+            List<String> saved = mStore.order();
+            for (int i = 0; i < saved.size(); i++) {
+                order.putIfAbsent(saved.get(i), i);
+            }
             Collections.sort(mEntries, (a, b) -> {
-                int ia = order.indexOf(a.key());
-                int ib = order.indexOf(b.key());
+                int ia = order.getOrDefault(a.key(), -1);
+                int ib = order.getOrDefault(b.key(), -1);
                 if (ia < 0 && ib < 0) {
                     return collator.compare(nz(a.label), nz(b.label));
                 }

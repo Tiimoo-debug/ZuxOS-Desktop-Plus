@@ -47,8 +47,12 @@ public class FolderIconDrawable extends Drawable {
             int left = (int) (b.left + pad + col * cell + gap / 2);
             int top = (int) (b.top + pad + row * cell + gap / 2);
             int size = (int) (cell - gap);
+            // These Drawables are shared with the drawer's icon views, so borrow the bounds and
+            // hand them back: leaving them set would draw that app's icon at preview size.
+            Rect previous = d.copyBounds();
             d.setBounds(left, top, left + size, top + size);
             d.draw(canvas);
+            d.setBounds(previous);
         }
     }
 

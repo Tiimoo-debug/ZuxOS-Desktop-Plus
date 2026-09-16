@@ -130,16 +130,17 @@ public final class Anim {
                 }).start();
     }
 
-    /** Animates adds and removes inside a container. */
-    public static void enableLayoutTransitions(ViewGroup group) {
+    /** Animates adds and removes inside a container, and hands back the transition it installed. */
+    public static LayoutTransition enableLayoutTransitions(ViewGroup group) {
         if (!Cfg.animations()) {
             group.setLayoutTransition(null);
-            return;
+            return null;
         }
         LayoutTransition transition = new LayoutTransition();
         transition.setDuration(FAST);
         // Deliberately not CHANGING: animating bounds would lag behind a drag or a resize handle.
         transition.disableTransitionType(LayoutTransition.CHANGING);
         group.setLayoutTransition(transition);
+        return transition;
     }
 }

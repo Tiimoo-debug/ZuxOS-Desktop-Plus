@@ -109,7 +109,7 @@ public final class DrawerStore {
             }
             root.put("folders", folders);
             root.put("hidden", new JSONArray(new ArrayList<>(mHidden)));
-            Storage.write(Storage.file(mCtx, Const.FILE_DRAWER), root.toString(2));
+            Storage.writeAsync(Storage.file(mCtx, Const.FILE_DRAWER), root.toString(2));
         } catch (Throwable t) {
             L.e("could not save drawer state", t);
         }

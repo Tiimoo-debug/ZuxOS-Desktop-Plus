@@ -34,6 +34,7 @@ import com.zuxos.desktopplus.model.DrawerStore;
 import com.zuxos.desktopplus.model.Item;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -78,6 +79,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private int[] mMenuCell;
     private int mSortMode;
     private int mPage;
+    private long mConfigSignature;
+    private Map<String, WidgetFrame> mReusableWidgets;
+    private final android.animation.LayoutTransition mGridTransition;
     private TextView mPrevPage;
     private TextView mNextPage;
     private LinearLayout mDots;
@@ -103,7 +107,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mGrid.setFoldersEnabled(Cfg.foldersEnabled());
         int gridPad = Ui.dp(activity, 8);
         mGrid.setPadding(gridPad, gridPad, gridPad, gridPad);
-        Anim.enableLayoutTransitions(mGrid);
+        mGridTransition = Anim.enableLayoutTransitions(mGrid);
         mRoot.addView(mGrid, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -163,6 +167,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             Probe.dump(activity, target.container);
         }
         sCurrent = new java.lang.ref.WeakReference<>(host);
+        host.mRepo.startWatching();
         host.mWidgets.start();
         host.mGrid.post(host::rebuildItems);
         L.i("desktop surface attached to " + activity.getClass().getName()
@@ -198,8 +203,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             return;
         }
         try {
+            host.mRepo.stopWatching();
             host.mWidgets.stop();
-            host.save();
+            host.mStore.saveNow();
             if (host.mTarget != null) {
                 host.mTarget.detach(activity, host.mRoot);
             }
@@ -212,8 +218,27 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onResume() {
         mWidgets.start();
         Cfg.reload();
-        mRepo.reload();
-        rebuildItems();
+        boolean appsChanged = mRepo.reloadIfStale();
+        long signature = configSignature();
+        // Resuming is not a reason to tear the desktop down: rebuild only when the apps or the
+        // settings actually moved, otherwise the existing views (and widgets) stay as they are.
+        if (appsChanged || signature != mConfigSignature || mGrid.getChildCount() == 0) {
+            mConfigSignature = signature;
+            rebuildItems();
+        }
+    }
+
+    /** Changes to any of these mean the desktop has to be laid out again. */
+    private long configSignature() {
+        long h = Cfg.iconSizeDp();
+        h = h * 31 + override(mActivity, Const.KEY_ICON_SIZE, Cfg.iconSizeDp());
+        h = h * 31 + override(mActivity, Const.KEY_CELL_SIZE, Cfg.cellSizeDp());
+        h = h * 31 + (Cfg.showLabels() ? 1 : 0);
+        h = h * 31 + (Cfg.labelShadow() ? 1 : 0);
+        h = h * 31 + (Cfg.pages() ? 1 : 0);
+        h = h * 31 + (Cfg.widgetsEnabled() ? 1 : 0);
+        h = h * 31 + (Cfg.foldersEnabled() ? 1 : 0);
+        return h;
     }
 
     public void onPause() {
@@ -491,12 +516,19 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             mGrid.post(this::rebuildItems);
             return;
         }
+        // Read from the field, not from the grid: two rebuilds in a row would otherwise capture
+        // the suppressed (null) transition and never put the real one back.
+        mGrid.setLayoutTransition(null);
         try {
             endResize();
+            // Widgets are expensive to inflate and flicker when replaced, so the frames that are
+            // still on this page are detached and put straight back.
+            mReusableWidgets = collectWidgetFrames();
             mGrid.removeAllViews();
+            boolean paged = Cfg.pages();
             List<Item> dead = new ArrayList<>();
             for (Item item : mStore.items()) {
-                if (Cfg.pages() && item.page != mPage) {
+                if (paged && item.page != mPage) {
                     continue;
                 }
                 if (!addItemView(item)) {
@@ -512,13 +544,38 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             }
         } catch (Throwable t) {
             L.e("rebuild failed", t);
+        } finally {
+            mReusableWidgets = null;
+            // Restore after this pass so the rebuild itself is not animated.
+            mGrid.post(() -> mGrid.setLayoutTransition(mGridTransition));
         }
+    }
+
+    private Map<String, WidgetFrame> collectWidgetFrames() {
+        Map<String, WidgetFrame> frames = new HashMap<>();
+        for (int i = 0; i < mGrid.getChildCount(); i++) {
+            View child = mGrid.getChildAt(i);
+            if (child instanceof WidgetFrame) {
+                frames.put(((WidgetFrame) child).getItem().id, (WidgetFrame) child);
+            }
+        }
+        return frames;
     }
 
     private boolean addItemView(Item item) {
         int iconSize = iconSizePx();
         if (item.type == Item.TYPE_WIDGET) {
             if (!Cfg.widgetsEnabled()) {
+                return true;
+            }
+            WidgetFrame existing = mReusableWidgets != null ? mReusableWidgets.remove(item.id) : null;
+            if (existing != null) {
+                place(existing, item);
+                View widget = existing.widgetView();
+                if (widget instanceof AppWidgetHostView) {
+                    mWidgets.updateSize((AppWidgetHostView) widget,
+                            mGrid.getCellWidth() * item.spanX, mGrid.getCellHeight() * item.spanY);
+                }
                 return true;
             }
             AppWidgetHostView view = mWidgets.createView(item);

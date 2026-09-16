@@ -217,13 +217,41 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
     }
 
     public boolean isFree(int cellX, int cellY, int spanX, int spanY, View ignore) {
+        return isFree(occupancy(ignore), cellX, cellY, spanX, spanY);
+    }
+
+    /**
+     * Cell occupancy as a flat grid.
+     *
+     * <p>Searching for a free spot used to walk every child for every cell of every candidate
+     * position; building this once per search makes it one pass over the children instead.
+     */
+    private boolean[] occupancy(View ignore) {
+        boolean[] taken = new boolean[Math.max(1, mCols * mRows)];
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child == ignore) {
+                continue;
+            }
+            CellParams lp = params(child);
+            for (int x = lp.cellX; x < lp.cellX + lp.spanX && x < mCols; x++) {
+                for (int y = lp.cellY; y < lp.cellY + lp.spanY && y < mRows; y++) {
+                    if (x >= 0 && y >= 0) {
+                        taken[y * mCols + x] = true;
+                    }
+                }
+            }
+        }
+        return taken;
+    }
+
+    private boolean isFree(boolean[] taken, int cellX, int cellY, int spanX, int spanY) {
         if (cellX < 0 || cellY < 0 || cellX + spanX > mCols || cellY + spanY > mRows) {
             return false;
         }
         for (int x = cellX; x < cellX + spanX; x++) {
             for (int y = cellY; y < cellY + spanY; y++) {
-                View at = childAtCell(x, y);
-                if (at != null && at != ignore) {
+                if (taken[y * mCols + x]) {
                     return false;
                 }
             }
@@ -233,9 +261,13 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
 
     /** First free spot scanning row by row, or {@code null} when the grid is full. */
     public int[] findFreeCell(int spanX, int spanY, View ignore) {
+        return findFreeCell(occupancy(ignore), spanX, spanY);
+    }
+
+    private int[] findFreeCell(boolean[] taken, int spanX, int spanY) {
         for (int y = 0; y + spanY <= mRows; y++) {
             for (int x = 0; x + spanX <= mCols; x++) {
-                if (isFree(x, y, spanX, spanY, ignore)) {
+                if (isFree(taken, x, y, spanX, spanY)) {
                     return new int[]{x, y};
                 }
             }
@@ -245,7 +277,8 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
 
     /** Nearest free cell to (cellX, cellY) by expanding rings - used when a drop lands busy. */
     public int[] findNearestFreeCell(int cellX, int cellY, int spanX, int spanY, View ignore) {
-        if (isFree(cellX, cellY, spanX, spanY, ignore)) {
+        boolean[] taken = occupancy(ignore);
+        if (isFree(taken, cellX, cellY, spanX, spanY)) {
             return new int[]{cellX, cellY};
         }
         int maxRadius = Math.max(mCols, mRows);
@@ -255,15 +288,13 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
                     if (Math.abs(dx) != radius && Math.abs(dy) != radius) {
                         continue;
                     }
-                    int x = cellX + dx;
-                    int y = cellY + dy;
-                    if (isFree(x, y, spanX, spanY, ignore)) {
-                        return new int[]{x, y};
+                    if (isFree(taken, cellX + dx, cellY + dy, spanX, spanY)) {
+                        return new int[]{cellX + dx, cellY + dy};
                     }
                 }
             }
         }
-        return findFreeCell(spanX, spanY, ignore);
+        return findFreeCell(taken, spanX, spanY);
     }
 
     // --- drag & drop -----------------------------------------------------

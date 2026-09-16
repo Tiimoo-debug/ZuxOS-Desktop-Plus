@@ -38,9 +38,12 @@ public final class AppsRepo {
         public final UserHandle user;
         public final long serial;
         public final String label;
+        private final LauncherActivityInfo mInfo;
         private Drawable mIcon;
 
-        AppEntry(ComponentName cn, UserHandle user, long serial, String label) {
+        AppEntry(LauncherActivityInfo info, ComponentName cn, UserHandle user, long serial,
+                String label) {
+            this.mInfo = info;
             this.cn = cn;
             this.user = user;
             this.serial = serial;
@@ -63,6 +66,9 @@ public final class AppsRepo {
     private final Map<String, AppEntry> mByKey = new HashMap<>();
     private final Map<String, Drawable> mIconCache = new HashMap<>();
     private final int mDensity;
+    private LauncherApps.Callback mCallback;
+    private volatile boolean mStale = true;
+    private volatile boolean mWatching;
 
     public AppsRepo(Context ctx) {
         mCtx = ctx;
@@ -79,7 +85,83 @@ public final class AppsRepo {
         return mByKey.get(key);
     }
 
+    /**
+     * Watches for app installs and updates.
+     *
+     * <p>Without this the desktop re-queried every launchable activity each time it resumed,
+     * which is a hundred-odd package lookups to discover that nothing had changed.
+     */
+    public void startWatching() {
+        if (mCallback != null || mLauncherApps == null) {
+            return;
+        }
+        mCallback = new LauncherApps.Callback() {
+            @Override
+            public void onPackageRemoved(String packageName, UserHandle user) {
+                mStale = true;
+            }
+
+            @Override
+            public void onPackageAdded(String packageName, UserHandle user) {
+                mStale = true;
+            }
+
+            @Override
+            public void onPackageChanged(String packageName, UserHandle user) {
+                mStale = true;
+            }
+
+            @Override
+            public void onPackagesAvailable(String[] packageNames, UserHandle user,
+                    boolean replacing) {
+                mStale = true;
+            }
+
+            @Override
+            public void onPackagesUnavailable(String[] packageNames, UserHandle user,
+                    boolean replacing) {
+                mStale = true;
+            }
+        };
+        try {
+            mLauncherApps.registerCallback(mCallback);
+            mWatching = true;
+        } catch (Throwable t) {
+            L.d("could not watch for app changes: " + t);
+            mCallback = null;
+            mWatching = false;
+        }
+    }
+
+    public void stopWatching() {
+        if (mCallback == null) {
+            return;
+        }
+        try {
+            mLauncherApps.unregisterCallback(mCallback);
+        } catch (Throwable ignored) {
+            // Already gone with the process.
+        }
+        mCallback = null;
+        mWatching = false;
+    }
+
+    /**
+     * Reloads only when an app actually changed. Returns true when the list was rebuilt.
+     *
+     * <p>Without a working change callback there is no way to know, so it reloads every time -
+     * the old behaviour - rather than silently going blind to installs.
+     */
+    public boolean reloadIfStale() {
+        if (mWatching && !mStale && !mApps.isEmpty()) {
+            return false;
+        }
+        reload();
+        return true;
+    }
+
     public synchronized void reload() {
+        mStale = false;
         mApps.clear();
         mByKey.clear();
         if (mLauncherApps == null || mUserManager == null) {
@@ -96,7 +178,7 @@ public final class AppsRepo {
                 continue;
             }
             for (LauncherActivityInfo info : list) {
-                AppEntry e = new AppEntry(info.getComponentName(), user, serial,
+                AppEntry e = new AppEntry(info, info.getComponentName(), user, serial,
                         String.valueOf(info.getLabel()));
                 mApps.add(e);
                 mByKey.put(e.key(), e);
@@ -127,6 +209,17 @@ public final class AppsRepo {
         if (cached != null) {
             return cached;
         }
+        if (item.type == Item.TYPE_APP) {
+            // Share the entry's icon rather than decoding a second copy of the same bitmap.
+            AppEntry entry = mByKey.get(key);
+            if (entry != null) {
+                Drawable shared = iconFor(entry);
+                if (shared != null) {
+                    mIconCache.put(key, shared);
+                    return shared;
+                }
+            }
+        }
         Drawable d = loadIcon(item);
         if (d != null) {
             mIconCache.put(key, d);
@@ -138,7 +231,17 @@ public final class AppsRepo {
         if (entry.mIcon != null) {
             return entry.mIcon;
         }
-        Drawable d = loadActivityIcon(entry.cn, entry.user);
+        Drawable d = null;
+        if (entry.mInfo != null) {
+            try {
+                d = entry.mInfo.getBadgedIcon(mDensity);
+            } catch (Throwable t) {
+                L.d("badged icon failed for " + entry.cn + ": " + t);
+            }
+        }
+        if (d == null) {
+            d = loadActivityIcon(entry.cn, entry.user);
+        }
         entry.mIcon = d;
         return d;
     }

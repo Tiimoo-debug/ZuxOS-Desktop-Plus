@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,6 +59,7 @@ public final class NativeDrawerHooks {
 
     private static DrawerStore sStore;
     private static long sStoreStamp = -1;
+    private static long sStoreChecked;
     private static AppsRepo sRepo;
 
     private static Field sAppsField;
@@ -292,16 +294,31 @@ public final class NativeDrawerHooks {
     private static void sortEntries(Context ctx, List<Object> entries, DrawerStore store) {
         final Collator collator = Collator.getInstance();
         final List<String> order = store.order();
+
+        // Both keys are reflective and positions are a linear scan, so resolve each entry once
+        // rather than on every comparison - this list is ~150 long and sorted on every refresh.
+        final Map<Object, String> titles = new IdentityHashMap<>(entries.size());
+        for (Object entry : entries) {
+            titles.put(entry, titleOf(entry));
+        }
         if (order.isEmpty()) {
             // No custom order: keep it alphabetical so the A-Z fast scroller stays honest.
-            Collections.sort(entries, (a, b) -> collator.compare(titleOf(a), titleOf(b)));
+            Collections.sort(entries, (a, b) -> collator.compare(titles.get(a), titles.get(b)));
             return;
         }
+        final Map<String, Integer> positions = new HashMap<>();
+        for (int i = 0; i < order.size(); i++) {
+            positions.putIfAbsent(order.get(i), i);
+        }
+        final Map<Object, Integer> ranks = new IdentityHashMap<>(entries.size());
+        for (Object entry : entries) {
+            ranks.put(entry, positions.getOrDefault(entryKey(ctx, entry), -1));
+        }
         Collections.sort(entries, (a, b) -> {
-            int ia = order.indexOf(entryKey(ctx, a));
-            int ib = order.indexOf(entryKey(ctx, b));
+            int ia = ranks.get(a);
+            int ib = ranks.get(b);
             if (ia < 0 && ib < 0) {
-                return collator.compare(titleOf(a), titleOf(b));
+                return collator.compare(titles.get(a), titles.get(b));
             }
             if (ia < 0) {
                 return 1;
@@ -557,6 +574,11 @@ public final class NativeDrawerHooks {
 
     /** Re-read the drawer state whenever our own drawer has written to it. */
     private static synchronized DrawerStore store(Context ctx) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (sStore != null && now - sStoreChecked < 500) {
+            return sStore;
+        }
+        sStoreChecked = now;
         long stamp = Storage.file(ctx, Const.FILE_DRAWER).lastModified();
         if (sStore == null || stamp != sStoreStamp) {
             sStore = new DrawerStore(ctx);

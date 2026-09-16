@@ -52,19 +52,14 @@ public final class DesktopStore {
         }
     }
 
+    /** Serialises here and writes on the IO thread; safe to call from a drag. */
     public synchronized void save() {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Item i : mItems) {
-                arr.put(i.toJson());
-            }
-            JSONObject root = new JSONObject();
-            root.put("version", 1);
-            root.put("items", arr);
-            Storage.write(Storage.file(mCtx, mFileName), root.toString(2));
-        } catch (Throwable t) {
-            L.e("could not save desktop layout", t);
-        }
+        Storage.writeAsync(Storage.file(mCtx, mFileName), exportJson());
+    }
+
+    /** Blocking write, for when the desktop is going away. */
+    public synchronized void saveNow() {
+        Storage.write(Storage.file(mCtx, mFileName), exportJson());
     }
 
     public synchronized String exportJson() {
