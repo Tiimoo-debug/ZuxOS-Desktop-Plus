@@ -82,6 +82,36 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private long mConfigSignature;
     private Map<String, WidgetFrame> mReusableWidgets;
     private final android.animation.LayoutTransition mGridTransition;
+
+    /** Hold and let go for the item's menu, hold and move to pick it up. */
+    private final ItemView.Gestures mDesktopGestures = new ItemView.Gestures() {
+        @Override
+        public void onItemTap(ItemView view) {
+            Item item = view.getItem();
+            if (item != null) {
+                openItem(item, view);
+            }
+        }
+
+        @Override
+        public void onItemMenu(ItemView view) {
+            Item item = view.getItem();
+            if (item == null) {
+                return;
+            }
+            int[] loc = new int[2];
+            view.getLocationOnScreen(loc);
+            showItemMenu(item, loc[0] + view.getWidth() / 2f, loc[1] + view.getHeight() / 2f);
+        }
+
+        @Override
+        public void onItemPickUp(ItemView view) {
+            Item item = view.getItem();
+            if (item != null) {
+                startDrag(item, view, DragPayload.SRC_DESKTOP, null);
+            }
+        }
+    };
     private TextView mPrevPage;
     private TextView mNextPage;
     private LinearLayout mDots;
@@ -259,6 +289,35 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             return true;
         }
         return false;
+    }
+
+    /**
+     * Blurs everything behind the launcher window while a panel is open.
+     *
+     * <p>The wallpaper is drawn by the system, not by a view, so this is the one route to
+     * blurring it - the panels' own glass can only bend what it can capture.
+     */
+    private void setWallpaperBlur(boolean on) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
+            return;
+        }
+        try {
+            android.view.WindowManager.LayoutParams lp = mActivity.getWindow().getAttributes();
+            if (on && Cfg.glass()) {
+                lp.flags |= android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+                lp.setBlurBehindRadius(Ui.dp(mActivity, 40));
+            } else {
+                lp.flags &= ~android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+                lp.setBlurBehindRadius(0);
+            }
+            mActivity.getWindow().setAttributes(lp);
+        } catch (Throwable t) {
+            L.d("wallpaper blur unavailable: " + t);
+        }
+    }
+
+    private void updateWallpaperBlur() {
+        setWallpaperBlur(mDrawer.isOpen() || mFolders.isOpen());
     }
 
     public void closeOverlays() {
@@ -594,11 +653,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
         ItemView iv = new ItemView(mActivity, iconSize, Cfg.showLabels(), Cfg.labelShadow());
         iv.bind(item, mRepo);
-        iv.setOnClickListener(v -> openItem(item, v));
-        iv.setOnLongClickListener(v -> {
-            startDrag(item, v, DragPayload.SRC_DESKTOP, null);
-            return true;
-        });
+        iv.setGestures(mDesktopGestures);
         iv.setOnContextClickListener(v -> {
             int[] loc = new int[2];
             v.getLocationOnScreen(loc);
@@ -629,6 +684,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private void openItem(Item item, View source) {
         if (item.type == Item.TYPE_FOLDER) {
             mFolders.open(item, iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
+            updateWallpaperBlur();
             return;
         }
         if (!mRepo.launch(item, source, mDisplayId)) {
@@ -637,8 +693,12 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     }
 
     public void startDrag(Item item, View source, int dragSource, Item folder) {
+        startDrag(item, source, dragSource, folder, null);
+    }
+
+    public void startDrag(Item item, View source, int dragSource, Item folder, List<Item> batch) {
         try {
-            DragPayload payload = new DragPayload(item, dragSource, folder);
+            DragPayload payload = new DragPayload(item, dragSource, folder, batch);
             View.DragShadowBuilder shadow = source instanceof ItemView
                     ? ((ItemView) source).shadow() : new View.DragShadowBuilder(source);
             source.startDragAndDrop(null, shadow, payload, View.DRAG_FLAG_OPAQUE);
@@ -666,11 +726,21 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         try {
             switch (payload.source) {
                 case DragPayload.SRC_DRAWER: {
-                    Item copy = adopt(copyForDesktop(payload.item));
-                    copy.x = cellX;
-                    copy.y = cellY;
-                    mStore.add(copy);
-                    addItemView(copy);
+                    boolean first = true;
+                    for (Item one : payload.items()) {
+                        Item copy = adopt(copyForDesktop(one));
+                        if (first) {
+                            copy.x = cellX;
+                            copy.y = cellY;
+                            first = false;
+                        } else {
+                            // The rest find their own free cells around it.
+                            copy.x = -1;
+                            copy.y = -1;
+                        }
+                        mStore.add(copy);
+                        addItemView(copy);
+                    }
                     mDrawer.hide();
                     break;
                 }
@@ -718,17 +788,25 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 dissolveIfEmpty(payload.folder);
             }
             if (target.type == Item.TYPE_FOLDER) {
-                mStore.remove(dragged);
-                target.children.add(dragged);
+                for (Item one : payload.items()) {
+                    Item copy = payload.source == DragPayload.SRC_DRAWER
+                            ? copyForDesktop(one) : one;
+                    mStore.remove(copy);
+                    target.children.add(copy);
+                }
             } else {
                 Item folder = Item.folder("Folder");
                 folder.page = target.page;
                 folder.x = target.x;
                 folder.y = target.y;
                 folder.children.add(target);
-                folder.children.add(dragged);
                 mStore.remove(target);
-                mStore.remove(dragged);
+                for (Item one : payload.items()) {
+                    Item copy = payload.source == DragPayload.SRC_DRAWER
+                            ? copyForDesktop(one) : one;
+                    mStore.remove(copy);
+                    folder.children.add(copy);
+                }
                 mStore.add(folder);
             }
             save();
@@ -751,6 +829,11 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
         mTrash.setVisibility(View.GONE);
         updatePageControls();
+        if (payload.source == DragPayload.SRC_FOLDER && payload.folder != null
+                && mFolders.isOpen() && !payload.folder.children.contains(payload.item)) {
+            // The item left the folder, so there is nothing left to look at.
+            mFolders.close();
+        }
     }
 
     @Override
@@ -1287,8 +1370,15 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     @Override
     public void onChildDragOut(Item folder, Item child, View source) {
+        // The folder stays open: dropping inside it rearranges, dropping outside takes the item
+        // out, and the drag's end closes the folder only in the second case.
         startDrag(child, source, DragPayload.SRC_FOLDER, folder);
-        mFolders.close();
+    }
+
+    @Override
+    public void onChildrenReordered(Item folder) {
+        save();
+        mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
     }
 
     @Override
@@ -1299,6 +1389,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     @Override
     public void onClosed(Item folder) {
+        updateWallpaperBlur();
         rebuildItems();
     }
 
@@ -1314,6 +1405,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     @Override
     public void onOpenFolder(Item folder) {
         mFolders.open(folder, iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
+        updateWallpaperBlur();
     }
 
     @Override
@@ -1359,6 +1451,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                         }
                         mDrawer.createFolder(item, entry.toItem());
                     })));
+            entries.add(new Menus.Entry("Select apps", () -> mDrawer.startSelection(item)));
             entries.add(new Menus.Entry("Hide from drawer", () -> {
                 mDrawerStore.hidden().add(item.key());
                 mDrawerStore.save();
@@ -1374,6 +1467,58 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     @Override
     public void onStartDrag(Item item, View source) {
         startDrag(item, source, DragPayload.SRC_DRAWER, null);
+    }
+
+    @Override
+    public void onStartDragBatch(List<Item> items, View source) {
+        if (items.isEmpty()) {
+            return;
+        }
+        startDrag(items.get(0), source, DragPayload.SRC_DRAWER, null, items);
+    }
+
+    @Override
+    public void onAddSelectionToFolder(List<Item> items) {
+        if (items.isEmpty()) {
+            toast("Nothing selected");
+            return;
+        }
+        List<Item> folders = new ArrayList<>(mDrawerStore.folders());
+        List<String> labels = new ArrayList<>();
+        for (Item folder : folders) {
+            labels.add(folder.label != null ? folder.label : "Folder");
+        }
+        labels.add("New folder");
+        Dialogs.choose(mActivity, "Add " + items.size() + " app(s) to", labels, which -> {
+            Item target;
+            if (which < folders.size()) {
+                target = folders.get(which);
+                for (Item item : items) {
+                    mDrawer.addToFolder(target, item);
+                }
+            } else if (items.size() >= 2) {
+                target = mDrawer.createFolder(items.get(0), items.get(1));
+                for (int i = 2; i < items.size(); i++) {
+                    mDrawer.addToFolder(target, items.get(i));
+                }
+            } else {
+                toast("Pick at least two apps for a new folder");
+                return;
+            }
+            final Item folder = target;
+            mDrawer.endSelection();
+            Dialogs.prompt(mActivity, "Folder name", folder.label, name -> {
+                folder.label = name.isEmpty() ? "Folder" : name;
+                mDrawerStore.save();
+                mDrawer.rebuild();
+            });
+        });
+    }
+
+    @Override
+    public void onDrawerVisibility(boolean open) {
+        // Uses the state being applied: the sheet is still on screen while it animates out.
+        setWallpaperBlur(open || mFolders.isOpen());
     }
 
     @Override

@@ -153,7 +153,8 @@ public final class LiquidGlass {
      *
      * @param tint premultiplied-free ARGB shown where the backdrop captured nothing
      */
-    public static RenderEffect lens(int width, int height, float radiusPx, float blurPx, int tint) {
+    public static RenderEffect lens(int width, int height, float radiusPx, float blurPx, int tint,
+            float rimPx) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
@@ -162,16 +163,17 @@ public final class LiquidGlass {
             shader.setFloatUniform("viewSize", width, height);
             shader.setFloatUniform("halfSize", width / 2f, height / 2f);
             shader.setFloatUniform("radius", radiusPx);
-            // A rim about a fifth of the shorter side reads as glass without eating the panel.
-            float bevel = Math.max(12f, Math.min(Math.min(width, height) * 0.18f, radiusPx * 2.2f));
+            // The rim is a fixed band, not a fraction of the panel: glass thickness does not
+            // grow just because the pane is bigger.
+            float bevel = Math.max(8f, Math.min(rimPx, Math.min(width, height) * 0.35f));
             shader.setFloatUniform("bevel", bevel);
-            shader.setFloatUniform("refractPx", bevel * 0.85f);
+            shader.setFloatUniform("refractPx", bevel * 0.7f);
             shader.setFloatUniform("falloff", 2.0f);
             shader.setFloatUniform("dispersion", 0.06f);
             // Light from the top-left, matching where Android draws its own material highlights.
             shader.setFloatUniform("lightDir", -0.55f, -0.83f);
-            shader.setFloatUniform("specStrength", 0.9f);
-            shader.setFloatUniform("satFactor", 1.25f);
+            shader.setFloatUniform("specStrength", 1.0f);
+            shader.setFloatUniform("satFactor", 1.2f);
             shader.setFloatUniform("baseTint",
                     ((tint >> 16) & 0xFF) / 255f,
                     ((tint >> 8) & 0xFF) / 255f,

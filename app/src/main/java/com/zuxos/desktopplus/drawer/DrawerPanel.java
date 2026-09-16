@@ -44,7 +44,13 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
 
         void onStartDrag(Item item, View source);
 
+        void onStartDragBatch(java.util.List<Item> items, View source);
+
         void onDrawerChanged();
+
+        void onDrawerVisibility(boolean open);
+
+        void onAddSelectionToFolder(java.util.List<Item> items);
 
         void onOrderCustomised();
 
@@ -74,9 +80,12 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     private boolean mBuiltShadow = true;
 
     /** Shared by every item view: the view knows which item it is bound to. */
-    private final OnClickListener mItemClick;
-    private final OnLongClickListener mItemLongClick;
+    private final ItemView.Gestures mGestures;
     private final OnContextClickListener mItemContextClick;
+    private final java.util.LinkedHashMap<String, Item> mPicked = new java.util.LinkedHashMap<>();
+    private final LinearLayout mSelectBar;
+    private final TextView mSelectCount;
+    private boolean mSelecting;
 
     public DrawerPanel(Context ctx, AppsRepo repo, DrawerStore store, Listener listener) {
         super(ctx);
@@ -85,23 +94,51 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mListener = listener;
         setVisibility(GONE);
 
-        mItemClick = v -> {
-            Item item = ((ItemView) v).getItem();
-            if (item == null) {
-                return;
+        mGestures = new ItemView.Gestures() {
+            @Override
+            public void onItemTap(ItemView view) {
+                Item item = view.getItem();
+                if (item == null) {
+                    return;
+                }
+                if (mSelecting) {
+                    togglePicked(item, view);
+                } else if (item.type == Item.TYPE_FOLDER) {
+                    mListener.onOpenFolder(item);
+                } else {
+                    mListener.onLaunch(item, view);
+                }
             }
-            if (item.type == Item.TYPE_FOLDER) {
-                mListener.onOpenFolder(item);
-            } else {
-                mListener.onLaunch(item, v);
+
+            @Override
+            public void onItemMenu(ItemView view) {
+                Item item = view.getItem();
+                if (item == null) {
+                    return;
+                }
+                if (mSelecting) {
+                    togglePicked(item, view);
+                    return;
+                }
+                int[] loc = new int[2];
+                view.getLocationOnScreen(loc);
+                mListener.onItemMenu(item, view, loc[0] + view.getWidth() / 2f,
+                        loc[1] + view.getHeight() / 2f);
             }
-        };
-        mItemLongClick = v -> {
-            Item item = ((ItemView) v).getItem();
-            if (item != null) {
-                mListener.onStartDrag(item, v);
+
+            @Override
+            public void onItemPickUp(ItemView view) {
+                Item item = view.getItem();
+                if (item == null) {
+                    return;
+                }
+                if (mSelecting && !mPicked.isEmpty()) {
+                    // Dragging one of the ticked items drags all of them.
+                    mListener.onStartDragBatch(pickedItems(), view);
+                } else {
+                    mListener.onStartDrag(item, view);
+                }
             }
-            return true;
         };
         mItemContextClick = v -> {
             Item item = ((ItemView) v).getItem();
@@ -114,7 +151,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
             return true;
         };
 
-        GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0xC01A1A1E);
+        GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0x99141418);
         mSheet = sheet;
         sheet.setClickable(true);
 
@@ -168,6 +205,21 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         column.addView(header, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        mSelectBar = new LinearLayout(ctx);
+        mSelectBar.setOrientation(LinearLayout.HORIZONTAL);
+        mSelectBar.setGravity(Gravity.CENTER_VERTICAL);
+        mSelectBar.setVisibility(GONE);
+        mSelectBar.setPadding(pad, 0, pad, Ui.dp(ctx, 6));
+        mSelectCount = new TextView(ctx);
+        mSelectCount.setTextColor(Ui.COLOR_TEXT);
+        mSelectBar.addView(mSelectCount, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        mSelectBar.addView(barButton(ctx, "Add to folder",
+                () -> mListener.onAddSelectionToFolder(pickedItems())));
+        mSelectBar.addView(barButton(ctx, "Done", this::endSelection));
+        column.addView(mSelectBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         ScrollView scroll = new ScrollView(ctx);
         mGrid = new WrapGrid(ctx, Ui.dp(ctx, 96), Ui.dp(ctx, 112));
         mGrid.setPadding(Ui.dp(ctx, 8), Ui.dp(ctx, 4), Ui.dp(ctx, 8), Ui.dp(ctx, 16));
@@ -200,6 +252,63 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         }
     }
 
+    private TextView barButton(Context ctx, String text, Runnable action) {
+        TextView tv = new TextView(ctx);
+        tv.setText(text);
+        tv.setTextColor(Ui.COLOR_ACCENT);
+        int p = Ui.dp(ctx, 12);
+        tv.setPadding(p, p / 2, p, p / 2);
+        tv.setOnClickListener(v -> action.run());
+        return tv;
+    }
+
+    /** Starts ticking items, seeded with the one the menu was opened on. */
+    public void startSelection(Item seed) {
+        mSelecting = true;
+        mPicked.clear();
+        if (seed != null) {
+            mPicked.put(seed.key(), seed);
+        }
+        updateSelectBar();
+        rebuild();
+    }
+
+    public void endSelection() {
+        if (!mSelecting) {
+            return;
+        }
+        mSelecting = false;
+        mPicked.clear();
+        updateSelectBar();
+        rebuild();
+    }
+
+    public boolean isSelecting() {
+        return mSelecting;
+    }
+
+    private void togglePicked(Item item, ItemView view) {
+        if (item.type == Item.TYPE_FOLDER) {
+            // Folders do not nest, so they cannot join a selection.
+            return;
+        }
+        if (mPicked.remove(item.key()) == null) {
+            mPicked.put(item.key(), item);
+        }
+        view.setPicked(mPicked.containsKey(item.key()));
+        updateSelectBar();
+    }
+
+    private void updateSelectBar() {
+        mSelectBar.setVisibility(mSelecting ? VISIBLE : GONE);
+        mSelectCount.setText(mPicked.size() + " selected");
+    }
+
+    /** The ticked items, in the order they were ticked, whether or not the search still shows them. */
+    public java.util.List<Item> pickedItems() {
+        return new ArrayList<>(mPicked.values());
+    }
+
     public boolean isOpen() {
         return mOpenRequested || getVisibility() == VISIBLE;
     }
@@ -220,6 +329,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
             }
             mSheet.refresh();
             Anim.slideUp(this, mSheet);
+            mListener.onDrawerVisibility(true);
         });
     }
 
@@ -229,7 +339,11 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     }
 
     public void hide() {
+        boolean wasOpen = mOpenRequested || getVisibility() == VISIBLE;
         mOpenRequested = false;
+        if (wasOpen) {
+            mListener.onDrawerVisibility(false);
+        }
         if (getVisibility() != VISIBLE) {
             setVisibility(GONE);
             return;
@@ -299,9 +413,9 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
                 mGrid.addView(iv);
             }
             iv.bind(entry, mRepo);
-            iv.setOnClickListener(mItemClick);
-            iv.setOnLongClickListener(mItemLongClick);
+            iv.setGestures(mGestures);
             iv.setOnContextClickListener(mItemContextClick);
+            iv.setPicked(mSelecting && mPicked.containsKey(entry.key()));
         }
     }
 

@@ -72,7 +72,7 @@ public class GlassPanel extends FrameLayout {
             return;
         }
         RenderEffect effect = LiquidGlass.lens(getWidth(), getHeight(), mRadiusPx,
-                Ui.dp(getContext(), 18), mTint);
+                Ui.dp(getContext(), 14), mTint, Ui.dp(getContext(), 28));
         if (effect == null) {
             effect = LiquidGlass.blurOnly(Ui.dp(getContext(), 18));
             if (effect == null) {
@@ -88,6 +88,74 @@ public class GlassPanel extends FrameLayout {
             L.e("could not apply the glass effect", t);
             setBackground(Glass.panel(getContext(), (int) mRadiusPx));
         }
+    }
+
+    /**
+     * Measures to the content, not to the backdrop.
+     *
+     * <p>A FrameLayout sizes itself to its largest child, and the backdrop asks to match the
+     * parent - which against a wrap-content parent resolves to the whole available space. That is
+     * how a folder popup ended up covering the screen. The backdrop is measured last, to whatever
+     * the content decided.
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int maxWidth = 0;
+        int maxHeight = 0;
+        int childState = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child == mBackdrop || child.getVisibility() == GONE) {
+                continue;
+            }
+            measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
+            MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+            maxWidth = Math.max(maxWidth,
+                    child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin);
+            maxHeight = Math.max(maxHeight,
+                    child.getMeasuredHeight() + lp.topMargin + lp.bottomMargin);
+            childState = combineMeasuredStates(childState, child.getMeasuredState());
+        }
+        maxWidth = Math.max(maxWidth + getPaddingLeft() + getPaddingRight(),
+                getSuggestedMinimumWidth());
+        maxHeight = Math.max(maxHeight + getPaddingTop() + getPaddingBottom(),
+                getSuggestedMinimumHeight());
+        setMeasuredDimension(
+                resolveSizeAndState(maxWidth, widthMeasureSpec, childState),
+                resolveSizeAndState(maxHeight, heightMeasureSpec,
+                        childState << MEASURED_HEIGHT_STATE_SHIFT));
+
+        // Children that asked to match the panel get the size the panel settled on.
+        int innerW = getMeasuredWidth() - getPaddingLeft() - getPaddingRight();
+        int innerH = getMeasuredHeight() - getPaddingTop() - getPaddingBottom();
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child == mBackdrop || child.getVisibility() == GONE) {
+                continue;
+            }
+            MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+            if (lp.width != LayoutParams.MATCH_PARENT && lp.height != LayoutParams.MATCH_PARENT) {
+                continue;
+            }
+            int w = lp.width == LayoutParams.MATCH_PARENT
+                    ? MeasureSpec.makeMeasureSpec(
+                            Math.max(0, innerW - lp.leftMargin - lp.rightMargin),
+                            MeasureSpec.EXACTLY)
+                    : getChildMeasureSpec(widthMeasureSpec,
+                            getPaddingLeft() + getPaddingRight() + lp.leftMargin + lp.rightMargin,
+                            lp.width);
+            int h = lp.height == LayoutParams.MATCH_PARENT
+                    ? MeasureSpec.makeMeasureSpec(
+                            Math.max(0, innerH - lp.topMargin - lp.bottomMargin),
+                            MeasureSpec.EXACTLY)
+                    : getChildMeasureSpec(heightMeasureSpec,
+                            getPaddingTop() + getPaddingBottom() + lp.topMargin + lp.bottomMargin,
+                            lp.height);
+            child.measure(w, h);
+        }
+        mBackdrop.measure(
+                MeasureSpec.makeMeasureSpec(getMeasuredWidth(), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(getMeasuredHeight(), MeasureSpec.EXACTLY));
     }
 
     @Override

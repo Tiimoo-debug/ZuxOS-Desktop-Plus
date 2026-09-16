@@ -14,6 +14,7 @@ import android.widget.TextView;
 import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.AppsRepo;
+import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.model.Item;
 
 /** The panel shown when a folder is opened: rename field plus the folder's contents. */
@@ -23,6 +24,8 @@ public class FolderOverlay extends FrameLayout {
         void onOpenChild(Item folder, Item child, View source);
 
         void onChildDragOut(Item folder, Item child, View source);
+
+        void onChildrenReordered(Item folder);
 
         void onRenamed(Item folder, String name);
 
@@ -79,6 +82,28 @@ public class FolderOverlay extends FrameLayout {
 
         mGrid = new GridLayout(ctx);
         mGrid.setColumnCount(4);
+        // Dropping inside the folder rearranges it; dropping outside falls through to the
+        // desktop, which takes the item out of the folder.
+        mGrid.setOnDragListener((v, event) -> {
+            Object local = event.getLocalState();
+            if (!(local instanceof DragPayload)) {
+                return false;
+            }
+            DragPayload payload = (DragPayload) local;
+            if (payload.source != DragPayload.SRC_FOLDER || payload.folder != mFolder) {
+                return false;
+            }
+            switch (event.getAction()) {
+                case android.view.DragEvent.ACTION_DRAG_STARTED:
+                case android.view.DragEvent.ACTION_DRAG_LOCATION:
+                    return true;
+                case android.view.DragEvent.ACTION_DROP:
+                    reorder(payload.item, indexAt(event.getX(), event.getY()));
+                    return true;
+                default:
+                    return true;
+            }
+        });
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         glp.topMargin = Ui.dp(ctx, 12);
@@ -90,7 +115,7 @@ public class FolderOverlay extends FrameLayout {
         mEmpty.setVisibility(GONE);
         panel.addView(mEmpty);
 
-        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 24), 0xB0202024);
+        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x73202024);
         glass.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
@@ -135,10 +160,21 @@ public class FolderOverlay extends FrameLayout {
         for (final Item child : mFolder.children) {
             ItemView iv = new ItemView(getContext(), iconSizePx, showLabels, labelShadow);
             iv.bind(child, mRepo);
-            iv.setOnClickListener(v -> mListener.onOpenChild(mFolder, child, v));
-            iv.setOnLongClickListener(v -> {
-                mListener.onChildDragOut(mFolder, child, v);
-                return true;
+            iv.setGestures(new ItemView.Gestures() {
+                @Override
+                public void onItemTap(ItemView view) {
+                    mListener.onOpenChild(mFolder, child, view);
+                }
+
+                @Override
+                public void onItemMenu(ItemView view) {
+                    // Holding inside a folder is for rearranging; the menu lives on the folder.
+                }
+
+                @Override
+                public void onItemPickUp(ItemView view) {
+                    mListener.onChildDragOut(mFolder, child, view);
+                }
             });
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
             lp.width = cell;
@@ -147,6 +183,41 @@ public class FolderOverlay extends FrameLayout {
                     Ui.dp(getContext(), 4), Ui.dp(getContext(), 4));
             mGrid.addView(iv, lp);
         }
+    }
+
+    /** Slot the point falls in, so a dropped icon lands where it was pointed. */
+    private int indexAt(float x, float y) {
+        int best = mGrid.getChildCount();
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < mGrid.getChildCount(); i++) {
+            View child = mGrid.getChildAt(i);
+            double dx = x - (child.getLeft() + child.getWidth() / 2f);
+            double dy = y - (child.getTop() + child.getHeight() / 2f);
+            double distance = dx * dx + dy * dy;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                // Land before or after the nearest icon depending on which side was dropped on.
+                best = dx < 0 ? i : i + 1;
+            }
+        }
+        return best;
+    }
+
+    private void reorder(Item child, int index) {
+        if (mFolder == null) {
+            return;
+        }
+        int from = mFolder.children.indexOf(child);
+        if (from < 0) {
+            return;
+        }
+        mFolder.children.remove(from);
+        if (index > from) {
+            index--;
+        }
+        index = Math.max(0, Math.min(index, mFolder.children.size()));
+        mFolder.children.add(index, child);
+        mListener.onChildrenReordered(mFolder);
     }
 
     public void close() {

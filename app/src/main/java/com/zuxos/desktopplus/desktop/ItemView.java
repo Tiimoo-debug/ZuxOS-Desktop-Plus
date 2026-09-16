@@ -1,9 +1,14 @@
 package com.zuxos.desktopplus.desktop;
 
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.ViewParent;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -18,9 +23,45 @@ import java.util.List;
 /** Icon + label for a single desktop / drawer / folder entry. */
 public class ItemView extends LinearLayout {
 
+    /**
+     * Press handling, the way a launcher does it: hold and let go opens the item's menu, hold and
+     * move picks the item up. One gesture, two outcomes, decided by whether the finger moved.
+     */
+    public interface Gestures {
+        void onItemTap(ItemView view);
+
+        void onItemMenu(ItemView view);
+
+        void onItemPickUp(ItemView view);
+    }
+
     private final ImageView mIcon;
     private final TextView mLabel;
+    private final Paint mCheckPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mCheckMark = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final int mTouchSlop;
+
     private Item mItem;
+    private Gestures mGestures;
+    private boolean mHeld;
+    private boolean mPicked;
+    private boolean mGestureHandled;
+    private float mDownX;
+    private float mDownY;
+
+    private final Runnable mHoldTimeout = new Runnable() {
+        @Override
+        public void run() {
+            mHeld = true;
+            // Once the hold registers the gesture is ours: without this the drawer's scroller
+            // steals the very next move and the icon can never be picked up.
+            ViewParent parent = getParent();
+            if (parent != null) {
+                parent.requestDisallowInterceptTouchEvent(true);
+            }
+            animate().scaleX(1.08f).scaleY(1.08f).setDuration(90).start();
+        }
+    };
 
     public ItemView(Context ctx, int iconSizePx, boolean showLabel, boolean labelShadow) {
         super(ctx);
@@ -45,6 +86,119 @@ public class ItemView extends LinearLayout {
         setClickable(true);
         setLongClickable(true);
         setFocusable(true);
+        mTouchSlop = ViewConfiguration.get(ctx).getScaledTouchSlop();
+        mCheckPaint.setColor(Ui.COLOR_ACCENT);
+        mCheckMark.setColor(0xFFFFFFFF);
+        mCheckMark.setStyle(Paint.Style.STROKE);
+        mCheckMark.setStrokeWidth(Ui.dp(ctx, 2));
+        mCheckMark.setStrokeCap(Paint.Cap.ROUND);
+        setWillNotDraw(false);
+    }
+
+    /** Installs the press handling. Views without this keep plain click listeners. */
+    public void setGestures(Gestures gestures) {
+        mGestures = gestures;
+    }
+
+    /** Ticked state, drawn as a badge over the icon while selecting several items. */
+    public void setPicked(boolean picked) {
+        if (mPicked != picked) {
+            mPicked = picked;
+            setAlpha(picked ? 0.85f : 1f);
+            invalidate();
+        }
+    }
+
+    public boolean isPicked() {
+        return mPicked;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (mGestures == null) {
+            return super.onTouchEvent(event);
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                mDownX = event.getX();
+                mDownY = event.getY();
+                mHeld = false;
+                mGestureHandled = false;
+                setPressed(true);
+                postDelayed(mHoldTimeout, ViewConfiguration.getLongPressTimeout());
+                return true;
+            case MotionEvent.ACTION_MOVE: {
+                if (mGestureHandled) {
+                    return true;
+                }
+                boolean moved = Math.abs(event.getX() - mDownX) > mTouchSlop
+                        || Math.abs(event.getY() - mDownY) > mTouchSlop;
+                if (!moved) {
+                    return true;
+                }
+                removeCallbacks(mHoldTimeout);
+                if (mHeld) {
+                    // Held, then moved: pick it up.
+                    mGestureHandled = true;
+                    releaseGesture();
+                    mGestures.onItemPickUp(this);
+                }
+                return true;
+            }
+            case MotionEvent.ACTION_UP:
+                removeCallbacks(mHoldTimeout);
+                releaseGesture();
+                if (!mGestureHandled) {
+                    mGestureHandled = true;
+                    if (mHeld) {
+                        mGestures.onItemMenu(this);
+                    } else if (isInside(event)) {
+                        // performClick keeps accessibility activation working; the listener list
+                        // is empty, so it does not double up with the tap below.
+                        performClick();
+                        mGestures.onItemTap(this);
+                    }
+                }
+                mHeld = false;
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                removeCallbacks(mHoldTimeout);
+                releaseGesture();
+                mHeld = false;
+                mGestureHandled = true;
+                return true;
+            default:
+                return super.onTouchEvent(event);
+        }
+    }
+
+    private void releaseGesture() {
+        setPressed(false);
+        animate().scaleX(1f).scaleY(1f).setDuration(90).start();
+        ViewParent parent = getParent();
+        if (parent != null) {
+            parent.requestDisallowInterceptTouchEvent(false);
+        }
+    }
+
+    private boolean isInside(MotionEvent event) {
+        return event.getX() >= 0 && event.getY() >= 0
+                && event.getX() <= getWidth() && event.getY() <= getHeight();
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if (!mPicked) {
+            return;
+        }
+        float r = Ui.dp(getContext(), 9);
+        float cx = getWidth() - r - Ui.dp(getContext(), 2);
+        float cy = r + Ui.dp(getContext(), 2);
+        canvas.drawCircle(cx, cy, r, mCheckPaint);
+        float s = r * 0.5f;
+        canvas.drawLine(cx - s, cy, cx - s * 0.2f, cy + s * 0.6f, mCheckMark);
+        canvas.drawLine(cx - s * 0.2f, cy + s * 0.6f, cx + s, cy - s * 0.6f, mCheckMark);
     }
 
     public Item getItem() {

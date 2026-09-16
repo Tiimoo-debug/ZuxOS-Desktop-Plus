@@ -460,12 +460,13 @@ public final class NativeDrawerHooks {
                 return false;
             }
             Context ctx = view.getContext();
-            Context store = AppCtx.get() != null ? AppCtx.get() : ctx;
-            for (Item folder : store(store).folders()) {
+            Context storeCtx = AppCtx.get() != null ? AppCtx.get() : ctx;
+            final DrawerStore drawerStore = store(storeCtx);
+            for (Item folder : drawerStore.folders()) {
                 if (folder.id.equals(folderId)) {
                     int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
                     DrawerFolderWindow.show(ctx, folder, repo(ctx), displayId,
-                            Ui.dp(ctx, Cfg.iconSizeDp()));
+                            Ui.dp(ctx, Cfg.iconSizeDp()), drawerStore::save);
                     return true;
                 }
             }

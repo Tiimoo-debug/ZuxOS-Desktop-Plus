@@ -73,6 +73,19 @@ public final class Dialogs {
                 .create());
     }
 
+    public interface ChoiceCallback {
+        void onChoice(int which);
+    }
+
+    /** Plain single-choice list. */
+    public static void choose(Activity a, String title, List<String> options, ChoiceCallback cb) {
+        show(new AlertDialog.Builder(a)
+                .setTitle(title)
+                .setItems(options.toArray(new String[0]), (d, which) -> cb.onChoice(which))
+                .setNegativeButton(android.R.string.cancel, null)
+                .create());
+    }
+
     public static void confirm(Activity a, String title, String message, Runnable onYes) {
         show(new AlertDialog.Builder(a)
                 .setTitle(title)
