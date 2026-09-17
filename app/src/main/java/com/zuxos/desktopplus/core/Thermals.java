@@ -5,7 +5,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 
 /**
@@ -27,6 +30,9 @@ public final class Thermals {
     private static final float MAX_PLAUSIBLE_C = 150f;
 
     private static final File ROOT = new File("/sys/class/thermal");
+
+    /** How many levels of "looks like a CPU sensor" {@link #cpuTier} distinguishes. */
+    private static final int CPU_TIERS = 3;
 
     private static List<Zone> sZones;
 
@@ -52,24 +58,74 @@ public final class Thermals {
     /**
      * Reads every known zone. Call this off the main thread - it touches the filesystem.
      *
-     * <p>The hottest matching zone wins: a chip reports one zone per cluster and the interesting
-     * number is the one that is about to throttle, not the average.
+     * <p>The median of the matching zones, not the hottest. A phone-class SoC exposes a dozen
+     * sensors per die and some of them are stuck, virtual, or measure a nearby rail rather than
+     * the core - taking the maximum hands the taskbar whichever one is most broken, which is how
+     * an idle tablet came to report 105 degrees. The middle value is unmoved by an outlier at
+     * either end.
      */
     public static Reading read() {
-        float cpu = Float.NaN;
-        float gpu = Float.NaN;
-        for (Zone zone : zones()) {
-            float value = zone.read();
-            if (Float.isNaN(value)) {
+        List<Zone> zones = zones();
+        return new Reading(median(zones, false), median(zones, true));
+    }
+
+    private static float median(List<Zone> zones, boolean gpu) {
+        List<Float> values = new ArrayList<>();
+        for (Zone zone : zones) {
+            if (zone.gpu != gpu) {
                 continue;
             }
-            if (zone.gpu) {
-                gpu = Float.isNaN(gpu) ? value : Math.max(gpu, value);
-            } else {
-                cpu = Float.isNaN(cpu) ? value : Math.max(cpu, value);
+            float value = zone.read();
+            if (!Float.isNaN(value)) {
+                values.add(value);
             }
         }
-        return new Reading(cpu, gpu);
+        if (values.isEmpty()) {
+            return Float.NaN;
+        }
+        Collections.sort(values);
+        int n = values.size();
+        return n % 2 == 1 ? values.get(n / 2) : (values.get(n / 2 - 1) + values.get(n / 2)) / 2f;
+    }
+
+    /** A line per zone, for the probe dump - the only way to see what a device actually exposes. */
+    public static String describe() {
+        StringBuilder sb = new StringBuilder("\nthermal zones\n");
+        File[] dirs = ROOT.listFiles();
+        if (dirs == null) {
+            return sb.append("  (").append(ROOT).append(" is not readable)\n").toString();
+        }
+        java.util.Arrays.sort(dirs, (a, b) -> a.getName().compareTo(b.getName()));
+        // What the selection actually settled on, rather than what the name alone suggests -
+        // this dump exists to explain a reading, so a guess in it would be worse than nothing.
+        Map<String, Boolean> chosen = new HashMap<>();
+        for (Zone zone : zones()) {
+            chosen.put(zone.temp.getAbsolutePath(), zone.gpu);
+        }
+        int shown = 0;
+        for (File dir : dirs) {
+            if (!dir.getName().startsWith("thermal_zone")) {
+                continue;
+            }
+            String type = readText(new File(dir, "type"));
+            String raw = readText(new File(dir, "temp"));
+            Boolean gpu = chosen.get(new File(dir, "temp").getAbsolutePath());
+            sb.append("  ").append(dir.getName())
+                    .append("  type=").append(type == null ? "(unreadable)" : type)
+                    .append("  raw=").append(raw == null ? "(unreadable)" : raw)
+                    .append("  used-as=").append(gpu == null ? "ignored" : gpu ? "gpu" : "cpu")
+                    .append('\n');
+            shown++;
+        }
+        if (shown == 0) {
+            sb.append("  (no thermal zones visible to this process)\n");
+        }
+        Reading reading = read();
+        String cpu = format(reading.cpu);
+        String gpu = format(reading.gpu);
+        sb.append("  -> cpu=").append(cpu.isEmpty() ? "-" : cpu)
+                .append(" gpu=").append(gpu.isEmpty() ? "-" : gpu).append('\n');
+        return sb.toString();
     }
 
     /** Formats a temperature the way the tray shows it, or an empty string for "unknown". */
@@ -84,7 +140,13 @@ public final class Thermals {
         if (sZones != null) {
             return sZones;
         }
-        List<Zone> zones = new ArrayList<>();
+        List<Zone> gpus = new ArrayList<>();
+        // CPU candidates by how specific their name is; only the best tier found is used, so a
+        // chip that names its cores properly never falls back to a vague "soc" sensor.
+        List<List<Zone>> cpuTiers = new ArrayList<>();
+        for (int i = 0; i < CPU_TIERS; i++) {
+            cpuTiers.add(new ArrayList<>());
+        }
         try {
             File[] dirs = ROOT.listFiles();
             if (dirs != null) {
@@ -97,9 +159,9 @@ public final class Thermals {
                         continue;
                     }
                     type = type.toLowerCase(Locale.ROOT);
-                    boolean gpu = type.contains("gpu");
-                    boolean cpu = !gpu && isCpuZone(type);
-                    if (!gpu && !cpu) {
+                    boolean gpu = isGpuZone(type);
+                    int tier = gpu ? 0 : cpuTier(type);
+                    if (!gpu && tier == 0) {
                         continue;
                     }
                     File temp = new File(dir, "temp");
@@ -108,13 +170,26 @@ public final class Thermals {
                     }
                     Zone zone = new Zone(temp, gpu);
                     // Only keep zones that actually produce a plausible number.
-                    if (!Float.isNaN(zone.read())) {
-                        zones.add(zone);
+                    if (Float.isNaN(zone.read())) {
+                        continue;
+                    }
+                    if (gpu) {
+                        gpus.add(zone);
+                    } else {
+                        cpuTiers.get(tier - 1).add(zone);
                     }
                 }
             }
         } catch (Throwable t) {
             L.d("thermals: zone scan failed (" + t + ")");
+        }
+
+        List<Zone> zones = new ArrayList<>(gpus);
+        for (List<Zone> tier : cpuTiers) {
+            if (!tier.isEmpty()) {
+                zones.addAll(tier);
+                break;
+            }
         }
         if (zones.isEmpty()) {
             L.d("thermals: no readable CPU or GPU zone under " + ROOT);
@@ -123,22 +198,42 @@ public final class Thermals {
         return sZones;
     }
 
+    private static boolean isGpuZone(String type) {
+        return !isOffTopic(type) && (type.contains("gpu") || type.contains("kgsl"));
+    }
+
     /**
-     * Whether a zone name is a CPU sensor.
+     * How specifically a zone name says "this is a CPU", 1 being the most specific and 0 none.
      *
-     * <p>Qualcomm names them {@code cpu-0-0-usr}, {@code cpuss-2-usr} and similar; other vendors
-     * use {@code soc_thermal} or {@code tsens_tz_sensor*}. Anything that mentions a battery,
-     * charger, display or skin is deliberately excluded - those are not what "CPU temperature"
-     * means to anyone reading a taskbar.
+     * <p>Qualcomm names the per-core sensors {@code cpu-0-0-usr} and the cluster ones
+     * {@code cpuss-N-usr}; the cluster nicknames {@code silver}, {@code gold} and {@code prime}
+     * come next; a plain {@code soc} sensor is a last resort, because on some builds it measures
+     * the package rail rather than the die and reads far hotter than the cores do.
      */
-    private static boolean isCpuZone(String type) {
-        if (type.contains("batt") || type.contains("charg") || type.contains("usb")
-                || type.contains("skin") || type.contains("disp") || type.contains("case")
-                || type.contains("modem") || type.contains("camera") || type.contains("wifi")) {
-            return false;
+    private static int cpuTier(String type) {
+        if (isOffTopic(type)) {
+            return 0;
         }
-        return type.contains("cpu") || type.contains("soc") || type.contains("apc")
-                || type.contains("silver") || type.contains("gold") || type.contains("prime");
+        if (type.contains("cpu") || type.contains("kryo")) {
+            return 1;
+        }
+        if (type.contains("silver") || type.contains("gold") || type.contains("prime")
+                || type.contains("apc") || type.contains("cluster")) {
+            return 2;
+        }
+        if (type.contains("soc")) {
+            return 3;
+        }
+        return 0;
+    }
+
+    /** Sensors that measure something other than the chip, whatever else their name contains. */
+    private static boolean isOffTopic(String type) {
+        return type.contains("batt") || type.contains("charg") || type.contains("usb")
+                || type.contains("skin") || type.contains("disp") || type.contains("case")
+                || type.contains("modem") || type.contains("camera") || type.contains("wifi")
+                || type.contains("pa-") || type.contains("pm8") || type.contains("quiet")
+                || type.contains("limit") || type.contains("virtual") || type.contains("monitor");
     }
 
     private static String readText(File file) {

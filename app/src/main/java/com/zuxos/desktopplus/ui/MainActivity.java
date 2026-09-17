@@ -111,6 +111,16 @@ public class MainActivity extends Activity {
                 "CPU, GPU and battery temperature in the tray, where the kernel lets the "
                         + "launcher read them",
                 Const.KEY_TASKBAR_TEMPS, true);
+        addSwitch("Taskbar menu",
+                "Hold or right-click empty taskbar space for Task manager and settings",
+                Const.KEY_TASKBAR_MENU, true);
+        addSwitch("Dark tray text",
+                "Black text and icons, for the stock light taskbar. Turn off for a dark one",
+                Const.KEY_TASKBAR_DARK_TEXT, true);
+        addSwitch("Glass taskbar",
+                "Replaces the taskbar's own bar with a translucent one and blurs what is behind "
+                        + "it. Turn off if the taskbar looks wrong",
+                Const.KEY_TASKBAR_GLASS, true);
 
         addHeader("Stock launcher unlocking (optional)");
         addSwitch("Try to unlock the stock launcher",

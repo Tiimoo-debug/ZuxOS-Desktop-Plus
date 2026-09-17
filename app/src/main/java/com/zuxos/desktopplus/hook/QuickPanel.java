@@ -461,7 +461,13 @@ public final class QuickPanel {
 
     private static int anchorHeight(View anchor) {
         View root = taskbarRoot(anchor);
-        if (root != null && root.getHeight() > 0) {
+        if (root instanceof android.view.ViewGroup && root.getHeight() > 0) {
+            // The drag layer is taller than the bar you can see - it reserves room for the
+            // stashed handle - so the panel is placed above the row, not above the window.
+            View reference = TaskbarTray.rowReference((android.view.ViewGroup) root);
+            if (reference != null && reference.getHeight() > 0) {
+                return root.getHeight() - reference.getTop();
+            }
             return root.getHeight();
         }
         return anchor != null ? anchor.getHeight() : 0;

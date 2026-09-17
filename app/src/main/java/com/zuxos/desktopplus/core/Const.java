@@ -57,6 +57,12 @@ public final class Const {
     public static final String KEY_TASKBAR_TRAY = "taskbar_tray";
     /** CPU, GPU and battery temperatures alongside them. */
     public static final String KEY_TASKBAR_TEMPS = "taskbar_temps";
+    /** Hold or right-click the taskbar for a menu. */
+    public static final String KEY_TASKBAR_MENU = "taskbar_menu";
+    /** Dark tray text, for a light taskbar. */
+    public static final String KEY_TASKBAR_DARK_TEXT = "taskbar_dark_text";
+    /** Replace the taskbar's own opaque bar with a translucent, blurred one. */
+    public static final String KEY_TASKBAR_GLASS = "taskbar_glass";
 
     // --- Stock-launcher unlocking hooks ----------------------------------
     public static final String KEY_UNLOCK_STOCK = "unlock_stock";

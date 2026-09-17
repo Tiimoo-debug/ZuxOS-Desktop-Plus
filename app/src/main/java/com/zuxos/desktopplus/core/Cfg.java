@@ -168,6 +168,19 @@ public final class Cfg {
         return getBool(Const.KEY_TASKBAR_TEMPS, true);
     }
 
+    public static boolean taskbarMenu() {
+        return getBool(Const.KEY_TASKBAR_MENU, true);
+    }
+
+    public static boolean taskbarDarkText() {
+        // The stock taskbar is light, so dark text is the readable default.
+        return getBool(Const.KEY_TASKBAR_DARK_TEXT, true);
+    }
+
+    public static boolean taskbarGlass() {
+        return getBool(Const.KEY_TASKBAR_GLASS, true);
+    }
+
     public static boolean unlockStock() {
         return getBool(Const.KEY_UNLOCK_STOCK, true);
     }

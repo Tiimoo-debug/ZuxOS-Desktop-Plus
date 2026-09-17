@@ -3,6 +3,7 @@ package com.zuxos.desktopplus.hook;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -17,39 +18,42 @@ import com.zuxos.desktopplus.core.Thermals;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
 
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.text.SimpleDateFormat;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * A status area inside the stock taskbar: network, battery and a clock.
+ * A status area inside the stock taskbar: network, battery, temperatures and a clock.
  *
- * <p>The taskbar has none of this - it is app icons and the three nav buttons, and nothing else -
- * so on an external display there is no way to see whether the ethernet is up without leaving
- * what you are doing. The tray goes into the nav-button row rather than floating over it: that
- * row is an ordinary {@code LinearLayout}, so the taskbar lays our views out itself, sizes itself
- * around them, and keeps working if a future firmware moves the row somewhere else.
+ * <p>The taskbar has none of this - app icons, three navigation buttons, nothing else - so on an
+ * external display there is no way to see whether the ethernet is up without leaving what you are
+ * doing.
+ *
+ * <p>The tray is a direct child of the taskbar's drag layer, pinned to the right-hand edge. An
+ * earlier version put it inside the navigation-button row so the launcher would lay it out, but
+ * that row turned out to live at the left of this firmware's taskbar and sits inside a
+ * {@code NearestTouchFrame}, which routes touches to whichever button it decides is nearest - so
+ * the tray appeared in the wrong place and never saw a tap. Owning the position costs a little
+ * geometry and leaves the launcher's own views completely alone.
  */
 public final class TaskbarTray {
 
     private static final String TAG_TRAY = "zux-desktop-plus-tray";
 
-    /** How many layout passes to wait for before judging the placement. */
-    private static final int VERIFY_ATTEMPTS = 6;
+    /** Distance from the right edge of the taskbar. */
+    private static final int EDGE_MARGIN_DP = 12;
 
     /** The tray in each taskbar, so the common "already there" case costs one lookup. */
-    private static final Map<View, View> TRAYS = new WeakHashMap<>();
-    /** Taskbars the tray took itself back out of; never tried again while they live. */
-    private static final Set<View> REFUSED =
-            Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Map<View, WeakReference<View>> TRAYS = new WeakHashMap<>();
+
     private static boolean sInstalled;
 
     private TaskbarTray() {
@@ -85,53 +89,63 @@ public final class TaskbarTray {
         } catch (Throwable t) {
             L.e("tray: could not watch for windows", t);
         }
+        TaskbarGlass.install(loader);
     }
 
     private static void onWindowAdded(View root) {
         if (!isTaskbar(root)) {
             return;
         }
-        // The window's children are not laid out yet; the tray goes in once they are.
-        root.post(() -> attach(root));
+        // The window's children are not laid out yet; the pieces go in once they are.
+        root.post(() -> applyAll(root));
+    }
+
+    /** Puts each piece in or takes it out, following its setting. */
+    private static void applyAll(View root) {
+        if (Cfg.taskbarTray()) {
+            attach(root);
+        } else {
+            detach(root);
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup dragLayer = (ViewGroup) root;
+            if (Cfg.taskbarMenu()) {
+                TaskbarMenu.attachTo(dragLayer, rowReference(dragLayer));
+            } else {
+                TaskbarMenu.detachFrom(dragLayer);
+            }
+        }
+        TaskbarGlass.apply(root);
     }
 
     /**
      * Re-checks every taskbar; called when the desktop resumes, so a missed window self-heals.
      *
-     * <p>This also runs the setting in reverse: turning the tray off takes it out of a taskbar
-     * that already has one, rather than leaving it there until the launcher restarts.
+     * <p>This also runs the settings in reverse: turning a piece off takes it back out of a
+     * taskbar that already has it, rather than leaving it there until the launcher restarts.
      */
     public static void refresh() {
-        boolean wanted = Cfg.taskbarTray();
         for (View root : Windows.roots()) {
-            if (!isTaskbar(root)) {
-                continue;
-            }
-            if (wanted) {
-                attach(root);
-            } else {
-                detach(root);
+            if (isTaskbar(root)) {
+                applyAll(root);
             }
         }
     }
 
     private static void detach(View root) {
         try {
-            View tray = TRAYS.remove(root);
-            if (tray == null && root instanceof ViewGroup) {
-                tray = root.findViewWithTag(TAG_TRAY);
-            }
+            TRAYS.remove(root);
+            View tray = root.findViewWithTag(TAG_TRAY);
             if (tray != null && tray.getParent() instanceof ViewGroup) {
                 ((ViewGroup) tray.getParent()).removeView(tray);
                 L.i("tray: removed, the setting is off");
             }
-            REFUSED.remove(root);
         } catch (Throwable t) {
             L.d("tray: could not remove (" + t + ")");
         }
     }
 
-    private static boolean isTaskbar(View root) {
+    static boolean isTaskbar(View root) {
         for (Class<?> c = root.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
             if (c.getSimpleName().contains("TaskbarDragLayer")) {
                 return true;
@@ -141,116 +155,135 @@ public final class TaskbarTray {
     }
 
     private static void attach(View root) {
-        if (REFUSED.contains(root) || !(root instanceof ViewGroup)) {
+        if (!(root instanceof ViewGroup)) {
             return;
         }
-        // Remembered rather than searched for: this runs on every resume, and walking the
-        // taskbar's tree resolving resource names is not free. A tray whose parent is gone means
-        // the launcher rebuilt the nav row, and it has to be put back.
-        View existing = TRAYS.get(root);
+        // Remembered rather than searched for: this runs on every resume. A tray whose parent is
+        // gone means the launcher rebuilt the taskbar, and it has to be put back.
+        WeakReference<View> ref = TRAYS.get(root);
+        View existing = ref != null ? ref.get() : null;
         if (existing != null && existing.getParent() != null) {
             return;
         }
         try {
-            ViewGroup host = hostRow((ViewGroup) root);
-            if (host == null) {
-                L.w("tray: no nav-button row in the taskbar, leaving it alone");
+            ViewGroup dragLayer = (ViewGroup) root;
+            if (dragLayer.findViewWithTag(TAG_TRAY) != null) {
                 return;
             }
-            if (host.findViewWithTag(TAG_TRAY) != null) {
+            View reference = rowReference(dragLayer);
+            ViewGroup.LayoutParams lp = dragLayerParams(dragLayer, reference);
+            if (lp == null) {
+                L.w("tray: the drag layer's layout params are not reproducible, no tray");
                 return;
             }
-            View tray = new TrayView(root.getContext(), root.getDisplay() != null
-                    ? root.getDisplay().getDisplayId() : 0);
+            TrayView tray = new TrayView(dragLayer.getContext(), displayIdOf(dragLayer));
             tray.setTag(TAG_TRAY);
-            // Index 0: the row is anchored at the end of the taskbar and grows leftwards into
-            // empty space, so the tray lands to the left of back/home/recents.
-            host.addView(tray, 0, rowParams(host));
-            TRAYS.put(root, tray);
-            L.i("tray: attached to " + Reflect.idName(host));
-            tray.post(() -> verify(root, host, tray, VERIFY_ATTEMPTS));
+            dragLayer.addView(tray, lp);
+            TRAYS.put(root, new WeakReference<>(tray));
+            syncGeometry(dragLayer, tray, reference);
+            if (reference != null) {
+                reference.addOnLayoutChangeListener(
+                        (v, l, t, r, b, ol, ot, or, ob) -> syncGeometry(dragLayer, tray, reference));
+            }
+            L.i("tray: attached to the taskbar drag layer");
         } catch (Throwable t) {
             L.e("tray: could not attach", t);
         }
     }
 
-    /**
-     * Undoes the attach if it pushed a navigation button off the display.
-     *
-     * <p>Widening the nav row assumes it is anchored at the end and grows towards the middle. On
-     * a firmware where it is anchored the other way the buttons would slide off the edge instead,
-     * and an unreachable Home button is not something to leave behind - so the tray checks its
-     * own work and removes itself rather than betting on the layout.
-     */
-    private static void verify(View root, ViewGroup host, View tray, int attemptsLeft) {
+    static int displayIdOf(View view) {
         try {
-            if (tray.getParent() != host) {
-                return;
-            }
-            int width = root.getWidth();
-            if (width <= 0 || tray.getWidth() == 0) {
-                // Nothing has been laid out yet, so there is nothing to judge.
-                if (attemptsLeft > 0) {
-                    tray.post(() -> verify(root, host, tray, attemptsLeft - 1));
-                }
-                return;
-            }
-            for (View button : Reflect.findByIdNames(root, "back", "home", "recent_apps")) {
-                if (button.getVisibility() != View.VISIBLE || button.getWidth() == 0) {
-                    continue;
-                }
-                int[] loc = new int[2];
-                int[] rootLoc = new int[2];
-                button.getLocationOnScreen(loc);
-                root.getLocationOnScreen(rootLoc);
-                int left = loc[0] - rootLoc[0];
-                if (left < 0 || left + button.getWidth() > width) {
-                    host.removeView(tray);
-                    TRAYS.remove(root);
-                    REFUSED.add(root);
-                    L.w("tray: removed - it pushed " + Reflect.idName(button) + " off the display");
-                    return;
-                }
-            }
+            return view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
         } catch (Throwable t) {
-            L.d("tray: could not verify placement (" + t + ")");
+            return 0;
         }
     }
 
     /**
-     * Where the tray goes.
+     * The row whose vertical position the tray copies.
      *
-     * <p>{@code end_nav_buttons} is the row holding back, home and recents. Its layout params are
-     * ordinary, it is already positioned at the end of the taskbar, and it sizes itself to its
-     * children - so adding to it needs no measurement of our own.
+     * <p>The drag layer is taller than the visible bar - it reserves room for the stashed handle -
+     * so aligning to it would float the tray above the taskbar. The icon row is the bar.
      */
-    private static ViewGroup hostRow(ViewGroup root) {
-        List<View> found = Reflect.findByIdNames(root, "end_nav_buttons");
+    static View rowReference(ViewGroup dragLayer) {
+        List<View> found = Reflect.findByIdNames(dragLayer, "taskbar_view", "navbuttons_view");
         for (View v : found) {
-            if (v instanceof LinearLayout) {
-                return (ViewGroup) v;
+            if (v.getVisibility() == View.VISIBLE) {
+                return v;
             }
         }
-        for (View v : found) {
-            if (v instanceof ViewGroup) {
-                return (ViewGroup) v;
-            }
-        }
-        return null;
+        return found.isEmpty() ? null : found.get(0);
     }
 
-    private static ViewGroup.LayoutParams rowParams(ViewGroup host) {
-        if (host instanceof LinearLayout) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            lp.gravity = Gravity.CENTER_VERTICAL;
-            lp.rightMargin = Ui.dp(host.getContext(), 6);
-            return lp;
+    /**
+     * Layout params the drag layer will accept, or null when they cannot be reproduced.
+     *
+     * <p>Launcher3's drag layer is an {@code InsettableFrameLayout}, which casts every child's
+     * params to its own type when it applies window insets - so a plain
+     * {@code FrameLayout.LayoutParams} would crash it. Cloning the class off a view that is
+     * already in there gets the right type without naming it.
+     */
+    static ViewGroup.LayoutParams dragLayerParams(ViewGroup dragLayer, View sibling) {
+        ViewGroup.LayoutParams lp = null;
+        View model = sibling != null ? sibling
+                : (dragLayer.getChildCount() > 0 ? dragLayer.getChildAt(0) : null);
+        if (model != null && model.getLayoutParams() != null) {
+            try {
+                lp = (ViewGroup.LayoutParams) model.getLayoutParams().getClass()
+                        .getConstructor(int.class, int.class)
+                        .newInstance(ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT);
+            } catch (Throwable t) {
+                L.d("tray: could not clone the drag layer's layout params (" + t + ")");
+            }
         }
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        lp.gravity = Gravity.CENTER_VERTICAL | Gravity.START;
+        if (!(lp instanceof FrameLayout.LayoutParams)) {
+            // Guessing here is what would crash the launcher: its inset pass casts every child's
+            // params to its own type. Better to add nothing than to add something it cannot hold.
+            return null;
+        }
+        // The launcher shifts children by the inset deltas unless they opt out, which would drag
+        // the tray away from the position computed below.
+        try {
+            Field ignore = lp.getClass().getField("ignoreInsets");
+            ignore.setBoolean(lp, true);
+        } catch (Throwable ignored) {
+            // Not an Insettable layout, so there is nothing to opt out of.
+        }
         return lp;
+    }
+
+    /** Pins the tray to the right-hand end of the visible bar. */
+    private static void syncGeometry(ViewGroup dragLayer, View tray, View reference) {
+        try {
+            ViewGroup.LayoutParams raw = tray.getLayoutParams();
+            if (!(raw instanceof FrameLayout.LayoutParams)) {
+                return;
+            }
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.rightMargin = Ui.dp(dragLayer.getContext(), EDGE_MARGIN_DP);
+            if (reference != null && reference.getHeight() > 0) {
+                lp.height = reference.getHeight();
+                lp.topMargin = reference.getTop();
+            } else {
+                lp.gravity = Gravity.BOTTOM | Gravity.END;
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                lp.topMargin = 0;
+            }
+            tray.setLayoutParams(lp);
+        } catch (Throwable t) {
+            L.d("tray: could not place the tray (" + t + ")");
+        }
+    }
+
+    /** Black on a light taskbar, white on a dark one; the taskbar here is light. */
+    static int textColor() {
+        return Cfg.taskbarDarkText() ? 0xFF14161A : Ui.COLOR_TEXT;
+    }
+
+    static int dimTextColor() {
+        return Cfg.taskbarDarkText() ? 0xB314161A : Ui.COLOR_TEXT_DIM;
     }
 
     /** The row of indicators, which repaints itself whenever the state behind it moves. */
@@ -269,13 +302,14 @@ public final class TaskbarTray {
         private int mShownNetLevel = -1;
         private int mShownBattery = Integer.MIN_VALUE;
         private boolean mShownCharging;
+        private int mShownColor;
 
         TrayView(Context ctx, int displayId) {
             super(ctx);
             mDisplayId = displayId;
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
-            int padH = Ui.dp(ctx, 10);
+            int padH = Ui.dp(ctx, 12);
             int padV = Ui.dp(ctx, 4);
             setPadding(padH, padV, padH, padV);
             setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 16)));
@@ -299,7 +333,6 @@ public final class TaskbarTray {
             addView(mBatteryText, tlp);
 
             mTemps = label(ctx, 11f);
-            mTemps.setTextColor(Ui.COLOR_TEXT_DIM);
             LayoutParams templp = new LayoutParams(LayoutParams.WRAP_CONTENT,
                     LayoutParams.WRAP_CONTENT);
             templp.leftMargin = Ui.dp(ctx, 10);
@@ -311,15 +344,16 @@ public final class TaskbarTray {
             clp.leftMargin = Ui.dp(ctx, 10);
             addView(mClock, clp);
 
-            setOnClickListener(v -> QuickPanel.toggle(getContext(), v, mDisplayId));
+            setOnClickListener(v -> {
+                L.d("tray: tapped");
+                QuickPanel.toggle(getContext(), v, mDisplayId);
+            });
         }
 
         private TextView label(Context ctx, float sizeSp) {
             TextView tv = new TextView(ctx);
             tv.setTextSize(sizeSp);
-            tv.setTextColor(Ui.COLOR_TEXT);
             tv.setSingleLine(true);
-            tv.setShadowLayer(Ui.dp(ctx, 2), 0, Ui.dp(ctx, 1), 0x80000000);
             return tv;
         }
 
@@ -351,20 +385,29 @@ public final class TaskbarTray {
             if (state == null) {
                 return;
             }
+            int color = textColor();
+            boolean recolour = color != mShownColor;
+            if (recolour) {
+                mShownColor = color;
+                mBatteryText.setTextColor(color);
+                mClock.setTextColor(color);
+                mTemps.setTextColor(dimTextColor());
+            }
             // The temperatures change every few seconds; the icons almost never do. Rebuilding
             // a drawable for an unchanged indicator is pure allocation on a view that is on
             // screen the whole time the desktop is.
-            if (state.netType() != mShownNetType || state.netLevel() != mShownNetLevel) {
+            if (recolour || state.netType() != mShownNetType
+                    || state.netLevel() != mShownNetLevel) {
                 mShownNetType = state.netType();
                 mShownNetLevel = state.netLevel();
-                mNetIcon.setImageDrawable(netIcon(state));
+                mNetIcon.setImageDrawable(netIcon(state, color));
             }
             int percent = state.batteryPercent();
-            if (percent != mShownBattery || state.charging() != mShownCharging) {
+            if (recolour || percent != mShownBattery || state.charging() != mShownCharging) {
                 mShownBattery = percent;
                 mShownCharging = state.charging();
-                mBatteryIcon.setImageDrawable(TrayIcons.battery(
-                        percent < 0 ? 0 : percent, state.charging(), Ui.COLOR_TEXT));
+                mBatteryIcon.setImageDrawable(
+                        TrayIcons.battery(percent < 0 ? 0 : percent, state.charging(), color));
                 mBatteryText.setText(percent < 0 ? "" : percent + "%");
             }
             renderTemps(state);
@@ -403,17 +446,25 @@ public final class TaskbarTray {
             sb.append(name).append(' ').append(value);
         }
 
-        private Drawable netIcon(SysState state) {
+        private Drawable netIcon(SysState state, int color) {
             switch (state.netType()) {
                 case SysState.NET_ETHERNET:
-                    return TrayIcons.ethernet(Ui.COLOR_TEXT);
+                    return TrayIcons.ethernet(color);
                 case SysState.NET_WIFI:
-                    return TrayIcons.wifi(state.netLevel(), Ui.COLOR_TEXT);
+                    return TrayIcons.wifi(state.netLevel(), color);
                 case SysState.NET_CELLULAR:
-                    return TrayIcons.cellular(state.netLevel(), Ui.COLOR_TEXT);
+                    return TrayIcons.cellular(state.netLevel(), color);
                 default:
-                    return TrayIcons.wifiOff(Ui.COLOR_TEXT);
+                    return TrayIcons.wifiOff(color);
             }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            // Claim the gesture outright. The taskbar's own drag layer watches for swipes on
+            // anything it does not recognise, and a half-claimed press reads as one.
+            super.onTouchEvent(event);
+            return true;
         }
     }
 }

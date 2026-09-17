@@ -74,6 +74,11 @@ public final class Probe {
         } else {
             sb.append("  (no content view)\n");
         }
+        try {
+            sb.append(com.zuxos.desktopplus.core.Thermals.describe());
+        } catch (Throwable t) {
+            sb.append("\nthermal zones\n  (unreadable: ").append(t).append(")\n");
+        }
         sb.append("\nactivity class hierarchy\n");
         for (Class<?> c = activity.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
             sb.append("  ").append(c.getName()).append('\n');
