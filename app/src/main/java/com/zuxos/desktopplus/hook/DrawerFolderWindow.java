@@ -19,8 +19,12 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
+import com.zuxos.desktopplus.desktop.Menus;
 import com.zuxos.desktopplus.model.AppsRepo;
+import com.zuxos.desktopplus.model.DrawerStore;
 import com.zuxos.desktopplus.model.Item;
+
+import java.util.List;
 
 /**
  * Folder contents shown over the stock app drawer.
@@ -30,12 +34,12 @@ import com.zuxos.desktopplus.model.Item;
  */
 public final class DrawerFolderWindow {
 
-    private static View sCurrent;
+    private static FrameLayout sCurrent;
     private static WindowManager sWm;
     private static GridLayout sGrid;
     private static Item sFolder;
     private static AppsRepo sRepo;
-    private static Runnable sOnChanged;
+    private static DrawerStore sStore;
     private static int sDisplayId;
     private static int sIconSize;
 
@@ -43,7 +47,7 @@ public final class DrawerFolderWindow {
     }
 
     public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
-            int iconSizePx, Runnable onChanged) {
+            int iconSizePx, DrawerStore store) {
         dismiss();
         if (!canShow(ctx)) {
             toast(ctx, "Allow \"display over other apps\" for the launcher to open drawer folders");
@@ -55,7 +59,7 @@ public final class DrawerFolderWindow {
 
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
-            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x73202024);
+            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x4D1C1C22);
             glass.addView(panel, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
             int pad = Ui.dp(ctx, 20);
@@ -71,7 +75,7 @@ public final class DrawerFolderWindow {
             sGrid = grid;
             sFolder = folder;
             sRepo = repo;
-            sOnChanged = onChanged;
+            sStore = store;
             sDisplayId = displayId;
             sIconSize = iconSizePx;
             grid.setColumnCount(Math.max(1, Math.min(5, folder.children.size())));
@@ -106,7 +110,11 @@ public final class DrawerFolderWindow {
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
             plp.gravity = Gravity.CENTER;
             root.addView(glass, plp);
-            glass.setSource(root);
+            // The stock drawer sits behind this window in a window of its own, so it is captured
+            // first and our scrim second: the lens then bends the real app grid, dimmed, instead
+            // of a flat sheet of colour.
+            glass.addSource(TaskbarBridge.stockDrawerRoot());
+            glass.addSource(root);
             glass.post(glass::refresh);
             root.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_OUTSIDE
@@ -156,16 +164,12 @@ public final class DrawerFolderWindow {
             iv.setGestures(new ItemView.Gestures() {
                 @Override
                 public void onItemTap(ItemView view) {
-                    Item item = view.getItem();
-                    if (item != null) {
-                        sRepo.launch(item, view, sDisplayId);
-                        dismiss();
-                    }
+                    launch(view.getItem(), view);
                 }
 
                 @Override
                 public void onItemMenu(ItemView view) {
-                    // The stock drawer owns app menus; holding here is only for rearranging.
+                    showMenu(view);
                 }
 
                 @Override
@@ -182,6 +186,88 @@ public final class DrawerFolderWindow {
             lp.width = sIconSize + Ui.dp(ctx, 44);
             lp.setMargins(Ui.dp(ctx, 6), Ui.dp(ctx, 6), Ui.dp(ctx, 6), Ui.dp(ctx, 6));
             grid.addView(iv, lp);
+        }
+    }
+
+    /**
+     * Launches and gets both windows out of the way.
+     *
+     * <p>The stock drawer does not know this launch happened, so without closing it the app
+     * starts behind a drawer that stays open. The app is started first, while the tapped view is
+     * still attached and can supply the launch bounds.
+     */
+    private static void launch(Item item, View source) {
+        AppsRepo repo = sRepo;
+        if (item == null || repo == null) {
+            return;
+        }
+        repo.launch(item, source, sDisplayId);
+        dismiss();
+        try {
+            TaskbarBridge.closeStockDrawer();
+        } catch (Throwable t) {
+            L.d("could not close the stock drawer: " + t);
+        }
+    }
+
+    /** The hold menu for an app inside a drawer folder. */
+    private static void showMenu(ItemView view) {
+        final Item child = view.getItem();
+        final Item folder = sFolder;
+        final FrameLayout root = sCurrent;
+        final AppsRepo repo = sRepo;
+        if (child == null || folder == null || root == null || repo == null) {
+            return;
+        }
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        float[] local = Menus.toLocal(root, loc[0] + view.getWidth() / 2f,
+                loc[1] + view.getHeight() / 2f);
+
+        List<Menus.Entry> entries = Menus.list();
+        entries.add(new Menus.Entry("Open", () -> launch(child, view)));
+        if (child.type == Item.TYPE_APP) {
+            final int displayId = sDisplayId;
+            entries.add(new Menus.Entry("App info", () -> {
+                repo.showAppInfo(child, displayId);
+                dismiss();
+            }));
+        }
+        entries.add(new Menus.Entry("Remove from folder", () -> removeFromFolder(child)));
+        Menus.showAt(view.getContext(), root, local[0], local[1], entries);
+    }
+
+    /**
+     * Takes an app back out to the flat drawer list.
+     *
+     * <p>Nothing has to be added anywhere: the drawer hides exactly the apps that are inside a
+     * folder, so dropping it from the folder is what puts it back.
+     */
+    private static void removeFromFolder(Item child) {
+        Item folder = sFolder;
+        if (folder == null) {
+            return;
+        }
+        folder.children.remove(child);
+        if (folder.children.size() <= 1) {
+            // One app left is not a folder. Dissolve it and let both apps return to the list.
+            folder.children.clear();
+            if (sStore != null) {
+                sStore.folders().remove(folder);
+            }
+            save();
+            dismiss();
+            return;
+        }
+        save();
+        if (sGrid != null) {
+            populate(sGrid.getContext());
+        }
+    }
+
+    private static void save() {
+        if (sStore != null) {
+            sStore.save();
         }
     }
 
@@ -220,9 +306,7 @@ public final class DrawerFolderWindow {
         }
         index = Math.max(0, Math.min(index, folder.children.size()));
         folder.children.add(index, child);
-        if (sOnChanged != null) {
-            sOnChanged.run();
-        }
+        save();
         if (sGrid != null) {
             populate(sGrid.getContext());
         }
@@ -235,7 +319,7 @@ public final class DrawerFolderWindow {
         sWm = null;
         sGrid = null;
         sFolder = null;
-        sOnChanged = null;
+        sStore = null;
         if (current == null || wm == null) {
             return;
         }

@@ -466,7 +466,7 @@ public final class NativeDrawerHooks {
                 if (folder.id.equals(folderId)) {
                     int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
                     DrawerFolderWindow.show(ctx, folder, repo(ctx), displayId,
-                            Ui.dp(ctx, Cfg.iconSizeDp()), drawerStore::save);
+                            Ui.dp(ctx, Cfg.iconSizeDp()), drawerStore);
                     return true;
                 }
             }

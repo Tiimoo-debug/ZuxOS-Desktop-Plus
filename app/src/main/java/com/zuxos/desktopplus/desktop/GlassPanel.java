@@ -16,6 +16,8 @@ import com.zuxos.desktopplus.core.LiquidGlass;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A panel whose background is the view behind it, bent through the liquid-glass lens.
@@ -30,14 +32,29 @@ import java.lang.reflect.Method;
  */
 public class GlassPanel extends FrameLayout {
 
-    /** Quarter resolution: the capture is blurred before it is ever seen. */
-    private static final float CAPTURE_SCALE = 0.25f;
+    /**
+     * Capture resolution.
+     *
+     * <p>Half resolution, not quarter: the backdrop is only lightly blurred now, so the lens has
+     * to have real detail to bend. Quarter-res behind a 6dp blur is what made the panels look
+     * like frosted plastic rather than glass.
+     */
+    private static final float CAPTURE_SCALE = 0.5f;
+
+    /** How far the backdrop is softened before the lens bends it. */
+    private static final float BLUR_DP = 6f;
+
+    /** Width of the refracting rim. */
+    private static final float RIM_DP = 26f;
+
+    /** The white veil across the pane; see {@link LiquidGlass#lens}. */
+    private static final float SHEEN = 0.10f;
 
     private final BackdropView mBackdrop;
     private final float mRadiusPx;
     private final int mTint;
 
-    private View mSource;
+    private final List<View> mSources = new ArrayList<>(2);
     private int mEffectWidth;
     private int mEffectHeight;
 
@@ -55,7 +72,21 @@ public class GlassPanel extends FrameLayout {
 
     /** The view to capture from - usually the activity's content root. */
     public void setSource(View source) {
-        mSource = source;
+        mSources.clear();
+        addSource(source);
+    }
+
+    /**
+     * Adds another view to capture, drawn on top of the ones already added.
+     *
+     * <p>Used to reach across windows: a panel floating over the stock app drawer captures that
+     * drawer's root as its first source and its own scrim second, so the lens has the real thing
+     * behind it to bend rather than a flat colour.
+     */
+    public void addSource(View source) {
+        if (source != null && !mSources.contains(source)) {
+            mSources.add(source);
+        }
     }
 
     /** Captures what is behind the panel and points the lens at it. */
@@ -72,7 +103,7 @@ public class GlassPanel extends FrameLayout {
             return;
         }
         RenderEffect effect = LiquidGlass.lens(getWidth(), getHeight(), mRadiusPx,
-                Ui.dp(getContext(), 14), mTint, Ui.dp(getContext(), 28));
+                Ui.dp(getContext(), BLUR_DP), mTint, Ui.dp(getContext(), RIM_DP), SHEEN);
         if (effect == null) {
             effect = LiquidGlass.blurOnly(Ui.dp(getContext(), 18));
             if (effect == null) {
@@ -178,8 +209,7 @@ public class GlassPanel extends FrameLayout {
         }
 
         void capture() {
-            View source = mSource;
-            if (source == null || source.getWidth() == 0) {
+            if (mSources.isEmpty()) {
                 return;
             }
             int width = Math.max(1, (int) (GlassPanel.this.getWidth() * CAPTURE_SCALE));
@@ -195,17 +225,24 @@ public class GlassPanel extends FrameLayout {
             int[] mine = new int[2];
             int[] src = new int[2];
             GlassPanel.this.getLocationOnScreen(mine);
-            source.getLocationOnScreen(src);
 
             Canvas canvas = new Canvas(bitmap);
             canvas.scale(CAPTURE_SCALE, CAPTURE_SCALE);
-            canvas.translate(src[0] - mine[0], src[1] - mine[1]);
 
             // Hide the panel for the duration, or it would capture itself.
             int previous = GlassPanel.this.getVisibility();
             setPanelVisibility(INVISIBLE);
             try {
-                source.draw(canvas);
+                for (View source : mSources) {
+                    if (source.getWidth() == 0 || source.getHeight() == 0) {
+                        continue;
+                    }
+                    source.getLocationOnScreen(src);
+                    int saved = canvas.save();
+                    canvas.translate(src[0] - mine[0], src[1] - mine[1]);
+                    source.draw(canvas);
+                    canvas.restoreToCount(saved);
+                }
             } catch (Throwable t) {
                 L.d("backdrop capture failed: " + t);
                 bitmap.recycle();

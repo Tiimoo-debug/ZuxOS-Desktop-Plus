@@ -27,6 +27,8 @@ public class FolderOverlay extends FrameLayout {
 
         void onChildrenReordered(Item folder);
 
+        void onChildMenu(Item folder, Item child, View source);
+
         void onRenamed(Item folder, String name);
 
         void onClosed(Item folder);
@@ -115,7 +117,7 @@ public class FolderOverlay extends FrameLayout {
         mEmpty.setVisibility(GONE);
         panel.addView(mEmpty);
 
-        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x73202024);
+        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x4D1C1C22);
         glass.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
@@ -168,7 +170,7 @@ public class FolderOverlay extends FrameLayout {
 
                 @Override
                 public void onItemMenu(ItemView view) {
-                    // Holding inside a folder is for rearranging; the menu lives on the folder.
+                    mListener.onChildMenu(mFolder, child, view);
                 }
 
                 @Override

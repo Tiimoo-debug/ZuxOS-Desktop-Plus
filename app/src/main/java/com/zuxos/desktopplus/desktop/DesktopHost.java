@@ -1376,6 +1376,44 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     }
 
     @Override
+    public void onChildMenu(Item folder, Item child, View source) {
+        int[] loc = new int[2];
+        source.getLocationOnScreen(loc);
+        float[] local = Menus.toLocal(mRoot, loc[0] + source.getWidth() / 2f,
+                loc[1] + source.getHeight() / 2f);
+        List<Menus.Entry> entries = Menus.list();
+        entries.add(new Menus.Entry("Open", () -> openItem(child, source)));
+        if (child.type == Item.TYPE_APP) {
+            entries.add(new Menus.Entry("App info", () -> mRepo.showAppInfo(child, mDisplayId)));
+        }
+        entries.add(new Menus.Entry("Rename", () -> Dialogs.prompt(mActivity, "Rename",
+                child.label, name -> {
+                    child.label = name;
+                    save();
+                    mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
+                })));
+        entries.add(new Menus.Entry("Move to desktop", () -> {
+            folder.children.remove(child);
+            child.x = -1;
+            child.y = -1;
+            adopt(child);
+            mStore.add(child);
+            dissolveIfEmpty(folder);
+            save();
+            mFolders.close();
+            rebuildItems();
+        }));
+        entries.add(new Menus.Entry("Remove from folder", () -> {
+            folder.children.remove(child);
+            dissolveIfEmpty(folder);
+            save();
+            mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
+            rebuildItems();
+        }));
+        Menus.showAt(mActivity, mRoot, local[0], local[1], entries);
+    }
+
+    @Override
     public void onChildrenReordered(Item folder) {
         save();
         mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());

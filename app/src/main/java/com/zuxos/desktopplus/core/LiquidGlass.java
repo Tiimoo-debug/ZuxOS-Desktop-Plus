@@ -35,6 +35,7 @@ public final class LiquidGlass {
             uniform float specStrength;
             uniform float4 baseTint;
             uniform float satFactor;
+            uniform float sheen;
 
             float sdRoundedBox(float2 p, float2 b, float r) {
                 float2 q = abs(p) - b + r;
@@ -121,6 +122,16 @@ public final class LiquidGlass {
                     col = col / outA;
                 }
 
+                // A faint white veil over the whole pane. Without it a thin, barely blurred glass
+                // reads as a hole cut in the window rather than as a sheet of glass over it.
+                if (sheen > 0.001) {
+                    float veiled = sheen + outA * (1.0 - sheen);
+                    if (veiled > 0.001) {
+                        col = (float3(sheen) + col * outA * (1.0 - sheen)) / veiled;
+                    }
+                    outA = veiled;
+                }
+
                 // Rim light: one hairline at the edge plus an inward glow on the lit side, both
                 // driven by the same normal field, so there is no direction-independent outline.
                 float facing = dot(n, -lightDir);
@@ -151,10 +162,12 @@ public final class LiquidGlass {
     /**
      * The lens effect for a panel of this size, or null when the device cannot run it.
      *
-     * @param tint premultiplied-free ARGB shown where the backdrop captured nothing
+     * @param tint  premultiplied-free ARGB shown where the backdrop captured nothing
+     * @param sheen 0..1 white veil over the whole pane, which is most of what makes glass read
+     *              as glass when the backdrop behind it is only lightly blurred
      */
     public static RenderEffect lens(int width, int height, float radiusPx, float blurPx, int tint,
-            float rimPx) {
+            float rimPx, float sheen) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
@@ -167,13 +180,14 @@ public final class LiquidGlass {
             // grow just because the pane is bigger.
             float bevel = Math.max(8f, Math.min(rimPx, Math.min(width, height) * 0.35f));
             shader.setFloatUniform("bevel", bevel);
-            shader.setFloatUniform("refractPx", bevel * 0.7f);
+            shader.setFloatUniform("refractPx", bevel * 0.85f);
             shader.setFloatUniform("falloff", 2.0f);
-            shader.setFloatUniform("dispersion", 0.06f);
+            shader.setFloatUniform("dispersion", 0.08f);
             // Light from the top-left, matching where Android draws its own material highlights.
             shader.setFloatUniform("lightDir", -0.55f, -0.83f);
             shader.setFloatUniform("specStrength", 1.0f);
             shader.setFloatUniform("satFactor", 1.2f);
+            shader.setFloatUniform("sheen", sheen);
             shader.setFloatUniform("baseTint",
                     ((tint >> 16) & 0xFF) / 255f,
                     ((tint >> 8) & 0xFF) / 255f,

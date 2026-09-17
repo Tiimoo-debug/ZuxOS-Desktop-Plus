@@ -23,7 +23,7 @@ public final class Ui {
     public static final int COLOR_TEXT = 0xFFFFFFFF;
     public static final int COLOR_TEXT_DIM = 0xB3FFFFFF;
     public static final int COLOR_DROP_HINT = 0x334C8DFF;
-    public static final int COLOR_SCRIM = 0x99000000;
+    public static final int COLOR_SCRIM = 0x59000000;
 
     private Ui() {
     }
