@@ -140,7 +140,7 @@ public final class DrawerFolderWindow {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus folder");
-            Glass.blurBehind(ctx, lp, 40);
+            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

@@ -17,6 +17,15 @@ import android.view.WindowManager;
  */
 public final class Glass {
 
+    /**
+     * How far the system blurs what is behind a window showing a glass panel.
+     *
+     * <p>Enough to soften the wallpaper, which no panel can capture or refract, and not so much
+     * that opening a folder turns the whole display into a smear - the panel is meant to be the
+     * glass, not the screen.
+     */
+    public static final int BEHIND_BLUR_DP = 24;
+
     private Glass() {
     }
 

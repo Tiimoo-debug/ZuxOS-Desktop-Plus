@@ -305,7 +305,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             android.view.WindowManager.LayoutParams lp = mActivity.getWindow().getAttributes();
             if (on && Cfg.glass()) {
                 lp.flags |= android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
-                lp.setBlurBehindRadius(Ui.dp(mActivity, 40));
+                lp.setBlurBehindRadius(Ui.dp(mActivity, Glass.BEHIND_BLUR_DP));
             } else {
                 lp.flags &= ~android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
                 lp.setBlurBehindRadius(0);
