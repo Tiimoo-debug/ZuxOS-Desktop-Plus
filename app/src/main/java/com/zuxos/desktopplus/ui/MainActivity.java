@@ -102,6 +102,16 @@ public class MainActivity extends Activity {
                         "Alphabetical (recently used first is not available yet)"},
                 Const.KEY_DRAWER_SORT, Const.SORT_CUSTOM);
 
+        addHeader("Taskbar");
+        addSwitch("Status tray in the taskbar",
+                "Network, battery and a clock next to the navigation buttons, with Wi-Fi and "
+                        + "Bluetooth switches behind them",
+                Const.KEY_TASKBAR_TRAY, true);
+        addSwitch("Show temperatures",
+                "CPU, GPU and battery temperature in the tray, where the kernel lets the "
+                        + "launcher read them",
+                Const.KEY_TASKBAR_TEMPS, true);
+
         addHeader("Stock launcher unlocking (optional)");
         addSwitch("Try to unlock the stock launcher",
                 "Flips the launcher's own \"editing disabled\" flags where we can name them",

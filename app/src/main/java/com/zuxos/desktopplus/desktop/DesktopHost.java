@@ -689,7 +689,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
         if (!mRepo.launch(item, source, mDisplayId)) {
             toast("Could not open " + (item.label != null ? item.label : "app"));
+            return;
         }
+        closeOverlays();
     }
 
     public void startDrag(Item item, View source, int dragSource, Item folder) {
@@ -1384,7 +1386,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         List<Menus.Entry> entries = Menus.list();
         entries.add(new Menus.Entry("Open", () -> openItem(child, source)));
         if (child.type == Item.TYPE_APP) {
-            entries.add(new Menus.Entry("App info", () -> mRepo.showAppInfo(child, mDisplayId)));
+            entries.add(new Menus.Entry("App info", () -> {
+                mRepo.showAppInfo(child, mDisplayId);
+                closeOverlays();
+            }));
         }
         entries.add(new Menus.Entry("Rename", () -> Dialogs.prompt(mActivity, "Rename",
                 child.label, name -> {
@@ -1437,7 +1442,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onLaunch(Item item, View source) {
         if (!mRepo.launch(item, source, mDisplayId)) {
             toast("Could not open " + (item.label != null ? item.label : "app"));
+            return;
         }
+        closeOverlays();
     }
 
     @Override
@@ -1496,7 +1503,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 mDrawer.rebuild();
             }));
             if (item.type == Item.TYPE_APP) {
-                entries.add(new Menus.Entry("App info", () -> mRepo.showAppInfo(item, mDisplayId)));
+                entries.add(new Menus.Entry("App info", () -> {
+                    mRepo.showAppInfo(item, mDisplayId);
+                    closeOverlays();
+                }));
             }
         }
         Menus.showAt(mActivity, mRoot, local[0], local[1], entries);

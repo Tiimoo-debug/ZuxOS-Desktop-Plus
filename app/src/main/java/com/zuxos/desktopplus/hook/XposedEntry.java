@@ -37,6 +37,9 @@ public class XposedEntry implements IXposedHookLoadPackage {
             if (Cfg.unlockStock()) {
                 StockUnlockHooks.install(lpparam.classLoader);
             }
+            if (Cfg.taskbarTray()) {
+                TaskbarTray.install(lpparam.classLoader);
+            }
         } catch (Throwable t) {
             L.e("handleLoadPackage failed for " + lpparam.packageName, t);
         }

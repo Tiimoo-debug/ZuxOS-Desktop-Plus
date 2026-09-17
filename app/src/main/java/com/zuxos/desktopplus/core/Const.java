@@ -52,6 +52,12 @@ public final class Const {
     public static final int SORT_CUSTOM = 1;
     public static final int SORT_RECENT = 2;
 
+    // --- Taskbar ---------------------------------------------------------
+    /** Network, battery and a clock inside the launcher's own taskbar. */
+    public static final String KEY_TASKBAR_TRAY = "taskbar_tray";
+    /** CPU, GPU and battery temperatures alongside them. */
+    public static final String KEY_TASKBAR_TEMPS = "taskbar_temps";
+
     // --- Stock-launcher unlocking hooks ----------------------------------
     public static final String KEY_UNLOCK_STOCK = "unlock_stock";
     public static final String KEY_UNLOCK_AGGRESSIVE = "unlock_aggressive";

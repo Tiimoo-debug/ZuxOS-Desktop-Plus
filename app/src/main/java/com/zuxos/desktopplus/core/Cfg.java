@@ -160,6 +160,14 @@ public final class Cfg {
         return getInt(Const.KEY_DRAWER_SORT, Const.SORT_CUSTOM);
     }
 
+    public static boolean taskbarTray() {
+        return getBool(Const.KEY_TASKBAR_TRAY, true);
+    }
+
+    public static boolean taskbarTemps() {
+        return getBool(Const.KEY_TASKBAR_TEMPS, true);
+    }
+
     public static boolean unlockStock() {
         return getBool(Const.KEY_UNLOCK_STOCK, true);
     }

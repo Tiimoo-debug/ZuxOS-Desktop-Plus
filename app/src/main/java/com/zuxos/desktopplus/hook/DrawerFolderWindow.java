@@ -116,6 +116,16 @@ public final class DrawerFolderWindow {
             glass.addSource(TaskbarBridge.stockDrawerRoot());
             glass.addSource(root);
             glass.post(glass::refresh);
+            root.setFocusableInTouchMode(true);
+            root.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == android.view.KeyEvent.ACTION_UP
+                        && (keyCode == android.view.KeyEvent.KEYCODE_BACK
+                        || keyCode == android.view.KeyEvent.KEYCODE_ESCAPE)) {
+                    dismiss();
+                    return true;
+                }
+                return false;
+            });
             root.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_OUTSIDE
                         || event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -144,6 +154,7 @@ public final class DrawerFolderWindow {
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            root.requestFocus();
         } catch (Throwable t) {
             L.e("could not open drawer folder", t);
         }
@@ -202,6 +213,16 @@ public final class DrawerFolderWindow {
             return;
         }
         repo.launch(item, source, sDisplayId);
+        stepAside();
+    }
+
+    /**
+     * Closes this window and the stock drawer under it.
+     *
+     * <p>Anything that sends the user to another activity has to do this, app settings included -
+     * otherwise the page they asked for opens underneath a drawer that is still on top.
+     */
+    private static void stepAside() {
         dismiss();
         try {
             TaskbarBridge.closeStockDrawer();
@@ -230,7 +251,7 @@ public final class DrawerFolderWindow {
             final int displayId = sDisplayId;
             entries.add(new Menus.Entry("App info", () -> {
                 repo.showAppInfo(child, displayId);
-                dismiss();
+                stepAside();
             }));
         }
         entries.add(new Menus.Entry("Remove from folder", () -> removeFromFolder(child)));

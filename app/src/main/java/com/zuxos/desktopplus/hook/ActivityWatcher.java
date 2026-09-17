@@ -91,6 +91,9 @@ public final class ActivityWatcher {
             if (!Cfg.enabled()) {
                 return;
             }
+            // The taskbar is its own window and may have been created before the module loaded,
+            // or after a display reconnect that we never saw - this is the cheap re-check.
+            TaskbarTray.refresh();
             DesktopHost existing = DesktopHost.of(activity);
             if (existing != null) {
                 existing.onResume();
