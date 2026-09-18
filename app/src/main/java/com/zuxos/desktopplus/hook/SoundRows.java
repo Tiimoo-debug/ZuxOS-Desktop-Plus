@@ -54,7 +54,9 @@ public final class SoundRows {
      *
      * @return the sessions these rows were built from, so the caller can follow them
      */
-    public static List<MediaController> addTo(Context ctx, LinearLayout body, int displayId) {
+    public static List<MediaController> addTo(Context ctx, LinearLayout body, int displayId,
+            Runnable onChanged) {
+        sDisplayId = displayId;
         AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
         if (am != null) {
             body.addView(stream(ctx, am, AudioManager.STREAM_MUSIC, "Media",
@@ -63,8 +65,8 @@ public final class SoundRows {
             body.addView(stream(ctx, am, AudioManager.STREAM_ALARM, "Alarm", null));
         }
         List<MediaController> controllers = sessions(ctx);
-        addMedia(ctx, body, controllers);
-        addPerApp(ctx, body, controllers);
+        addMedia(ctx, body, controllers, onChanged);
+        addPlayingApps(ctx, body, controllers, onChanged);
         return controllers;
     }
 
@@ -74,28 +76,67 @@ public final class SoundRows {
      * <p>This is what fills the gap left by per-app volume, which Android does not have. The
      * session list is already in hand and the controls cost one call each.
      */
-    private static void addMedia(Context ctx, LinearLayout body, List<MediaController> sessions) {
+    /**
+     * The media card, and a way through the others.
+     *
+     * <p>One card at a time rather than a stack of them: with three things playing, three cards
+     * push everything else out of the panel. Arrows step between them, the way the system's own
+     * media carousel does, and which one you are looking at is remembered by package so it
+     * survives the panel being rebuilt under you.
+     */
+    private static void addMedia(Context ctx, LinearLayout body, List<MediaController> sessions,
+            Runnable onChanged) {
         PackageManager pm = ctx.getPackageManager();
-        boolean headed = false;
+        List<MediaController> live = new ArrayList<>();
         for (MediaController controller : sessions) {
-            MediaMetadata meta;
-            PlaybackState playback;
             try {
-                meta = controller.getMetadata();
-                playback = controller.getPlaybackState();
-            } catch (Throwable t) {
-                continue;
+                if (isLive(controller.getPlaybackState())) {
+                    live.add(controller);
+                }
+            } catch (Throwable ignored) {
+                // A session that will not answer is not one to draw.
             }
-            if (!isLive(playback)) {
-                // A session outlives its playback. Stopped and errored ones would get a card with
-                // buttons that do nothing, under a heading claiming something is playing.
-                continue;
+        }
+        if (live.isEmpty()) {
+            return;
+        }
+        int index = indexOf(live);
+        MediaController controller = live.get(index);
+        MediaMetadata meta;
+        PlaybackState playback;
+        try {
+            meta = controller.getMetadata();
+            playback = controller.getPlaybackState();
+        } catch (Throwable t) {
+            return;
+        }
+        if (playback == null) {
+            // It was live a moment ago when the list was built; sessions move underneath us and
+            // the card reads this without checking, which would take the launcher down with it.
+            return;
+        }
+        body.addView(QuickPanel.sectionLabel(ctx, live.size() > 1
+                ? "Media (" + (index + 1) + " of " + live.size() + ")" : "Media"));
+        body.addView(mediaCard(ctx, controller, pm, meta, playback, live, index, onChanged));
+    }
+
+    /** Which session is being shown, kept by package so a rebuild does not jump elsewhere. */
+    private static String sShowing;
+
+    private static int indexOf(List<MediaController> live) {
+        for (int i = 0; i < live.size(); i++) {
+            if (live.get(i).getPackageName().equals(sShowing)) {
+                return i;
             }
-            if (!headed) {
-                body.addView(QuickPanel.sectionLabel(ctx, "Media"));
-                headed = true;
-            }
-            body.addView(mediaCard(ctx, controller, pm, meta, playback));
+        }
+        return 0;
+    }
+
+    private static void step(List<MediaController> live, int from, int by, Runnable onChanged) {
+        int next = (from + by + live.size()) % live.size();
+        sShowing = live.get(next).getPackageName();
+        if (onChanged != null) {
+            onChanged.run();
         }
     }
 
@@ -124,7 +165,8 @@ public final class SoundRows {
      * falls back to the panel's own translucency and keeps its shape.
      */
     private static View mediaCard(Context ctx, MediaController controller, PackageManager pm,
-            MediaMetadata meta, PlaybackState playback) {
+            MediaMetadata meta, PlaybackState playback, List<MediaController> live, int index,
+            Runnable onChanged) {
         int radius = Ui.dp(ctx, 16);
         FrameLayout card = new FrameLayout(ctx);
         card.setBackground(Ui.roundRect(0x1AFFFFFF, radius));
@@ -158,7 +200,29 @@ public final class SoundRows {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        content.addView(appPill(ctx, pm, controller));
+        LinearLayout top = new LinearLayout(ctx);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(appPill(ctx, pm, controller));
+        if (live.size() > 1) {
+            View spacer = new View(ctx);
+            top.addView(spacer, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            top.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 26, false,
+                    () -> step(live, index, -1, onChanged)));
+            top.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 26, false,
+                    () -> step(live, index, 1, onChanged)));
+        }
+        content.addView(top, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // The artwork is the app, so pressing it opens the app - the same thing the system's
+        // own card does, and the reason it is the whole background rather than a thumbnail.
+        card.setOnClickListener(v -> {
+            QuickPanel.dismiss();
+            openApp(ctx, controller.getPackageName());
+        });
 
         View filler = new View(ctx);
         content.addView(filler, new LinearLayout.LayoutParams(
@@ -267,6 +331,22 @@ public final class SoundRows {
             return null;
         }
     }
+
+    private static void openApp(Context ctx, String pkg) {
+        try {
+            android.content.Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (intent == null) {
+                return;
+            }
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent, QuickTiles.launchOptions(sDisplayId));
+        } catch (Throwable t) {
+            L.d("sound: could not open " + pkg + " (" + t + ")");
+        }
+    }
+
+    /** The display the panel is on, so what opens from it lands there. */
+    private static int sDisplayId = -1;
 
     /** Which app this is, small, in the corner - the card's own label. */
     private static View appPill(Context ctx, PackageManager pm, MediaController controller) {
@@ -447,54 +527,187 @@ public final class SoundRows {
     // --- per app ---------------------------------------------------------
 
     /**
-     * A slider per app that is currently playing, where the platform will list them.
+     * Every app that is making sound right now, and what can honestly be done about each.
      *
-     * <p>{@code getActiveSessions(null)} is the privileged form. It throws {@link
-     * SecurityException} unless the caller holds {@code MEDIA_CONTENT_CONTROL}, and there is no
-     * way to ask in advance, so the refusal is the test.
+     * <p>Android has no per-app volume for local playback - a local session's "volume" is the
+     * media stream itself, shared by everything - so a slider here would look per-app and move
+     * them all. What there is, is {@code getActivePlaybackConfigurations}: the list of players
+     * the audio service currently has open. That answers the question you are actually asking
+     * when you open this - who is making noise - and where an app has a media session it can be
+     * paused from here. An app playing to a remote route does get a real volume, because that
+     * one exists.
      */
-    private static void addPerApp(Context ctx, LinearLayout body,
-            List<MediaController> controllers) {
-        if (controllers.isEmpty()) {
+    private static void addPlayingApps(Context ctx, LinearLayout body,
+            List<MediaController> controllers, Runnable onChanged) {
+        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) {
+            return;
+        }
+        List<String> playing = playingPackages(ctx, am, controllers);
+        if (playing.isEmpty()) {
             return;
         }
         PackageManager pm = ctx.getPackageManager();
-        boolean headed = false;
-        int local = 0;
-        for (MediaController controller : controllers) {
-            MediaController.PlaybackInfo info;
+        body.addView(QuickPanel.sectionLabel(ctx, "Apps using audio"));
+        for (String pkg : playing) {
+            MediaController controller = controllerFor(controllers, pkg);
+            MediaController.PlaybackInfo info = null;
             try {
-                info = controller.getPlaybackInfo();
-            } catch (Throwable t) {
+                info = controller != null ? controller.getPlaybackInfo() : null;
+            } catch (Throwable ignored) {
+                // No playback info; the row still lists the app.
+            }
+            if (info != null && info.getPlaybackType()
+                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+                    && info.getMaxVolume() > 0) {
+                final MediaController remote = controller;
+                body.addView(slider(ctx, appIcon(pm, pkg), appName(pm, pkg),
+                        info.getMaxVolume(), info.getCurrentVolume(), value -> {
+                            try {
+                                remote.setVolumeTo(value, 0);
+                            } catch (Throwable t) {
+                                L.d("sound: " + pkg + " refused a volume (" + t + ")");
+                            }
+                        }));
                 continue;
             }
-            if (info == null || info.getMaxVolume() <= 0) {
-                continue;
+            body.addView(playingRow(ctx, pm, pkg, controller, onChanged));
+        }
+    }
+
+    private static View playingRow(Context ctx, PackageManager pm, String pkg,
+            MediaController controller, Runnable onChanged) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(ctx, 8);
+        row.setPadding(pad, pad, pad, pad);
+        row.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 12)));
+        row.setOnClickListener(v -> {
+            QuickPanel.dismiss();
+            openApp(ctx, pkg);
+        });
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageDrawable(appIcon(pm, pkg));
+        int size = Ui.dp(ctx, 20);
+        row.addView(icon, new LinearLayout.LayoutParams(size, size));
+
+        TextView label = new TextView(ctx);
+        label.setText(appName(pm, pkg));
+        label.setTextColor(Ui.COLOR_TEXT);
+        label.setTextSize(13);
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        llp.leftMargin = Ui.dp(ctx, 10);
+        row.addView(label, llp);
+
+        if (controller != null) {
+            PlaybackState state = null;
+            try {
+                state = controller.getPlaybackState();
+            } catch (Throwable ignored) {
+                // Treated as not playing, which only decides the icon.
             }
-            if (info.getPlaybackType() != MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
-                // A local session's "volume" is the media stream itself. A slider here would
-                // look per-app and silently move every app at once, which is worse than not
-                // offering one - Android has no per-app volume for local playback.
-                local++;
-                continue;
-            }
-            if (!headed) {
-                body.addView(QuickPanel.sectionLabel(ctx, "App volume"));
-                headed = true;
-            }
-            body.addView(slider(ctx, null, appName(pm, controller.getPackageName()),
-                    info.getMaxVolume(), info.getCurrentVolume(), value -> {
-                        try {
-                            controller.setVolumeTo(value, 0);
-                        } catch (Throwable t) {
-                            L.d("sound: " + controller.getPackageName() + " refused a volume ("
-                                    + t + ")");
+            boolean playing = state != null && state.getState() == PlaybackState.STATE_PLAYING;
+            final MediaController target = controller;
+            row.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
+                            : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 30, false,
+                    () -> {
+                        PlaybackState now = target.getPlaybackState();
+                        if (now != null && now.getState() == PlaybackState.STATE_PLAYING) {
+                            target.getTransportControls().pause();
+                        } else {
+                            target.getTransportControls().play();
                         }
                     }));
+        } else {
+            // No media session, so there is nothing to press: an app can make sound without
+            // offering anyone a way to stop it, and pretending otherwise would be a dead button.
+            TextView note = new TextView(ctx);
+            note.setText("playing");
+            note.setTextColor(Ui.COLOR_TEXT_DIM);
+            note.setTextSize(11);
+            row.addView(note);
         }
-        if (local > 0 && !headed) {
-            L.i("sound: " + local + " app(s) playing locally - Android gives local playback no "
-                    + "volume of its own, so only the Media slider moves them");
+        return row;
+    }
+
+    /**
+     * The packages with an audio player open, newest first.
+     *
+     * <p>{@code AudioPlaybackConfiguration} keeps the owner's uid, but the getter is not in the
+     * public SDK - so it is reflected, and an absence is simply an empty list rather than a
+     * failure. Nothing else in the panel depends on it.
+     */
+    private static List<String> playingPackages(Context ctx, AudioManager am,
+            List<MediaController> controllers) {
+        List<String> out = new ArrayList<>();
+        // The sessions first, because these we can genuinely see. The audio service anonymises
+        // its player list for anyone without MODIFY_AUDIO_ROUTING - the uid comes back as -1 -
+        // so on its own it would have listed nothing at all.
+        for (MediaController controller : controllers) {
+            String pkg = controller.getPackageName();
+            if (pkg != null && !out.contains(pkg)) {
+                out.add(pkg);
+            }
+        }
+        try {
+            List<android.media.AudioPlaybackConfiguration> configs =
+                    am.getActivePlaybackConfigurations();
+            if (configs == null) {
+                return out;
+            }
+            PackageManager pm = ctx.getPackageManager();
+            for (android.media.AudioPlaybackConfiguration config : configs) {
+                Integer uid = clientUid(config);
+                if (uid == null || uid <= 0) {
+                    // Anonymised, which is the ordinary answer for an app like this one.
+                    continue;
+                }
+                String[] packages = pm.getPackagesForUid(uid);
+                if (packages == null || packages.length == 0) {
+                    continue;
+                }
+                String pkg = packages[0];
+                // The launcher's own taps and the system's effects are not "apps using audio".
+                if (!out.contains(pkg) && !pkg.equals(ctx.getPackageName())
+                        && !pkg.equals("android")) {
+                    out.add(pkg);
+                }
+            }
+        } catch (Throwable t) {
+            L.d("sound: the active players are not readable (" + t + ")");
+        }
+        return out;
+    }
+
+    private static Integer clientUid(Object config) {
+        try {
+            java.lang.reflect.Method m = config.getClass().getMethod("getClientUid");
+            m.setAccessible(true);
+            return (Integer) m.invoke(config);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static MediaController controllerFor(List<MediaController> controllers, String pkg) {
+        for (MediaController controller : controllers) {
+            if (pkg.equals(controller.getPackageName())) {
+                return controller;
+            }
+        }
+        return null;
+    }
+
+    private static Drawable appIcon(PackageManager pm, String pkg) {
+        try {
+            return pm.getApplicationIcon(pkg);
+        } catch (Throwable t) {
+            return TrayIcons.volume(Ui.COLOR_TEXT);
         }
     }
 

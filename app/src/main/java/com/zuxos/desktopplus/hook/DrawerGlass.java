@@ -54,6 +54,8 @@ final class DrawerGlass {
 
     /** What each glazed sheet had before, so it can be put back exactly. */
     private static final Map<View, Drawable[]> ORIGINALS = new WeakHashMap<>();
+    /** Windows being watched for their sheet to appear. */
+    private static final Map<View, View.OnLayoutChangeListener> WATCHED = new WeakHashMap<>();
 
     private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
 
@@ -68,11 +70,12 @@ final class DrawerGlass {
             return;
         }
         try {
-            List<View> found = Reflect.findByClassFragments(root, SHEET_CLASSES);
+            List<View> found = sheetsIn(root);
             if (found.isEmpty()) {
-                found = Reflect.findByIdNames(root, SHEET_IDS);
-            }
-            if (found.isEmpty()) {
+                // This is the ordinary case, not a failure: the log said the drawer's window -
+                // a TaskbarOverlayDragLayer - arrives with no children at all, because the sheet
+                // is put into it afterwards. So the window is watched instead of inspected once.
+                watch(root);
                 note(root);
                 return;
             }
@@ -104,6 +107,53 @@ final class DrawerGlass {
      * and, worse, sample nothing and guess the tone. The one that carries a background is the
      * sheet, so that is the one taken - innermost first, since that is the one drawn last.
      */
+    private static List<View> sheetsIn(View root) {
+        List<View> found = Reflect.findByClassFragments(root, SHEET_CLASSES);
+        if (found.isEmpty()) {
+            found = Reflect.findByIdNames(root, SHEET_IDS);
+        }
+        return found;
+    }
+
+    /**
+     * Waits for the drawer to be put into its window.
+     *
+     * <p>The window is created empty and filled a moment later, so a single look finds nothing.
+     * A layout listener costs nothing while the window is idle and takes itself off as soon as
+     * the sheet has been glazed.
+     */
+    private static void watch(View root) {
+        if (!(root instanceof ViewGroup) || WATCHED.containsKey(root)) {
+            return;
+        }
+        if (!(Cfg.drawerGlass() && Cfg.glass())) {
+            return;
+        }
+        // Only the window that can hold one. A listener on every launcher window would run two
+        // recursive scans of that window's whole tree on every layout it ever does, on the UI
+        // thread, for windows that will never contain a drawer.
+        String name = root.getClass().getSimpleName();
+        if (!name.contains("Overlay") && !name.contains("AllApps")) {
+            return;
+        }
+        View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                    int ol, int ot, int or, int ob) {
+                View sheet = pick(sheetsIn(v));
+                if (sheet == null) {
+                    return;
+                }
+                v.removeOnLayoutChangeListener(this);
+                WATCHED.remove(v);
+                L.i("drawer glass: the sheet turned up - " + sheet.getClass().getSimpleName());
+                apply(sheet);
+            }
+        };
+        root.addOnLayoutChangeListener(listener);
+        WATCHED.put(root, listener);
+    }
+
     private static View pick(List<View> candidates) {
         for (int i = candidates.size() - 1; i >= 0; i--) {
             View view = candidates.get(i);

@@ -399,7 +399,8 @@ public final class TaskbarTray {
             setContentDescription("System status");
 
             int icon = Ui.dp(ctx, 18);
-            mScreenshot = iconButton(ctx, "Screenshot", () -> Shots.take(getContext()));
+            mScreenshot = iconButton(ctx, "Screenshot",
+                    () -> Shots.take(getContext(), mDisplayId));
             addView(mScreenshot, buttonParams(ctx, 0));
 
             mNetIcon = new ImageView(ctx);

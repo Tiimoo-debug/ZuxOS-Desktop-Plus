@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -261,16 +262,49 @@ final class Notifications {
                 if (displayId >= 0) {
                     opts.setLaunchDisplayId(displayId);
                 }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    // The sender has to say the activity start is wanted, or the system drops it
+                    // on the floor without an error - which is exactly what "it does nothing for
+                    // some apps" looked like. Apps whose own task is already visible were
+                    // unaffected, which is why LSPosed's notification always worked.
+                    opts.setPendingIntentBackgroundActivityStartMode(
+                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                }
                 options = opts.toBundle();
             } catch (Throwable ignored) {
                 // Without options it still opens, just on the default display.
             }
-            intent.send(ctx, 0, null, null, null, null, options);
+            try {
+                intent.send(ctx, 0, null, null, null, null, options);
+            } catch (PendingIntent.CanceledException dead) {
+                // The notification outlived what it pointed at.
+                L.i("notifications: " + note.pkg + "'s intent is dead, opening the app instead");
+                launch(ctx, note.pkg, displayId);
+                return;
+            }
+            L.i("notifications: sent " + note.pkg + "'s intent");
+            // Anything that goes wrong from here is tidying up, not opening: the app is already
+            // on its way, and a second launch would land on top of what it just opened.
             if (result.getBoolean("autoCancel")) {
                 call(ctx, METHOD_DISMISS, note.key, -1);
             }
         } catch (Throwable t) {
             L.e("notifications: could not open " + note.pkg, t);
+        }
+    }
+
+    /** Last resort: the app itself, which is what someone tapping it wanted to reach anyway. */
+    private static void launch(Context ctx, String pkg, int displayId) {
+        try {
+            android.content.Intent intent =
+                    ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (intent == null) {
+                return;
+            }
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent, QuickTiles.launchOptions(displayId));
+        } catch (Throwable t) {
+            L.d("notifications: could not open " + pkg + " either (" + t + ")");
         }
     }
 

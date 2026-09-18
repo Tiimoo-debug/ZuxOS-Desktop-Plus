@@ -535,7 +535,7 @@ public final class QuickPanel {
         body.addView(networkHeader(ctx, state));
         body.addView(tiles(ctx, state, displayId, rebuild));
         body.addView(divider(ctx));
-        watchSessions(SoundRows.addTo(ctx, body, displayId));
+        watchSessions(SoundRows.addTo(ctx, body, displayId, rebuild));
         body.addView(divider(ctx));
         body.addView(batteryRow(ctx, state));
         body.addView(action(ctx, "Network & internet",
