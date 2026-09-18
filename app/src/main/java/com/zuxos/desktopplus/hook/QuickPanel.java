@@ -54,6 +54,18 @@ public final class QuickPanel {
         show(ctx, anchor, displayId);
     }
 
+    /** Identifies the open panel, so a slow callback cannot close a newer one. */
+    static Object token() {
+        return sCurrent;
+    }
+
+    /** Closes the panel only if it is still the one {@code token} came from. */
+    static void dismissIf(Object token) {
+        if (token != null && sCurrent == token) {
+            dismiss();
+        }
+    }
+
     public static void dismiss() {
         View current = sCurrent;
         WindowManager wm = sWm;
@@ -155,7 +167,7 @@ public final class QuickPanel {
         body.addView(networkHeader(ctx, state));
         body.addView(tiles(ctx, state, displayId, () -> fill(ctx, body, displayId)));
         body.addView(divider(ctx));
-        SoundRows.addTo(ctx, body, displayId);
+        SoundRows.addTo(ctx, body, displayId, () -> fill(ctx, body, displayId));
         body.addView(divider(ctx));
         body.addView(batteryRow(ctx, state));
         body.addView(action(ctx, "Network & internet",
@@ -167,11 +179,10 @@ public final class QuickPanel {
     private static View tiles(Context ctx, SysState state, int displayId, Runnable onActed) {
         List<QuickTiles.Tile> tiles = new ArrayList<>();
         tiles.add(QuickTiles.wifi(ctx, state, displayId));
-        tiles.add(QuickTiles.bluetooth(ctx, displayId));
+        tiles.add(QuickTiles.bluetooth(ctx, displayId, onActed));
         tiles.add(QuickTiles.torch(ctx));
-        tiles.add(QuickTiles.rotation(ctx, displayId));
-        tiles.add(QuickTiles.flightMode(ctx, displayId));
-        tiles.add(QuickTiles.settings(ctx, displayId));
+        tiles.add(QuickTiles.rotation(ctx, displayId, onActed));
+        tiles.add(QuickTiles.flightMode(ctx, displayId, onActed));
 
         GridLayout grid = new GridLayout(ctx);
         grid.setColumnCount(COLUMNS);

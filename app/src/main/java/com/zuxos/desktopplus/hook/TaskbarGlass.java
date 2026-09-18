@@ -18,7 +18,6 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -51,6 +50,20 @@ public final class TaskbarGlass {
     private static final int TINT_BOTTOM = 0x8C0E0E14;
 
     private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
+
+    /**
+     * The renderer class, by the names it goes under. Launcher3's own names survive this build's
+     * R8 pass - the probe shows TaskbarDragLayer and TaskbarScrimView in full - so this is a
+     * lookup rather than a search.
+     */
+    private static final String[] RENDERER_CLASSES = {
+            "com.android.launcher3.taskbar.TaskbarBackgroundRenderer",
+            "com.android.launcher3.taskbar.TaskbarDragLayerController$TaskbarBackgroundRenderer",
+            "com.android.launcher3.taskbar.customization.TaskbarBackgroundRenderer",
+    };
+
+    /** Raised while a glazed taskbar is drawing, so the renderer knows to stay out of the way. */
+    private static final ThreadLocal<Boolean> DRAWING_GLAZED = new ThreadLocal<>();
 
     private static final Map<View, WeakReference<View>> PANES = new WeakHashMap<>();
     /** The background each taskbar had before we replaced it, so it can be put back. */
@@ -94,71 +107,88 @@ public final class TaskbarGlass {
             L.i("taskbar glass: onDraw suppression installed x" + hooked);
             L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
                     + drawMethodsOf(cls));
-            installDispatchDraw(cls);
+            installDispatchDraw(cls, loader);
         } catch (Throwable t) {
             L.e("taskbar glass: could not install", t);
         }
     }
 
     /**
-     * Replaces the bar painted in {@code dispatchDraw}, which is where this firmware paints it.
+     * Stops the object that paints the bar, rather than the method that calls it.
      *
-     * <p>{@code TaskbarDragLayer.dispatchDraw} paints the bar and then calls up to
-     * {@code ViewGroup.dispatchDraw} to paint the icons and buttons. Skipping the method outright
-     * would take the children with it, so the replacement calls the grandparent directly:
-     * {@code invokeOriginalMethod} dispatches non-virtually, which is the only way to express
-     * {@code super.super.dispatchDraw(canvas)} from here.
+     * <p>The previous attempt replaced {@code TaskbarDragLayer.dispatchDraw} and tried to call
+     * {@code ViewGroup.dispatchDraw} in its place, so the icons would still be drawn.
+     * {@code invokeOriginalMethod} only dispatches non-virtually for a method that is itself
+     * hooked; {@code ViewGroup.dispatchDraw} is not, so that was an ordinary reflective call, it
+     * dispatched virtually back into {@code TaskbarDragLayer.dispatchDraw}, and the stack died.
+     *
+     * <p>This goes at the painting instead. {@code dispatchDraw} raises a flag while a glazed
+     * taskbar is drawing, and the background renderer's own {@code draw} returns early while that
+     * flag is up. Both hooks are shallow, neither calls back into the other, and the flag is a
+     * {@link ThreadLocal} so a second display's taskbar is untouched.
      */
-    private static void installDispatchDraw(Class<?> cls) {
-        final Method viewGroupDispatchDraw;
-        try {
-            viewGroupDispatchDraw = ViewGroup.class.getDeclaredMethod("dispatchDraw", Canvas.class);
-            viewGroupDispatchDraw.setAccessible(true);
-        } catch (Throwable t) {
-            L.w("taskbar glass: ViewGroup.dispatchDraw is not reachable, the stock bar stays");
+    private static void installDispatchDraw(Class<?> dragLayerCls, ClassLoader loader) {
+        Class<?> renderer = null;
+        StringBuilder tried = new StringBuilder();
+        for (String name : RENDERER_CLASSES) {
+            tried.append(tried.length() == 0 ? "" : ", ").append(name);
+            renderer = Reflect.findClass(name, loader);
+            if (renderer != null) {
+                break;
+            }
+        }
+        if (renderer == null) {
+            L.w("taskbar glass: no background renderer found (tried " + tried
+                    + ") - the stock bar will stay. Send a probe dump and it can be named.");
             return;
         }
+
         try {
-            XC_MethodHook replacement = new XC_MethodHook() {
+            XC_MethodHook flag = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!isGlazed(param.thisObject)) {
-                        return;
-                    }
-                    try {
-                        XposedBridge.invokeOriginalMethod(viewGroupDispatchDraw,
-                                param.thisObject, param.args);
-                        param.setResult(null);
-                    } catch (Throwable t) {
-                        // Losing the icons is far worse than keeping the stock bar, so the whole
-                        // glass comes off - pane, stripped background and all - rather than
-                        // leaving the taskbar in a state that is neither one thing nor the other.
-                        // Posted, not done here: this is inside a draw pass, and removing a child
-                        // from a group that is drawing it is its own kind of crash.
-                        if (param.thisObject instanceof ViewGroup) {
-                            final ViewGroup dragLayer = (ViewGroup) param.thisObject;
-                            PANES.remove(dragLayer);
-                            dragLayer.post(() -> remove(dragLayer));
-                        }
-                        L.e("taskbar glass: could not draw the children, stock bar restored", t);
+                    if (isGlazed(param.thisObject)) {
+                        DRAWING_GLAZED.set(Boolean.TRUE);
                     }
                 }
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    DRAWING_GLAZED.remove();
+                }
             };
-            // Declared on the drag layer here, but on the shared BaseDragLayer in other builds -
-            // the same walk the diagnostic does. isGlazed keeps it to taskbars we have glazed,
-            // so a wider hook cannot reach another drag layer's drawing.
-            int hooked = 0;
-            for (Class<?> c = cls; c != null && c != ViewGroup.class && c != View.class;
+            // Declared on the drag layer here, on the shared BaseDragLayer in other builds - the
+            // same walk the diagnostic does. isGlazed keeps the flag to taskbars we have glazed.
+            int flagged = 0;
+            for (Class<?> c = dragLayerCls; c != null && c != ViewGroup.class && c != View.class;
                     c = c.getSuperclass()) {
                 try {
-                    hooked += XposedBridge.hookAllMethods(c, "dispatchDraw", replacement).size();
+                    flagged += XposedBridge.hookAllMethods(c, "dispatchDraw", flag).size();
                 } catch (Throwable ignored) {
                     // Not declared at this level; keep walking.
                 }
             }
-            L.i("taskbar glass: dispatchDraw replacement installed x" + hooked);
+            if (flagged == 0) {
+                L.w("taskbar glass: nothing declares dispatchDraw - the renderer will never be "
+                        + "told to stand down, so the stock bar stays");
+                return;
+            }
+            int hooked = XposedBridge.hookAllMethods(renderer, "draw", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (Boolean.TRUE.equals(DRAWING_GLAZED.get())) {
+                        param.setResult(null);
+                    }
+                }
+            }).size();
+            L.i("taskbar glass: background renderer suppressed x" + hooked
+                    + " (" + renderer.getSimpleName() + ")");
+            if (hooked == 0) {
+                L.w("taskbar glass: " + renderer.getSimpleName() + " has no draw method - the "
+                        + "stock bar will stay");
+            }
         } catch (Throwable t) {
-            L.e("taskbar glass: could not replace dispatchDraw", t);
+            L.e("taskbar glass: could not suppress the background renderer", t);
         }
     }
 

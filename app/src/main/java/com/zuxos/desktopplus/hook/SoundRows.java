@@ -38,7 +38,7 @@ public final class SoundRows {
     }
 
     /** Adds the volume sliders, the per-app ones where the platform allows it, and brightness. */
-    public static void addTo(Context ctx, LinearLayout body, int displayId) {
+    public static void addTo(Context ctx, LinearLayout body, int displayId, Runnable onChanged) {
         AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
         if (am != null) {
             body.addView(stream(ctx, am, AudioManager.STREAM_MUSIC, "Media",
@@ -47,7 +47,149 @@ public final class SoundRows {
             body.addView(stream(ctx, am, AudioManager.STREAM_ALARM, "Alarm", null));
         }
         addBrightness(ctx, body, displayId);
-        addPerApp(ctx, body);
+        List<MediaController> controllers = sessions(ctx);
+        addMedia(ctx, body, controllers, onChanged);
+        addPerApp(ctx, body, controllers);
+    }
+
+    /**
+     * A transport card per app that is playing: what it is, and the three buttons.
+     *
+     * <p>This is what fills the gap left by per-app volume, which Android does not have. The
+     * session list is already in hand and the controls cost one call each.
+     */
+    private static void addMedia(Context ctx, LinearLayout body, List<MediaController> sessions,
+            Runnable onChanged) {
+        PackageManager pm = ctx.getPackageManager();
+        boolean headed = false;
+        for (MediaController controller : sessions) {
+            android.media.MediaMetadata meta;
+            android.media.session.PlaybackState playback;
+            try {
+                meta = controller.getMetadata();
+                playback = controller.getPlaybackState();
+            } catch (Throwable t) {
+                continue;
+            }
+            if (!isLive(playback)) {
+                // A session outlives its playback. Stopped and errored ones would get a card with
+                // buttons that do nothing, under a heading claiming something is playing.
+                continue;
+            }
+            if (!headed) {
+                body.addView(QuickPanel.sectionLabel(ctx, "Media"));
+                headed = true;
+            }
+            body.addView(mediaCard(ctx, controller, pm, meta, playback, onChanged));
+        }
+    }
+
+    /** Playing, paused or on its way there - anything a transport button could act on. */
+    private static boolean isLive(android.media.session.PlaybackState playback) {
+        if (playback == null) {
+            return false;
+        }
+        switch (playback.getState()) {
+            case android.media.session.PlaybackState.STATE_PLAYING:
+            case android.media.session.PlaybackState.STATE_PAUSED:
+            case android.media.session.PlaybackState.STATE_BUFFERING:
+            case android.media.session.PlaybackState.STATE_CONNECTING:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static View mediaCard(Context ctx, MediaController controller, PackageManager pm,
+            android.media.MediaMetadata meta, android.media.session.PlaybackState playback,
+            Runnable onChanged) {
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dp(ctx, 10);
+        card.setPadding(pad, pad, pad, pad);
+        card.setBackground(Ui.roundRect(0x1AFFFFFF, Ui.dp(ctx, 14)));
+
+        LinearLayout text = new LinearLayout(ctx);
+        text.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        card.addView(text, tlp);
+
+        String title = meta != null
+                ? meta.getString(android.media.MediaMetadata.METADATA_KEY_TITLE) : null;
+        TextView line = new TextView(ctx);
+        line.setText(title != null && !title.isEmpty() ? title
+                : appName(pm, controller.getPackageName()));
+        line.setTextColor(Ui.COLOR_TEXT);
+        line.setTextSize(13);
+        line.setSingleLine(true);
+        line.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.addView(line);
+
+        String artist = meta != null
+                ? meta.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST) : null;
+        TextView sub = new TextView(ctx);
+        sub.setText(artist != null && !artist.isEmpty() ? artist
+                : appName(pm, controller.getPackageName()));
+        sub.setTextColor(Ui.COLOR_TEXT_DIM);
+        sub.setTextSize(11);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.addView(sub);
+
+        boolean playing = playback.getState()
+                == android.media.session.PlaybackState.STATE_PLAYING;
+        card.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), onChanged,
+                () -> controller.getTransportControls().skipToPrevious()));
+        card.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
+                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT), onChanged,
+                () -> {
+                    // Read now, not when this card was drawn: after the first press the card is
+                    // out of date, and a captured flag would pause a second time instead of
+                    // resuming.
+                    android.media.session.PlaybackState live = controller.getPlaybackState();
+                    boolean nowPlaying = live != null && live.getState()
+                            == android.media.session.PlaybackState.STATE_PLAYING;
+                    if (nowPlaying) {
+                        controller.getTransportControls().pause();
+                    } else {
+                        controller.getTransportControls().play();
+                    }
+                }));
+        card.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), onChanged,
+                () -> controller.getTransportControls().skipToNext()));
+
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = Ui.dp(ctx, 6);
+        card.setLayoutParams(clp);
+        return card;
+    }
+
+    private static View transport(Context ctx, Drawable icon, Runnable onChanged, Runnable action) {
+        ImageView button = new ImageView(ctx);
+        button.setImageDrawable(icon);
+        int size = Ui.dp(ctx, 34);
+        int inset = Ui.dp(ctx, 6);
+        button.setPadding(inset, inset, inset, inset);
+        button.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
+        button.setOnClickListener(v -> {
+            try {
+                action.run();
+            } catch (Throwable t) {
+                L.d("sound: transport control refused (" + t + ")");
+                return;
+            }
+            if (onChanged != null) {
+                // The app needs a moment to report the new state before the card is rebuilt.
+                v.postDelayed(onChanged, 250L);
+            }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        lp.leftMargin = Ui.dp(ctx, 2);
+        button.setLayoutParams(lp);
+        return button;
     }
 
     // --- streams ---------------------------------------------------------
@@ -119,8 +261,8 @@ public final class SoundRows {
      * SecurityException} unless the caller holds {@code MEDIA_CONTENT_CONTROL}, and there is no
      * way to ask in advance, so the refusal is the test.
      */
-    private static void addPerApp(Context ctx, LinearLayout body) {
-        List<MediaController> controllers = sessions(ctx);
+    private static void addPerApp(Context ctx, LinearLayout body,
+            List<MediaController> controllers) {
         if (controllers.isEmpty()) {
             return;
         }

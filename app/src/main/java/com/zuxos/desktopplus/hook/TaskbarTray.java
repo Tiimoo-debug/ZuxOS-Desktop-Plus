@@ -3,7 +3,6 @@ package com.zuxos.desktopplus.hook;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -290,7 +289,18 @@ public final class TaskbarTray {
         private final TextView mBatteryText;
         private final TextView mTemps;
         private final TextView mClock;
+        private final TextView mDate;
+        private final ImageView mScreenshot;
+        private final ImageView mPanelButton;
         private final Runnable mOnChanged = this::render;
+        /** The clock shows seconds, so it repaints once a second while the tray is on screen. */
+        private final Runnable mTick = new Runnable() {
+            @Override
+            public void run() {
+                renderClock();
+                postDelayed(this, 1000L - (System.currentTimeMillis() % 1000L));
+            }
+        };
 
         private SysState mState;
         private int mShownNetType = -1;
@@ -304,17 +314,21 @@ public final class TaskbarTray {
             mDisplayId = displayId;
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
-            int padH = Ui.dp(ctx, 12);
+            int padH = Ui.dp(ctx, 6);
             int padV = Ui.dp(ctx, 4);
             setPadding(padH, padV, padH, padV);
-            setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 16)));
-            setClickable(true);
-            setFocusable(true);
+            // The row itself is no longer a button. Each piece answers for itself, which is what
+            // makes the panel's own button possible.
             setContentDescription("System status");
 
             int icon = Ui.dp(ctx, 18);
+            mScreenshot = iconButton(ctx, "Screenshot", () -> Shots.take(getContext()));
+            addView(mScreenshot, buttonParams(ctx, 0));
+
             mNetIcon = new ImageView(ctx);
-            addView(mNetIcon, new LayoutParams(icon, icon));
+            LayoutParams nlp = new LayoutParams(icon, icon);
+            nlp.leftMargin = Ui.dp(ctx, 8);
+            addView(mNetIcon, nlp);
 
             mBatteryIcon = new ImageView(ctx);
             LayoutParams blp = new LayoutParams(icon, icon);
@@ -334,15 +348,48 @@ public final class TaskbarTray {
             addView(mTemps, templp);
 
             mClock = label(ctx, 13f);
+            mClock.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
+            mClock.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            mClock.setOnClickListener(v -> Shortcuts.openClock(getContext(), mDisplayId));
             LayoutParams clp = new LayoutParams(LayoutParams.WRAP_CONTENT,
-                    LayoutParams.WRAP_CONTENT);
-            clp.leftMargin = Ui.dp(ctx, 10);
+                    LayoutParams.MATCH_PARENT);
+            clp.leftMargin = Ui.dp(ctx, 6);
             addView(mClock, clp);
 
-            setOnClickListener(v -> {
-                L.d("tray: tapped");
-                QuickPanel.toggle(getContext(), v, mDisplayId);
+            mDate = label(ctx, 13f);
+            mDate.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
+            mDate.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            mDate.setOnClickListener(v -> Shortcuts.openCalendar(getContext(), mDisplayId));
+            addView(mDate, new LayoutParams(LayoutParams.WRAP_CONTENT,
+                    LayoutParams.MATCH_PARENT));
+
+            mPanelButton = iconButton(ctx, "Quick settings",
+                    () -> QuickPanel.toggle(getContext(), TrayView.this, mDisplayId));
+            addView(mPanelButton, buttonParams(ctx, 4));
+        }
+
+        /** A round, tappable icon in the tray row. */
+        private ImageView iconButton(Context ctx, String description, Runnable action) {
+            ImageView button = new ImageView(ctx);
+            int inset = Ui.dp(ctx, 5);
+            button.setPadding(inset, inset, inset, inset);
+            button.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 14)));
+            button.setContentDescription(description);
+            button.setOnClickListener(v -> {
+                try {
+                    action.run();
+                } catch (Throwable t) {
+                    L.e("tray: " + description + " failed", t);
+                }
             });
+            return button;
+        }
+
+        private LayoutParams buttonParams(Context ctx, int leftMarginDp) {
+            int size = Ui.dp(ctx, 28);
+            LayoutParams lp = new LayoutParams(size, size);
+            lp.leftMargin = Ui.dp(ctx, leftMarginDp);
+            return lp;
         }
 
         private TextView label(Context ctx, float sizeSp) {
@@ -362,11 +409,13 @@ public final class TaskbarTray {
                 L.e("tray: no system state", t);
             }
             render();
+            mTick.run();
         }
 
         @Override
         protected void onDetachedFromWindow() {
             super.onDetachedFromWindow();
+            removeCallbacks(mTick);
             if (mState != null) {
                 mState.removeListener(mOnChanged);
             }
@@ -386,7 +435,10 @@ public final class TaskbarTray {
                 mShownColor = color;
                 mBatteryText.setTextColor(color);
                 mClock.setTextColor(color);
+                mDate.setTextColor(color);
                 mTemps.setTextColor(dimTextColor());
+                mScreenshot.setImageDrawable(TrayIcons.screenshot(color));
+                mPanelButton.setImageDrawable(TrayIcons.panelChevron(color));
             }
             // The temperatures change every few seconds; the icons almost never do. Rebuilding
             // a drawable for an unchanged indicator is pure allocation on a view that is on
@@ -406,9 +458,21 @@ public final class TaskbarTray {
                 mBatteryText.setText(percent < 0 ? "" : percent + "%");
             }
             renderTemps(state);
-            mClock.setText(new SimpleDateFormat(
-                    android.text.format.DateFormat.is24HourFormat(getContext()) ? "HH:mm" : "h:mm a",
-                    Locale.getDefault()).format(new Date()));
+            renderClock();
+        }
+
+        /**
+         * The time with seconds, and the date beside it.
+         *
+         * <p>Separate from {@link #render} because it runs every second while the rest of the row
+         * changes once a minute at most.
+         */
+        private void renderClock() {
+            Date now = new Date();
+            boolean h24 = android.text.format.DateFormat.is24HourFormat(getContext());
+            mClock.setText(new SimpleDateFormat(h24 ? "HH:mm:ss" : "h:mm:ss a",
+                    Locale.getDefault()).format(now));
+            mDate.setText(new SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now));
         }
 
         /**
@@ -454,12 +518,5 @@ public final class TaskbarTray {
             }
         }
 
-        @Override
-        public boolean onTouchEvent(MotionEvent event) {
-            // Claim the gesture outright. The taskbar's own drag layer watches for swipes on
-            // anything it does not recognise, and a half-claimed press reads as one.
-            super.onTouchEvent(event);
-            return true;
-        }
     }
 }

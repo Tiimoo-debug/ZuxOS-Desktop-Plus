@@ -198,18 +198,73 @@ public final class TrayIcons {
         };
     }
 
-    /** A paper plane, for aeroplane mode. */
+    /**
+     * The aeroplane, as AOSP draws it: a symmetrical airliner seen from above, nose up.
+     *
+     * <p>The first version of this was a paper plane - the "send" glyph - which is a different
+     * symbol altogether and read as one.
+     */
     public static Drawable flight(int color) {
         return new BoxIcon(color) {
             @Override
             void drawBox(Canvas canvas, Paint fill, Paint stroke) {
                 Path p = new Path();
-                p.moveTo(3f, 13f);
-                p.lineTo(21f, 5.5f);
-                p.lineTo(13.5f, 20.5f);
-                p.lineTo(11.5f, 14.5f);
+                // Nose, then out along the leading edge of the starboard wing and back in.
+                p.moveTo(12f, 2.2f);
+                p.cubicTo(12.9f, 2.2f, 13.5f, 3.1f, 13.5f, 4.4f);
+                p.lineTo(13.5f, 9.2f);
+                p.lineTo(21.5f, 14f);
+                p.lineTo(21.5f, 16f);
+                p.lineTo(13.5f, 13.6f);
+                p.lineTo(13.5f, 18.4f);
+                p.lineTo(16f, 20.2f);
+                p.lineTo(16f, 21.6f);
+                p.lineTo(12f, 20.6f);
+                // Mirrored back down the port side.
+                p.lineTo(8f, 21.6f);
+                p.lineTo(8f, 20.2f);
+                p.lineTo(10.5f, 18.4f);
+                p.lineTo(10.5f, 13.6f);
+                p.lineTo(2.5f, 16f);
+                p.lineTo(2.5f, 14f);
+                p.lineTo(10.5f, 9.2f);
+                p.lineTo(10.5f, 4.4f);
+                p.cubicTo(10.5f, 3.1f, 11.1f, 2.2f, 12f, 2.2f);
                 p.close();
-                canvas.drawPath(p, stroke);
+                canvas.drawPath(p, fill);
+            }
+        };
+    }
+
+    /** A camera shutter, for the screenshot button. */
+    public static Drawable screenshot(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                // A frame with the corners drawn and the sides left open, plus a lens.
+                float in = 4f;
+                float out = 20f;
+                float arm = 4.5f;
+                canvas.drawLine(in, in + arm, in, in, stroke);
+                canvas.drawLine(in, in, in + arm, in, stroke);
+                canvas.drawLine(out - arm, in, out, in, stroke);
+                canvas.drawLine(out, in, out, in + arm, stroke);
+                canvas.drawLine(out, out - arm, out, out, stroke);
+                canvas.drawLine(out, out, out - arm, out, stroke);
+                canvas.drawLine(in + arm, out, in, out, stroke);
+                canvas.drawLine(in, out, in, out - arm, stroke);
+                canvas.drawCircle(12f, 12f, 3f, stroke);
+            }
+        };
+    }
+
+    /** A chevron pointing up, for the button that opens the quick-settings panel. */
+    public static Drawable panelChevron(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawLine(5.5f, 14.5f, 12f, 8f, stroke);
+                canvas.drawLine(12f, 8f, 18.5f, 14.5f, stroke);
             }
         };
     }
@@ -268,6 +323,64 @@ public final class TrayIcons {
                     canvas.drawLine(12f + cos * 6.4f, 12f + sin * 6.4f,
                             12f + cos * 8.6f, 12f + sin * 8.6f, stroke);
                 }
+            }
+        };
+    }
+
+    /** Play. */
+    public static Drawable mediaPlay(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path p = new Path();
+                p.moveTo(7.5f, 4.5f);
+                p.lineTo(19f, 12f);
+                p.lineTo(7.5f, 19.5f);
+                p.close();
+                canvas.drawPath(p, fill);
+            }
+        };
+    }
+
+    /** Pause. */
+    public static Drawable mediaPause(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawRoundRect(new RectF(6.5f, 5f, 10.2f, 19f), 1.2f, 1.2f, fill);
+                canvas.drawRoundRect(new RectF(13.8f, 5f, 17.5f, 19f), 1.2f, 1.2f, fill);
+            }
+        };
+    }
+
+    /** Skip to the next track. */
+    public static Drawable mediaNext(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path p = new Path();
+                p.moveTo(6f, 5f);
+                p.lineTo(15.5f, 12f);
+                p.lineTo(6f, 19f);
+                p.close();
+                canvas.drawPath(p, fill);
+                canvas.drawRoundRect(new RectF(16.5f, 5f, 19f, 19f), 1.2f, 1.2f, fill);
+            }
+        };
+    }
+
+    /** Back to the previous track. */
+    public static Drawable mediaPrevious(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path p = new Path();
+                p.moveTo(18f, 5f);
+                p.lineTo(8.5f, 12f);
+                p.lineTo(18f, 19f);
+                p.close();
+                canvas.drawPath(p, fill);
+                canvas.drawRoundRect(new RectF(5f, 5f, 7.5f, 19f), 1.2f, 1.2f, fill);
             }
         };
     }

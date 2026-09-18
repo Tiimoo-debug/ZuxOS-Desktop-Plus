@@ -18,6 +18,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Su;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
 
@@ -155,7 +156,7 @@ public final class QuickTiles {
         }
     }
 
-    public static Tile bluetooth(Context ctx, int displayId) {
+    public static Tile bluetooth(Context ctx, int displayId, Runnable onChanged) {
         return new Tile() {
             @Override
             public String label() {
@@ -176,19 +177,51 @@ public final class QuickTiles {
             public boolean toggle() {
                 Boolean on = bluetoothOn(ctx);
                 if (on == null) {
+                    // Nothing to invert. Toggling blind would only ever be able to guess "on".
+                    L.i("tiles: Bluetooth state unreadable, opening settings");
                     open(ctx, Settings.ACTION_BLUETOOTH_SETTINGS, displayId);
                     return true;
                 }
-                if (invokeAdapter(ctx, on ? "disable" : "enable")) {
+                boolean want = !on;
+                if (invokeAdapter(ctx, want ? "enable" : "disable")) {
                     L.i("tiles: Bluetooth toggled directly");
                     return false;
                 }
-                L.i("tiles: Bluetooth is not ours to set, opening settings");
-                open(ctx, on ? Settings.ACTION_BLUETOOTH_SETTINGS
-                        : BluetoothAdapter.ACTION_REQUEST_ENABLE, displayId);
-                return true;
+                // This launcher holds neither BLUETOOTH_CONNECT nor BLUETOOTH_ADMIN - the log
+                // showed enable() throwing and even ACTION_REQUEST_ENABLE being refused - so the
+                // only route left that actually toggles anything is the shell.
+                viaRoot(ctx, "Bluetooth", onChanged,
+                        () -> open(ctx, Settings.ACTION_BLUETOOTH_SETTINGS, displayId),
+                        "svc bluetooth " + (want ? "enable" : "disable"));
+                return false;
             }
         };
+    }
+
+    /**
+     * Runs a privileged command, and falls back to a settings screen if root is not there.
+     *
+     * <p>Both the attempt and the fallback happen away from the caller: {@code su} is a round trip
+     * through Magisk's daemon and, the first time, a dialog someone has to answer.
+     */
+    private static void viaRoot(Context ctx, String what, Runnable onChanged, Runnable fallback,
+            String... commands) {
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        // Remembered now: root can take seconds to answer, and by then this panel may be closed
+        // and another one open. Closing that one would be someone else's window disappearing.
+        final Object token = QuickPanel.token();
+        Su.run(ok -> main.post(() -> {
+            if (ok) {
+                L.i("tiles: " + what + " set via root");
+                if (onChanged != null) {
+                    onChanged.run();
+                }
+                return;
+            }
+            L.i("tiles: " + what + " needs root and there is none, opening settings");
+            QuickPanel.dismissIf(token);
+            fallback.run();
+        }), commands);
     }
 
     /** Null when the platform will not say - which it will not without BLUETOOTH_CONNECT. */
@@ -244,11 +277,11 @@ public final class QuickTiles {
         };
     }
 
-    public static Tile rotation(Context ctx, int displayId) {
+    public static Tile rotation(Context ctx, int displayId, Runnable onChanged) {
         return new Tile() {
             @Override
             public String label() {
-                return Boolean.TRUE.equals(state()) ? "Auto-rotate" : "Rotation locked";
+                return "Auto-rotate";
             }
 
             @Override
@@ -268,9 +301,10 @@ public final class QuickTiles {
                     L.i("tiles: rotation set directly");
                     return false;
                 }
-                L.i("tiles: rotation needs WRITE_SETTINGS, opening display settings");
-                open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId);
-                return true;
+                viaRoot(ctx, "Auto-rotate", onChanged,
+                        () -> open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId),
+                        "settings put system accelerometer_rotation " + want);
+                return false;
             }
         };
     }
@@ -278,10 +312,11 @@ public final class QuickTiles {
     /**
      * Aeroplane mode.
      *
-     * <p>Read-only by design: writing it has needed a signature permission since Jelly Bean, so
-     * the tile reports the state and hands over to the settings screen.
+     * <p>Readable by anyone, writable by almost nobody: the setting is in {@code Settings.Global},
+     * which needs {@code WRITE_SECURE_SETTINGS}. Writing it is also not enough on modern Android -
+     * the radios follow {@code cmd connectivity airplane-mode}, so both are sent.
      */
-    public static Tile flightMode(Context ctx, int displayId) {
+    public static Tile flightMode(Context ctx, int displayId, Runnable onChanged) {
         return new Tile() {
             @Override
             public String label() {
@@ -300,33 +335,15 @@ public final class QuickTiles {
 
             @Override
             public boolean toggle() {
-                open(ctx, Settings.ACTION_AIRPLANE_MODE_SETTINGS, displayId);
-                return true;
-            }
-        };
-    }
-
-    public static Tile settings(Context ctx, int displayId) {
-        return new Tile() {
-            @Override
-            public String label() {
-                return "Settings";
-            }
-
-            @Override
-            public Drawable icon(int color) {
-                return TrayIcons.gear(color);
-            }
-
-            @Override
-            public Boolean state() {
-                return Boolean.FALSE;
-            }
-
-            @Override
-            public boolean toggle() {
-                open(ctx, Settings.ACTION_SETTINGS, displayId);
-                return true;
+                boolean want = !Boolean.TRUE.equals(state());
+                viaRoot(ctx, "Flight mode", onChanged,
+                        () -> open(ctx, Settings.ACTION_AIRPLANE_MODE_SETTINGS, displayId),
+                        // This order matters: the connectivity command is what actually moves
+                        // the radios, and it can read as a no-op if the setting already says
+                        // what it is about to set.
+                        "cmd connectivity airplane-mode " + (want ? "enable" : "disable"),
+                        "settings put global airplane_mode_on " + (want ? 1 : 0));
+                return false;
             }
         };
     }
