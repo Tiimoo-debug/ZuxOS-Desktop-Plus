@@ -98,6 +98,8 @@ public final class TaskbarTray {
 
     private static void onWindowAdded(View root) {
         if (!isTaskbar(root)) {
+            // Every other window the launcher opens - among them the app drawer's own.
+            DrawerGlass.onWindowAdded(root);
             return;
         }
         // The window's children are not laid out yet; the pieces go in once they are.
@@ -124,6 +126,9 @@ public final class TaskbarTray {
         for (View root : Windows.roots()) {
             if (isTaskbar(root)) {
                 applyAll(root);
+            } else {
+                // The drawer's window may already have been open when the setting changed.
+                DrawerGlass.onWindowAdded(root);
             }
         }
     }
@@ -139,6 +144,21 @@ public final class TaskbarTray {
         } catch (Throwable t) {
             L.d("tray: could not remove (" + t + ")");
         }
+    }
+
+    /**
+     * Whether a point on the taskbar lands on our tray.
+     *
+     * <p>The tray is mostly labels - temperatures, the clock - and a label is not clickable, so
+     * without this a hold anywhere along it counted as bare taskbar and brought up the menu.
+     */
+    static boolean isOnTray(ViewGroup dragLayer, float x, float y) {
+        View tray = dragLayer.findViewWithTag(TAG_TRAY);
+        if (tray == null || tray.getVisibility() != View.VISIBLE || tray.getWidth() <= 0) {
+            return false;
+        }
+        return x >= tray.getLeft() && x <= tray.getRight()
+                && y >= tray.getTop() && y <= tray.getBottom();
     }
 
     static boolean isTaskbar(View root) {

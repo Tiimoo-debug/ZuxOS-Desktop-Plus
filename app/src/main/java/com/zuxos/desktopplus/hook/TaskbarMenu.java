@@ -153,12 +153,19 @@ public final class TaskbarMenu {
         }
         sDownTime = event.getDownTime();
         cancelPending();
+        // The taskbar's window floats above our popups, so a press on the bar never reaches them
+        // and they are never told it happened. This is that telling: the bar is "outside" as far
+        // as they are concerned, and pressing it should close them, exactly as pressing the
+        // desktop does.
+        QuickPanel.onTaskbarPressed(event.getRawX(), event.getRawY());
+        dismiss();
         // Read once per press rather than per event: this runs on the input thread, and the
         // preference read takes a lock and stats a file.
         if (!Cfg.taskbarMenu()) {
             return;
         }
         if (!onBar(dragLayer, event.getY())
+                || TaskbarTray.isOnTray(dragLayer, event.getX(), event.getY())
                 || !isEmptySpace(dragLayer, event.getX(), event.getY())) {
             return;
         }

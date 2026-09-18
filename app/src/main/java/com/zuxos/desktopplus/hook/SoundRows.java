@@ -3,21 +3,20 @@ package com.zuxos.desktopplus.hook;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapShader;
 import android.graphics.Canvas;
-import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Shader;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -116,56 +115,95 @@ public final class SoundRows {
         }
     }
 
+    /**
+     * One playing app, in the shape the system's own media card uses: the artwork fills the card,
+     * the track sits over it, and the transport is on the right.
+     *
+     * <p>The artwork is the background rather than a thumbnail beside the text, which is what
+     * makes it read as the same object you see in the shade. Where a track has no artwork the card
+     * falls back to the panel's own translucency and keeps its shape.
+     */
     private static View mediaCard(Context ctx, MediaController controller, PackageManager pm,
             MediaMetadata meta, PlaybackState playback) {
-        LinearLayout card = new LinearLayout(ctx);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dp(ctx, 10);
-        card.setPadding(pad, pad, pad, pad);
-        card.setBackground(Ui.roundRect(0x1AFFFFFF, Ui.dp(ctx, 14)));
+        int radius = Ui.dp(ctx, 16);
+        FrameLayout card = new FrameLayout(ctx);
+        card.setBackground(Ui.roundRect(0x1AFFFFFF, radius));
+        // The outline comes from that background, so the artwork is clipped to the same corners.
+        card.setClipToOutline(true);
 
-        int artSize = Ui.dp(ctx, 44);
-        Drawable art = art(ctx, meta, artSize);
+        Bitmap art = artBitmap(meta);
         if (art != null) {
             ImageView cover = new ImageView(ctx);
-            cover.setImageDrawable(art);
-            LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(artSize, artSize);
-            alp.rightMargin = Ui.dp(ctx, 10);
-            card.addView(cover, alp);
+            cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            cover.setImageBitmap(art);
+            card.addView(cover, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+
+            // Without this the text lands on whatever the album cover happens to be.
+            View scrim = new View(ctx);
+            scrim.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0xE6101014, 0xB3101014, 0x66101014}));
+            card.addView(scrim, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
         }
+
+        LinearLayout content = new LinearLayout(ctx);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(ctx, 12);
+        content.setPadding(pad, pad, pad, pad);
+        card.addView(content, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        content.addView(appPill(ctx, pm, controller));
+
+        View filler = new View(ctx);
+        content.addView(filler, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        LinearLayout bottom = new LinearLayout(ctx);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setGravity(Gravity.CENTER_VERTICAL);
+        content.addView(bottom, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         LinearLayout text = new LinearLayout(ctx);
         text.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        card.addView(text, tlp);
+        bottom.addView(text, tlp);
 
         String title = meta != null ? meta.getString(MediaMetadata.METADATA_KEY_TITLE) : null;
         TextView line = new TextView(ctx);
         line.setText(title != null && !title.isEmpty() ? title
                 : appName(pm, controller.getPackageName()));
         line.setTextColor(Ui.COLOR_TEXT);
-        line.setTextSize(13);
+        line.setTextSize(15);
         line.setSingleLine(true);
         line.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        line.setTypeface(line.getTypeface(), android.graphics.Typeface.BOLD);
         text.addView(line);
 
         String artist = meta != null ? meta.getString(MediaMetadata.METADATA_KEY_ARTIST) : null;
-        TextView sub = new TextView(ctx);
-        sub.setText(artist != null && !artist.isEmpty() ? artist
-                : appName(pm, controller.getPackageName()));
-        sub.setTextColor(Ui.COLOR_TEXT_DIM);
-        sub.setTextSize(11);
-        sub.setSingleLine(true);
-        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        text.addView(sub);
+        if (artist != null && !artist.isEmpty()) {
+            TextView sub = new TextView(ctx);
+            sub.setText(artist);
+            sub.setTextColor(Ui.COLOR_TEXT_DIM);
+            sub.setTextSize(12);
+            sub.setSingleLine(true);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.addView(sub);
+        }
 
         boolean playing = playback.getState() == PlaybackState.STATE_PLAYING;
-        card.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT),
+        bottom.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 32, false,
                 () -> controller.getTransportControls().skipToPrevious()));
-        card.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
-                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT),
+        bottom.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
+                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 44, true,
                 () -> {
                     // Read now, not when this card was drawn: after the first press the card is
                     // out of date, and a captured flag would pause a second time instead of
@@ -179,79 +217,64 @@ public final class SoundRows {
                         controller.getTransportControls().play();
                     }
                 }));
-        card.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT),
+        bottom.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 32, false,
                 () -> controller.getTransportControls().skipToNext()));
 
+        long duration = meta != null
+                ? meta.getLong(MediaMetadata.METADATA_KEY_DURATION) : 0L;
+        if (duration > 0) {
+            SeekLine seek = new SeekLine(ctx, controller, duration);
+            FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, Ui.dp(ctx, 3));
+            slp.gravity = Gravity.BOTTOM;
+            slp.leftMargin = pad;
+            slp.rightMargin = pad;
+            slp.bottomMargin = Ui.dp(ctx, 6);
+            card.addView(seek, slp);
+        }
+
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(ctx, 108));
         clp.topMargin = Ui.dp(ctx, 6);
         card.setLayoutParams(clp);
         return card;
     }
 
-    /**
-     * The track's own artwork, square and rounded, or null when it has none.
-     *
-     * <p>Three places to look, in the order the platform itself prefers them, and the card simply
-     * closes up when all three are empty - a placeholder square would say less than the space.
-     */
-    private static Drawable art(Context ctx, MediaMetadata meta, int size) {
-        Bitmap source = artBitmap(meta);
-        if (source == null || source.getWidth() <= 0 || source.getHeight() <= 0 || size <= 0) {
-            return null;
-        }
-        try {
-            if (source.getConfig() == Bitmap.Config.HARDWARE) {
-                // A hardware bitmap cannot be read by a software canvas, which is what the
-                // rounding below draws into.
-                Bitmap copy = source.copy(Bitmap.Config.ARGB_8888, false);
-                if (copy == null) {
-                    return null;
-                }
-                source = copy;
-            }
-            Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            // Centre-cropped rather than squashed: cover art is square far less often than it
-            // looks, and a stretched one is immediately obvious.
-            float scale = Math.max(size / (float) source.getWidth(),
-                    size / (float) source.getHeight());
-            Matrix matrix = new Matrix();
-            matrix.setScale(scale, scale);
-            matrix.postTranslate((size - source.getWidth() * scale) / 2f,
-                    (size - source.getHeight() * scale) / 2f);
-            BitmapShader shader = new BitmapShader(source, Shader.TileMode.CLAMP,
-                    Shader.TileMode.CLAMP);
-            shader.setLocalMatrix(matrix);
-            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            paint.setShader(shader);
-            float radius = Ui.dp(ctx, 8);
-            new Canvas(out).drawRoundRect(new RectF(0, 0, size, size), radius, radius, paint);
-            return new BitmapDrawable(ctx.getResources(), out);
-        } catch (Throwable t) {
-            L.d("sound: could not draw the album art (" + t + ")");
-            return null;
-        }
-    }
+    /** Which app this is, small, in the corner - the card's own label. */
+    private static View appPill(Context ctx, PackageManager pm, MediaController controller) {
+        LinearLayout pill = new LinearLayout(ctx);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        int padH = Ui.dp(ctx, 8);
+        int padV = Ui.dp(ctx, 3);
+        pill.setPadding(padH, padV, padH, padV);
+        pill.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 12)));
 
-    private static Bitmap artBitmap(MediaMetadata meta) {
-        if (meta == null) {
-            return null;
-        }
+        ImageView icon = new ImageView(ctx);
         try {
-            Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
-            if (art == null) {
-                art = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
-            }
-            if (art == null) {
-                // What the notification shade falls back to, and some apps set only this.
-                art = meta.getDescription() != null
-                        ? meta.getDescription().getIconBitmap() : null;
-            }
-            return art != null && !art.isRecycled() ? art : null;
-        } catch (Throwable t) {
-            L.d("sound: no readable album art (" + t + ")");
-            return null;
+            icon.setImageDrawable(pm.getApplicationIcon(controller.getPackageName()));
+        } catch (Throwable ignored) {
+            icon.setImageDrawable(TrayIcons.volume(Ui.COLOR_TEXT));
         }
+        int size = Ui.dp(ctx, 14);
+        pill.addView(icon, new LinearLayout.LayoutParams(size, size));
+
+        TextView label = new TextView(ctx);
+        label.setText(appName(pm, controller.getPackageName()));
+        label.setTextColor(Ui.COLOR_TEXT);
+        label.setTextSize(10);
+        label.setSingleLine(true);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        llp.leftMargin = Ui.dp(ctx, 5);
+        pill.addView(label, llp);
+
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        pill.setLayoutParams(plp);
+        return pill;
     }
 
     /**
@@ -261,13 +284,16 @@ public final class SoundRows {
      * state, which is the only moment the button can be redrawn honestly - an earlier version
      * waited a guessed 250ms and redrew whatever it found, which was usually the old state.
      */
-    private static View transport(Context ctx, Drawable icon, Runnable action) {
+    private static View transport(Context ctx, Drawable icon, int sizeDp, boolean filled,
+            Runnable action) {
         ImageView button = new ImageView(ctx);
         button.setImageDrawable(icon);
-        int size = Ui.dp(ctx, 34);
-        int inset = Ui.dp(ctx, 6);
+        int size = Ui.dp(ctx, sizeDp);
+        int inset = Ui.dp(ctx, filled ? 11 : 6);
         button.setPadding(inset, inset, inset, inset);
-        button.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
+        button.setBackground(filled
+                ? Ui.ripple(ctx, 0x40FFFFFF, size / 2)
+                : Ui.ripple(ctx, 0x00000000, size / 2));
         button.setOnClickListener(v -> {
             try {
                 action.run();
@@ -276,9 +302,83 @@ public final class SoundRows {
             }
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-        lp.leftMargin = Ui.dp(ctx, 2);
+        lp.leftMargin = Ui.dp(ctx, 4);
         button.setLayoutParams(lp);
         return button;
+    }
+
+    /**
+     * The position line along the bottom of a card.
+     *
+     * <p>A playback state carries where the track was at a moment in the past, not where it is
+     * now, so the position is worked forward from that moment at the reported speed. It repaints
+     * once a second and only while it is on screen.
+     */
+    private static final class SeekLine extends View {
+
+        private final MediaController mController;
+        private final long mDuration;
+        private final Paint mTrack = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Runnable mTick = new Runnable() {
+            @Override
+            public void run() {
+                invalidate();
+                postDelayed(this, 1000L);
+            }
+        };
+
+        SeekLine(Context ctx, MediaController controller, long duration) {
+            super(ctx);
+            mController = controller;
+            mDuration = duration;
+            mTrack.setColor(0x40FFFFFF);
+            mFill.setColor(0xCCFFFFFF);
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            mTick.run();
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            removeCallbacks(mTick);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            float w = getWidth();
+            float h = getHeight();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+            float r = h / 2f;
+            canvas.drawRoundRect(new RectF(0, 0, w, h), r, r, mTrack);
+            float fraction = fraction();
+            if (fraction > 0) {
+                canvas.drawRoundRect(new RectF(0, 0, Math.max(h, w * fraction), h), r, r, mFill);
+            }
+        }
+
+        private float fraction() {
+            try {
+                PlaybackState state = mController.getPlaybackState();
+                if (state == null) {
+                    return 0f;
+                }
+                long position = state.getPosition();
+                if (state.getState() == PlaybackState.STATE_PLAYING) {
+                    long since = SystemClock.elapsedRealtime() - state.getLastPositionUpdateTime();
+                    position += (long) (since * state.getPlaybackSpeed());
+                }
+                return Math.max(0f, Math.min(1f, position / (float) mDuration));
+            } catch (Throwable t) {
+                return 0f;
+            }
+        }
     }
 
     // --- streams ---------------------------------------------------------

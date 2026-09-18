@@ -183,6 +183,14 @@ public final class Cfg {
         return getBool(Const.KEY_TASKBAR_GLASS, false);
     }
 
+    public static boolean drawerGlass() {
+        return getBool(Const.KEY_DRAWER_GLASS, true);
+    }
+
+    public static boolean notifications() {
+        return getBool(Const.KEY_NOTIFICATIONS, true);
+    }
+
     public static boolean useRoot() {
         // On by default. Every caller tries the ordinary route first, so this only decides whether
         // the fallback is allowed to ask; turning it off costs the toggles and nothing else.

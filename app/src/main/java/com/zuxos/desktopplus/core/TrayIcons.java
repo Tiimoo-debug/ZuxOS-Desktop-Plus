@@ -310,6 +310,17 @@ public final class TrayIcons {
         };
     }
 
+    /** A cross, for dismissing a notification. */
+    public static Drawable close(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawLine(7f, 7f, 17f, 17f, stroke);
+                canvas.drawLine(17f, 7f, 7f, 17f, stroke);
+            }
+        };
+    }
+
     /** An eye, for the eye-protection toggle. */
     public static Drawable eye(int color) {
         return new BoxIcon(color) {

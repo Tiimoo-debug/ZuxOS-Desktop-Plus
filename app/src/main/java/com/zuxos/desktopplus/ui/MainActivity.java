@@ -121,6 +121,10 @@ public class MainActivity extends Activity {
                 "Experimental. Replaces the taskbar's own bar with a translucent one. Whether it "
                         + "works depends on how your firmware paints that bar, so it starts off",
                 Const.KEY_TASKBAR_GLASS, false);
+        addSwitch("Glass app drawer",
+                "Puts the same translucent pane behind the launcher's own app drawer, in whatever "
+                        + "tone the drawer already uses so its labels stay readable",
+                Const.KEY_DRAWER_GLASS, true);
         addSwitch("Use root",
                 "Lets the quick settings switch Bluetooth, aeroplane mode, eye protection and "
                         + "take screenshots, which an ordinary launcher may not. Turn off and "
@@ -134,6 +138,26 @@ public class MainActivity extends Activity {
         addSwitch("Aggressive unlocking",
                 "Also guesses by method name. Turn off if the launcher misbehaves",
                 Const.KEY_UNLOCK_AGGRESSIVE, false);
+
+        addHeader("Notifications");
+        addSwitch("Notifications in the quick panel",
+                "Shows what is in the shade, with a tap to open and a cross to dismiss",
+                Const.KEY_NOTIFICATIONS, true);
+        addButton("Grant notification access", () -> {
+            try {
+                // The launcher may not read notifications and cannot be granted permission to.
+                // This module's own listener can, once it is switched on here.
+                startActivity(new android.content.Intent(
+                        "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable t) {
+                android.widget.Toast.makeText(this,
+                        "Could not open notification access settings",
+                        android.widget.Toast.LENGTH_LONG).show();
+            }
+        });
+        addSummary("Find \"ZuxOS Desktop Plus\" in that list and switch it on. Without it the "
+                + "panel simply shows no notifications; nothing else is affected.");
 
         addHeader("Diagnostics");
         addSwitch("Verbose log", "Writes details to the LSPosed log", Const.KEY_DEBUG, false);

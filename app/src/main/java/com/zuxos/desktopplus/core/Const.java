@@ -63,6 +63,10 @@ public final class Const {
     public static final String KEY_TASKBAR_DARK_TEXT = "taskbar_dark_text";
     /** Replace the taskbar's own opaque bar with a translucent, blurred one. */
     public static final String KEY_TASKBAR_GLASS = "taskbar_glass";
+    /** Translucent glass behind the launcher's own app drawer. */
+    public static final String KEY_DRAWER_GLASS = "native_drawer_glass";
+    /** Show notifications in the quick panel, through the module's own listener. */
+    public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */
     public static final String KEY_USE_ROOT = "use_root";
 

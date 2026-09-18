@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.graphics.PixelFormat;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
@@ -29,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.AppCtx;
+import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
@@ -107,9 +109,14 @@ public final class QuickPanel {
     /** When an outside touch last closed the panel. See {@link #REOPEN_GUARD_MS}. */
     private static long sClosedByTouchAt;
 
+    /** The tray row the open panel belongs to, for telling its own button's press apart. */
+    private static View sAnchor;
+
     /** Watches the switches that answer slowly. See {@link #startReceiver}. */
     private static BroadcastReceiver sWatcher;
     private static Context sWatcherCtx;
+    private static ContentObserver sShadeWatcher;
+    private static Context sShadeCtx;
     private static final List<Watch> WATCHED_SESSIONS = new ArrayList<>();
 
     private QuickPanel() {
@@ -132,6 +139,25 @@ public final class QuickPanel {
     /** Identifies the open panel, so a slow callback cannot close a newer one. */
     static Object token() {
         return sCurrent;
+    }
+
+    /**
+     * Closes the panel because the taskbar was pressed.
+     *
+     * <p>The taskbar's window sits above this one, so a press on the bar is delivered there and
+     * never arrives here as a touch outside - which is why the panel stayed open when you tapped
+     * the bar. The taskbar's own touch watcher passes it on instead.
+     */
+    static void onTaskbarPressed(float rawX, float rawY) {
+        if (sCurrent == null) {
+            return;
+        }
+        // If that press was on the tray, the button's click follows on the way up and must not
+        // reopen what this is about to close.
+        if (hits(sAnchor, rawX, rawY)) {
+            sClosedByTouchAt = android.os.SystemClock.uptimeMillis();
+        }
+        dismiss();
     }
 
     /** Whether the panel {@code token} came from is still the open one. */
@@ -171,6 +197,7 @@ public final class QuickPanel {
         }
         sCurrent = null;
         sWm = null;
+        sAnchor = null;
         stopWatching();
     }
 
@@ -264,6 +291,7 @@ public final class QuickPanel {
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            sAnchor = anchor;
             // Set before the receiver goes on, and after fill() has registered its sessions -
             // an earlier version set it first and let the receiver's own tear-down pass
             // clear it again, which left the panel with no live refresh at all.
@@ -335,6 +363,7 @@ public final class QuickPanel {
         // Only the receiver. The sessions are registered by fill(), which has already run by the
         // time this is called, and tearing anything down here would take them with it.
         unregisterReceiver();
+        unwatchShade();
         Context app = AppCtx.get();
         final Context target = app != null ? app : ctx;
         try {
@@ -360,6 +389,9 @@ public final class QuickPanel {
         } catch (Throwable t) {
             L.d("quick panel: could not listen for state changes (" + t + ")");
         }
+        // Outside that try on purpose: these are two separate things to listen to, and a
+        // firmware that refuses one should not quietly cost you the other.
+        watchShade(target);
     }
 
     /** Everything the open panel was listening to, undone. Called once, on dismissal. */
@@ -371,7 +403,42 @@ public final class QuickPanel {
         // every rebuild of the next panel by four turns of the handler, for ever.
         sInteracting = false;
         unregisterReceiver();
+        unwatchShade();
         unwatchSessions();
+    }
+
+    /** Repaints when a notification arrives or is cleared while the panel is open. */
+    private static void watchShade(Context ctx) {
+        if (!Cfg.notifications() || !Notifications.available(ctx)) {
+            return;
+        }
+        try {
+            ContentObserver observer = new ContentObserver(MAIN) {
+                @Override
+                public void onChange(boolean selfChange) {
+                    scheduleRebuild();
+                }
+            };
+            ctx.getContentResolver().registerContentObserver(Notifications.uri(), true, observer);
+            sShadeWatcher = observer;
+            sShadeCtx = ctx;
+        } catch (Throwable t) {
+            L.d("quick panel: could not follow the shade (" + t + ")");
+        }
+    }
+
+    private static void unwatchShade() {
+        ContentObserver observer = sShadeWatcher;
+        Context ctx = sShadeCtx;
+        sShadeWatcher = null;
+        sShadeCtx = null;
+        if (observer != null && ctx != null) {
+            try {
+                ctx.getContentResolver().unregisterContentObserver(observer);
+            } catch (Throwable ignored) {
+                // Never registered, or already gone.
+            }
+        }
     }
 
     private static void unregisterReceiver() {
@@ -512,6 +579,9 @@ public final class QuickPanel {
         body.addView(networkHeader(ctx, state));
         body.addView(tiles(ctx, state, displayId, rebuild));
         body.addView(divider(ctx));
+        if (Cfg.notifications()) {
+            Notifications.addTo(ctx, body, displayId);
+        }
         watchSessions(SoundRows.addTo(ctx, body, displayId));
         body.addView(divider(ctx));
         body.addView(batteryRow(ctx, state));
