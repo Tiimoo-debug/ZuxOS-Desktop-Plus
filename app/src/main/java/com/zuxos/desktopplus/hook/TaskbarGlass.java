@@ -2,8 +2,10 @@ package com.zuxos.desktopplus.hook;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
@@ -16,6 +18,7 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -29,6 +32,10 @@ import de.robv.android.xposed.XposedBridge;
  * a translucent pane has to take its place. A pane alone is not enough - it is translucent, so
  * the original shows straight through it, which is what "the white is still behind" looked like.
  *
+ * <p>Where that bar is painted differs by firmware, so all three known places are covered: an
+ * {@code onDraw} override, a background drawable, and - as on this tablet, which the probe dump
+ * settled - inside {@code dispatchDraw}, alongside the call that paints the icons.
+ *
  * <p>There is deliberately no window blur here any more. An earlier version added
  * {@code FLAG_BLUR_BEHIND} to the taskbar's own window; that window expands to fill the display
  * whenever the app drawer opens, so it blurred the entire screen, and pushing new layout params
@@ -38,8 +45,10 @@ import de.robv.android.xposed.XposedBridge;
  */
 public final class TaskbarGlass {
 
-    /** Tint of the bar itself. */
-    private static final int TINT = 0x66101014;
+    /** The bar's tint, lighter at the top edge and deeper towards the screen edge. */
+    private static final int TINT_TOP = 0x592A2A34;
+    private static final int TINT = 0x73161620;
+    private static final int TINT_BOTTOM = 0x8C0E0E14;
 
     private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
 
@@ -53,12 +62,12 @@ public final class TaskbarGlass {
     }
 
     /**
-     * Stops the taskbar painting its own bar, where it paints it in {@code onDraw}.
+     * Stops the taskbar painting its own bar.
      *
-     * <p>Hooked on {@code TaskbarDragLayer} itself rather than on {@code View}, so it runs only
-     * for the taskbar. On this firmware the method is not declared there at all, so the hook
-     * matches nothing and {@link #apply} deals with the background drawable instead; other builds
-     * do paint the bar here, and a hook that matches nothing costs nothing.
+     * <p>Hooked on {@code TaskbarDragLayer} itself rather than on {@code View}, so every hook here
+     * runs only for the taskbar. This firmware does not declare {@code onDraw} at all, so that
+     * hook matches nothing and costs nothing; {@link #installDispatchDraw} is the one that does
+     * the work here.
      */
     static void install(ClassLoader loader) {
         if (sInstalled) {
@@ -83,15 +92,73 @@ public final class TaskbarGlass {
                 }
             }).size();
             L.i("taskbar glass: onDraw suppression installed x" + hooked);
-            if (hooked == 0) {
-                // Whatever paints the bar on this build, it is not onDraw. Naming the drawing
-                // methods it does declare is what makes the next attempt aimed rather than
-                // another guess.
-                L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
-                        + drawMethodsOf(cls));
-            }
+            L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
+                    + drawMethodsOf(cls));
+            installDispatchDraw(cls);
         } catch (Throwable t) {
             L.e("taskbar glass: could not install", t);
+        }
+    }
+
+    /**
+     * Replaces the bar painted in {@code dispatchDraw}, which is where this firmware paints it.
+     *
+     * <p>{@code TaskbarDragLayer.dispatchDraw} paints the bar and then calls up to
+     * {@code ViewGroup.dispatchDraw} to paint the icons and buttons. Skipping the method outright
+     * would take the children with it, so the replacement calls the grandparent directly:
+     * {@code invokeOriginalMethod} dispatches non-virtually, which is the only way to express
+     * {@code super.super.dispatchDraw(canvas)} from here.
+     */
+    private static void installDispatchDraw(Class<?> cls) {
+        final Method viewGroupDispatchDraw;
+        try {
+            viewGroupDispatchDraw = ViewGroup.class.getDeclaredMethod("dispatchDraw", Canvas.class);
+            viewGroupDispatchDraw.setAccessible(true);
+        } catch (Throwable t) {
+            L.w("taskbar glass: ViewGroup.dispatchDraw is not reachable, the stock bar stays");
+            return;
+        }
+        try {
+            XC_MethodHook replacement = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isGlazed(param.thisObject)) {
+                        return;
+                    }
+                    try {
+                        XposedBridge.invokeOriginalMethod(viewGroupDispatchDraw,
+                                param.thisObject, param.args);
+                        param.setResult(null);
+                    } catch (Throwable t) {
+                        // Losing the icons is far worse than keeping the stock bar, so the whole
+                        // glass comes off - pane, stripped background and all - rather than
+                        // leaving the taskbar in a state that is neither one thing nor the other.
+                        // Posted, not done here: this is inside a draw pass, and removing a child
+                        // from a group that is drawing it is its own kind of crash.
+                        if (param.thisObject instanceof ViewGroup) {
+                            final ViewGroup dragLayer = (ViewGroup) param.thisObject;
+                            PANES.remove(dragLayer);
+                            dragLayer.post(() -> remove(dragLayer));
+                        }
+                        L.e("taskbar glass: could not draw the children, stock bar restored", t);
+                    }
+                }
+            };
+            // Declared on the drag layer here, but on the shared BaseDragLayer in other builds -
+            // the same walk the diagnostic does. isGlazed keeps it to taskbars we have glazed,
+            // so a wider hook cannot reach another drag layer's drawing.
+            int hooked = 0;
+            for (Class<?> c = cls; c != null && c != ViewGroup.class && c != View.class;
+                    c = c.getSuperclass()) {
+                try {
+                    hooked += XposedBridge.hookAllMethods(c, "dispatchDraw", replacement).size();
+                } catch (Throwable ignored) {
+                    // Not declared at this level; keep walking.
+                }
+            }
+            L.i("taskbar glass: dispatchDraw replacement installed x" + hooked);
+        } catch (Throwable t) {
+            L.e("taskbar glass: could not replace dispatchDraw", t);
         }
     }
 
@@ -257,26 +324,41 @@ public final class TaskbarGlass {
     }
 
     /**
-     * The bar: a translucent fill and a hairline along the top edge.
+     * The bar.
      *
-     * <p>No lens and no blur. The liquid-glass shader refracts a captured backdrop, and behind
-     * the taskbar is another process's window - nothing this module can capture. The one API
-     * that could blur it works on the window rather than the view, which is exactly what caused
-     * the damage this replaces.
+     * <p>A vertical gradient rather than a flat fill, a bright hairline along the top edge and a
+     * soft specular running across it. There is no refraction here and there cannot be: behind
+     * the taskbar is another process's window, which nothing in this module can capture, and the
+     * one API that could blur it operates on the window - the route that broke the display last
+     * time. So this is lit translucency, honestly, rather than a lens that has nothing to bend.
      */
     private static final class BarView extends View {
 
         private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float mRadius;
 
         BarView(Context ctx) {
             super(ctx);
-            mFill.setColor(TINT);
             mEdge.setStyle(Paint.Style.STROKE);
             mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
-            mEdge.setColor(0x26FFFFFF);
+            mEdge.setColor(0x4DFFFFFF);
             mRadius = Ui.dp(ctx, 18);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (h <= 0) {
+                return;
+            }
+            // Lighter at the top, where a sheet of glass catches the light.
+            mFill.setShader(new LinearGradient(0, 0, 0, h,
+                    new int[]{TINT_TOP, TINT, TINT_BOTTOM},
+                    new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+            mSheen.setShader(new LinearGradient(0, 0, 0, h * 0.5f,
+                    0x2BFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
         }
 
         @Override
@@ -286,9 +368,11 @@ public final class TaskbarGlass {
             if (w <= 0 || h <= 0) {
                 return;
             }
-            // Rounded at the top, square at the bottom: the bar sits on the screen edge.
+            // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
+            // rectangle is extended past it and the bottom corners fall off the view.
             RectF r = new RectF(0, 0, w, h + mRadius);
             canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
             canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
         }
     }

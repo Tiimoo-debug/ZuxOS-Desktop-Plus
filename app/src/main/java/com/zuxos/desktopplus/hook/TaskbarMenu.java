@@ -19,7 +19,6 @@ import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
@@ -88,15 +87,13 @@ public final class TaskbarMenu {
                     }
                 }
             };
-            // onTouchEvent, not onInterceptTouchEvent. A ViewGroup only offers later events to
-            // onInterceptTouchEvent once a child has claimed the press - and a press on empty
-            // taskbar is precisely the one no child claims, so from there we would see the DOWN
-            // and never the UP that cancels it. onTouchEvent gets the whole stream in exactly
-            // that case, and stays silent when an icon took the press, which is what we want.
-            int hooked = hookUpTo(cls, "onTouchEvent", watcher);
-            if (hooked == 0) {
-                hooked = hookUpTo(cls, "onInterceptTouchEvent", watcher);
-            }
+            // Both, because neither alone sees a whole gesture. A ViewGroup stops offering
+            // events to onInterceptTouchEvent unless a child has claimed the press, and only
+            // reaches its own onTouchEvent when none has - and this taskbar has a full-size
+            // clickable scrim that claims most presses. Whichever way a given press goes, one of
+            // these two sees all of it; the de-duplication in onDown makes the overlap harmless.
+            int hooked = hookUpTo(cls, "onInterceptTouchEvent", watcher)
+                    + hookUpTo(cls, "onTouchEvent", watcher);
             L.i("taskbar menu: watching taskbar touches x" + hooked);
             if (hooked == 0) {
                 L.w("taskbar menu: no touch method on this build - hold and right-click will "
@@ -217,13 +214,24 @@ public final class TaskbarMenu {
      * anything - and the tray counts as occupied, since it has its own tap.
      */
     private static boolean isEmptySpace(ViewGroup dragLayer, float x, float y) {
-        return !hitsClickable(dragLayer, x, y);
+        // Measured once, off the bar itself, and carried down: a threshold recomputed per level
+        // would shrink inside every container and start excluding the buttons it is meant to
+        // find - the navigation row is only 207px wide and holds 69px buttons.
+        return !hitsClickable(dragLayer, x, y, dragLayer.getWidth() / 2);
     }
 
-    private static boolean hitsClickable(ViewGroup group, float x, float y) {
+    /**
+     * Whether a real, pressable thing sits under this point.
+     *
+     * <p>Anything spanning half the bar or more is not one. The taskbar's scrim is full width,
+     * sits above the icons and is clickable, so counting it made every point occupied and put
+     * the gesture permanently out of reach.
+     */
+    private static boolean hitsClickable(ViewGroup group, float x, float y, int wide) {
         for (int i = 0; i < group.getChildCount(); i++) {
             View child = group.getChildAt(i);
-            if (child.getVisibility() != View.VISIBLE || child.getWidth() == 0) {
+            if (child.getVisibility() != View.VISIBLE || child.getWidth() == 0
+                    || child.getAlpha() <= 0.01f) {
                 continue;
             }
             float cx = x - child.getLeft();
@@ -231,10 +239,11 @@ public final class TaskbarMenu {
             if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) {
                 continue;
             }
-            if (child.isClickable() || child.isLongClickable()) {
+            if ((child.isClickable() || child.isLongClickable())
+                    && (wide <= 0 || child.getWidth() < wide)) {
                 return true;
             }
-            if (child instanceof ViewGroup && hitsClickable((ViewGroup) child, cx, cy)) {
+            if (child instanceof ViewGroup && hitsClickable((ViewGroup) child, cx, cy, wide)) {
                 return true;
             }
         }
@@ -343,7 +352,8 @@ public final class TaskbarMenu {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus taskbar menu");
-            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            // No blur behind: the window is full-screen, so that flag would blur the whole
+            // display for the sake of a three-item menu in one corner.
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

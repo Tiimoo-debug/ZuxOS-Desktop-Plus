@@ -162,6 +162,116 @@ public final class TrayIcons {
         };
     }
 
+    /** A torch with a beam. */
+    public static Drawable torch(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path body = new Path();
+                body.moveTo(8.5f, 4f);
+                body.lineTo(15.5f, 4f);
+                body.lineTo(14.5f, 9f);
+                body.lineTo(14.5f, 20f);
+                body.lineTo(9.5f, 20f);
+                body.lineTo(9.5f, 9f);
+                body.close();
+                canvas.drawPath(body, stroke);
+                canvas.drawLine(9.5f, 9f, 14.5f, 9f, stroke);
+            }
+        };
+    }
+
+    /** The auto-rotate glyph: a phone with an arc turning around it. */
+    public static Drawable rotate(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawRoundRect(new RectF(8.5f, 6f, 15.5f, 18f), 1.8f, 1.8f, stroke);
+                canvas.drawArc(new RectF(3.5f, 3.5f, 20.5f, 20.5f), 120f, 80f, false, stroke);
+                Path tip = new Path();
+                tip.moveTo(5.2f, 15.6f);
+                tip.lineTo(4.4f, 19.2f);
+                tip.lineTo(8f, 18.4f);
+                tip.close();
+                canvas.drawPath(tip, fill);
+            }
+        };
+    }
+
+    /** A paper plane, for aeroplane mode. */
+    public static Drawable flight(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path p = new Path();
+                p.moveTo(3f, 13f);
+                p.lineTo(21f, 5.5f);
+                p.lineTo(13.5f, 20.5f);
+                p.lineTo(11.5f, 14.5f);
+                p.close();
+                canvas.drawPath(p, stroke);
+            }
+        };
+    }
+
+    /** A cog. */
+    public static Drawable gear(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                float cx = 12f;
+                float cy = 12f;
+                canvas.drawCircle(cx, cy, 3.2f, stroke);
+                // Eight teeth, each a short spoke from the rim outwards.
+                for (int i = 0; i < 8; i++) {
+                    double a = Math.PI * i / 4.0;
+                    float sin = (float) Math.sin(a);
+                    float cos = (float) Math.cos(a);
+                    canvas.drawLine(cx + cos * 5.6f, cy + sin * 5.6f,
+                            cx + cos * 8.4f, cy + sin * 8.4f, stroke);
+                }
+                canvas.drawCircle(cx, cy, 5.6f, stroke);
+            }
+        };
+    }
+
+    /** A speaker, for the volume rows. */
+    public static Drawable volume(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                Path cone = new Path();
+                cone.moveTo(4f, 9.5f);
+                cone.lineTo(7.5f, 9.5f);
+                cone.lineTo(12f, 5f);
+                cone.lineTo(12f, 19f);
+                cone.lineTo(7.5f, 14.5f);
+                cone.lineTo(4f, 14.5f);
+                cone.close();
+                canvas.drawPath(cone, fill);
+                canvas.drawArc(new RectF(10.5f, 8f, 17.5f, 16f), -60f, 120f, false, stroke);
+                canvas.drawArc(new RectF(12f, 5.5f, 21f, 18.5f), -55f, 110f, false, stroke);
+            }
+        };
+    }
+
+    /** A sun, for the brightness row. */
+    public static Drawable brightness(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawCircle(12f, 12f, 4.2f, stroke);
+                for (int i = 0; i < 8; i++) {
+                    double a = Math.PI * i / 4.0;
+                    float sin = (float) Math.sin(a);
+                    float cos = (float) Math.cos(a);
+                    canvas.drawLine(12f + cos * 6.4f, 12f + sin * 6.4f,
+                            12f + cos * 8.6f, 12f + sin * 8.6f, stroke);
+                }
+            }
+        };
+    }
+
     /** A bell, with a dot when something is waiting. */
     public static Drawable bell(boolean marked, int color) {
         return new BoxIcon(color) {
