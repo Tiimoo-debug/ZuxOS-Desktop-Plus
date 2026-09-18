@@ -272,9 +272,9 @@ public final class SoundRows {
                     // Read now, not when this card was drawn: after the first press the card is
                     // out of date, and a captured flag would pause a second time instead of
                     // resuming.
-                    PlaybackState live = controller.getPlaybackState();
-                    boolean nowPlaying = live != null
-                            && live.getState() == PlaybackState.STATE_PLAYING;
+                    PlaybackState current = controller.getPlaybackState();
+                    boolean nowPlaying = current != null
+                            && current.getState() == PlaybackState.STATE_PLAYING;
                     if (nowPlaying) {
                         controller.getTransportControls().pause();
                     } else {
