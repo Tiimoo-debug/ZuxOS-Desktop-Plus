@@ -178,18 +178,29 @@ public final class Su {
      */
     private static Outcome runAll(String... commands) {
         boolean any = false;
+        boolean timedOut = false;
         for (String command : commands) {
             Step step = runOne(command);
             if (step == Step.OK) {
                 any = true;
                 continue;
             }
-            if (step == Step.NO_ROOT || step == Step.TIMED_OUT) {
+            if (step == Step.TIMED_OUT) {
+                timedOut = true;
+                break;
+            }
+            if (step == Step.NO_ROOT) {
                 break;
             }
         }
         if (any) {
             return Outcome.OK;
+        }
+        if (timedOut) {
+            // Nobody answered. That is not "there is no root here" - it is almost always a Magisk
+            // dialog still sitting on the screen - so the caller waits rather than falling back
+            // to a settings screen the user did not ask for.
+            return Outcome.BUSY;
         }
         return Boolean.FALSE.equals(sAvailable) ? Outcome.UNAVAILABLE : Outcome.FAILED;
     }

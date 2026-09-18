@@ -216,7 +216,11 @@ public final class QuickTiles {
         Su.run(outcome -> main.post(() -> {
             if (outcome.ok()) {
                 L.i("tiles: " + what + " set via root");
-                if (onChanged != null) {
+                // Only if this is still the panel that asked. The closure rebuilds the body it
+                // was built with, and root can take long enough for that panel to have been
+                // closed and another opened - which would tear down the visible panel's media
+                // callbacks to repaint a view tree nobody can see.
+                if (onChanged != null && QuickPanel.isStill(token)) {
                     onChanged.run();
                 }
                 // The command has returned, which is not the same as the thing having happened:

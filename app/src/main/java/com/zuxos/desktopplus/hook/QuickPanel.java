@@ -135,6 +135,11 @@ public final class QuickPanel {
         return sCurrent;
     }
 
+    /** Whether the panel {@code token} came from is still the open one. */
+    static boolean isStill(Object token) {
+        return token != null && sCurrent == token;
+    }
+
     /** Closes the panel only if it is still the one {@code token} came from. */
     static void dismissIf(Object token) {
         if (token != null && sCurrent == token) {
