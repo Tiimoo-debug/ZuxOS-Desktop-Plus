@@ -19,7 +19,6 @@ import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
@@ -308,11 +307,28 @@ public final class TaskbarMenu {
                 body.addView(rowFor(ctx, entry));
             }
 
-            root.addView(glass, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT));
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            glp.gravity = Gravity.BOTTOM | Gravity.START;
+            glp.leftMargin = (int) Math.max(0, rawX - Ui.dp(ctx, 90));
+            // Measured off the bar on screen, and the window reaches the screen's edge, so the
+            // menu sits on the taskbar rather than a bar's height above it.
+            glp.bottomMargin = TaskbarTray.barInset(source);
+            root.addView(glass, glp);
             glass.setSource(root);
-            glass.post(glass::refresh);
+            glass.post(() -> {
+                // Held near the right-hand edge - where the tray is - the menu would run off the
+                // display. Its width is only known once it has been measured.
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) glass.getLayoutParams();
+                int max = root.getWidth() - glass.getWidth() - Ui.dp(ctx, 8);
+                int clamped = Math.max(0, Math.min(lp.leftMargin, Math.max(0, max)));
+                if (clamped != lp.leftMargin) {
+                    lp.leftMargin = clamped;
+                    glass.setLayoutParams(lp);
+                }
+                glass.refresh();
+            });
 
             root.setFocusableInTouchMode(true);
             root.setOnKeyListener((v, keyCode, event) -> {
@@ -324,57 +340,39 @@ public final class TaskbarMenu {
                 }
                 return false;
             });
-            // The window is the menu now, so anything outside it is outside the window and
-            // arrives as a single event - no inside/outside arithmetic to get wrong.
             root.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_OUTSIDE) {
                     dismiss();
                     return true;
+                }
+                if (action == MotionEvent.ACTION_DOWN) {
+                    float x = event.getX();
+                    float y = event.getY();
+                    boolean inside = x >= glass.getLeft() && x <= glass.getRight()
+                            && y >= glass.getTop() && y <= glass.getBottom();
+                    if (!inside) {
+                        dismiss();
+                        return true;
+                    }
                 }
                 return false;
             });
 
             WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    // NOT_TOUCH_MODAL so a touch beside the menu reaches the desktop under it,
-                    // WATCH_OUTSIDE_TOUCH so we still hear about it and can close.
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
-            lp.gravity = Gravity.BOTTOM | Gravity.START;
-            lp.x = (int) Math.max(0, rawX - Ui.dp(ctx, 90));
-            // Measured off the bar on screen, so the menu sits on the taskbar instead of
-            // floating above it.
-            lp.y = TaskbarTray.barInset(source);
             lp.setTitle("ZuxOS Desktop Plus taskbar menu");
-            // The window is the menu's own size now, so the blur lands behind the menu rather
-            // than across the display.
-            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            QuickPanel.edgeToEdge(lp);
+            // No blur behind: on this firmware it blurs the whole display, whatever the window.
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
             root.requestFocus();
-            // Held near the right-hand edge - where the tray is - the menu would run off the
-            // display. Its width is only known once it has been laid out, so the clamp waits for
-            // that rather than for a posted message that may arrive first.
-            root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-                @Override
-                public void onLayoutChange(View v, int l, int t, int r, int b,
-                        int ol, int ot, int or, int ob) {
-                    if (v.getWidth() <= 0) {
-                        // Nothing to clamp against yet; stay on for the next pass rather than
-                        // leaving the menu wherever it landed.
-                        return;
-                    }
-                    v.removeOnLayoutChangeListener(this);
-                    // Out of the layout pass: changing window params from inside one is how a
-                    // layout ends up running against itself.
-                    v.post(() -> clampToDisplay(ctx, wm, v));
-                }
-            });
         } catch (Throwable t) {
             L.e("could not show the taskbar menu", t);
         }
@@ -438,25 +436,6 @@ public final class TaskbarMenu {
             return opts.toBundle();
         } catch (Throwable t) {
             return null;
-        }
-    }
-
-    /** Keeps the menu on the display it opened on, once its width is known. */
-    private static void clampToDisplay(Context ctx, WindowManager wm, View root) {
-        try {
-            if (root.getParent() == null || root.getWidth() <= 0) {
-                return;
-            }
-            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) root.getLayoutParams();
-            int display = ctx.getResources().getDisplayMetrics().widthPixels;
-            int max = display - root.getWidth() - Ui.dp(ctx, 8);
-            int clamped = Math.max(0, Math.min(lp.x, Math.max(0, max)));
-            if (clamped != lp.x) {
-                lp.x = clamped;
-                wm.updateViewLayout(root, lp);
-            }
-        } catch (Throwable t) {
-            L.d("taskbar menu: could not keep it on screen (" + t + ")");
         }
     }
 

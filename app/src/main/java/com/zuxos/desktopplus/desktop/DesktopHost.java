@@ -21,6 +21,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Storage;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.drawer.DrawerPanel;
@@ -130,7 +131,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mDrawerStore = new DrawerStore(activity);
         mDrawerStore.load();
 
-        mRoot = new FrameLayout(activity);
+        mRoot = new FrameLayout(activity) {
+            @Override
+            public boolean dispatchTouchEvent(MotionEvent ev) {
+                // Recents draws inside this same activity, underneath this surface. While it is
+                // showing, every touch is its: declining the press here makes the parent offer
+                // it to the sibling below instead, which is Recents. Taking it - as this did -
+                // put the desktop's own menu over the task list and left Recents unable to hear
+                // a thing.
+                if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    mOverviewShowing = overviewShowing();
+                }
+                return !mOverviewShowing && super.dispatchTouchEvent(ev);
+            }
+        };
         mGrid = new CellLayoutView(activity, Ui.dp(activity, override(activity,
                 Const.KEY_CELL_SIZE, Cfg.cellSizeDp())));
         mGrid.setCallbacks(this);
@@ -537,6 +551,25 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             }
         });
         return trash;
+    }
+
+    private View mOverview;
+    private boolean mOverviewShowing;
+
+    /** Whether the launcher's Recents panel is up; found once by id, then just asked. */
+    private boolean overviewShowing() {
+        View overview = mOverview;
+        if (overview == null || overview.getParent() == null) {
+            View top = mRoot;
+            while (top.getParent() instanceof View) {
+                top = (View) top.getParent();
+            }
+            List<View> found = Reflect.findByIdNames(top, "overview_panel");
+            overview = found.isEmpty() ? null : found.get(0);
+            mOverview = overview;
+        }
+        return overview != null && overview.getVisibility() == View.VISIBLE
+                && overview.getWidth() > 0;
     }
 
     private void installGestures() {

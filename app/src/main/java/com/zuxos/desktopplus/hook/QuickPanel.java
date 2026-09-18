@@ -29,7 +29,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.AppCtx;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
@@ -43,9 +42,9 @@ import java.util.List;
  * toggles, then the sliders.
  *
  * <p>A window of its own, because the taskbar's window is a strip that clips everything inside
- * it. That window is exactly the size of the panel and no larger: a full-screen one, which is
- * what this was, swallows every touch on the display for as long as it is open, and would want
- * {@code FLAG_BLUR_BEHIND} to blur the whole screen for the sake of one panel in the corner.
+ * it. The window covers the display so that a press anywhere outside the panel closes it - the
+ * way a desktop popup behaves - and asks for no blur behind, since on this firmware that flag
+ * blurs the whole screen whatever the window's size.
  */
 public final class QuickPanel {
 
@@ -190,9 +189,7 @@ public final class QuickPanel {
             FrameLayout root = new FrameLayout(ctx);
             GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 22), 0x59161620);
 
-            // Bounded rather than free: the window wraps its content now, so without a ceiling a
-            // long list of media cards would grow the panel straight off the top of the screen.
-            ScrollView scroller = new BoundedScrollView(ctx, maxPanelHeight(ctx, inset));
+            ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);
@@ -207,9 +204,14 @@ public final class QuickPanel {
 
             fill(ctx, body, displayId);
 
-            root.addView(glass, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT));
+            // The root is the whole display, so the panel's own margins place it: clear of the
+            // right edge, and exactly the bar's height up from the bottom of the screen.
+            FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
+                    panelWidth(ctx), FrameLayout.LayoutParams.WRAP_CONTENT);
+            glp.gravity = Gravity.BOTTOM | Gravity.END;
+            glp.rightMargin = Ui.dp(ctx, EDGE_MARGIN_DP);
+            glp.bottomMargin = inset;
+            root.addView(glass, glp);
             glass.setSource(root);
             glass.post(glass::refresh);
 
@@ -223,45 +225,42 @@ public final class QuickPanel {
                 }
                 return false;
             });
-            // The window is the panel now, so anything outside it is outside the window too and
-            // arrives as one event. There is no inside/outside arithmetic left to get wrong.
             final View tray = anchor;
             root.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
-                    // Only a press on the tray itself arms the guard below. A press anywhere
-                    // else closes the panel and is done, so the tray button still opens it again
-                    // at once.
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_OUTSIDE) {
+                    // A press on the taskbar, which floats above this window. If it was on the
+                    // tray, the button's own click follows on the UP and must not reopen us.
                     if (hits(tray, event.getRawX(), event.getRawY())) {
                         sClosedByTouchAt = android.os.SystemClock.uptimeMillis();
                     }
                     dismiss();
                     return true;
                 }
+                if (action == MotionEvent.ACTION_DOWN) {
+                    float x = event.getX();
+                    float y = event.getY();
+                    boolean inside = x >= glass.getLeft() && x <= glass.getRight()
+                            && y >= glass.getTop() && y <= glass.getBottom();
+                    if (!inside) {
+                        dismiss();
+                        return true;
+                    }
+                }
                 return false;
             });
 
             WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                    panelWidth(ctx),
-                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    // The pair a popup wants. NOT_TOUCH_MODAL lets a touch outside the panel
-                    // reach whatever is under it, and WATCH_OUTSIDE_TOUCH still tells us it
-                    // happened so the panel can close. Without the first, a full-screen window
-                    // ate every touch on the display for as long as it was open.
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
-            lp.gravity = Gravity.BOTTOM | Gravity.END;
-            lp.x = Ui.dp(ctx, EDGE_MARGIN_DP);
-            // Measured off the bar on screen, so the panel sits on the taskbar rather than
-            // floating above it.
-            lp.y = inset;
             lp.setTitle("ZuxOS Desktop Plus tray");
-            // Now that the window is the panel and not the display, blurring behind it blurs
-            // what is behind the panel - which is what glass is supposed to do, and what the
-            // full-screen window could never be allowed to ask for.
-            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            edgeToEdge(lp);
+            // No blur behind. On this firmware the flag blurs the entire display whatever the
+            // window's size, and there is no public way to blur only under a plain window.
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
@@ -277,6 +276,20 @@ public final class QuickPanel {
             stopWatching();
             L.e("could not open the tray panel", t);
         }
+    }
+
+    /**
+     * Lets the window reach the screen's edges.
+     *
+     * <p>By default an overlay is laid out inside the system bars - and the taskbar is one, so a
+     * window that stops at its top edge and then adds the bar's height again floats a whole bar
+     * above it. That was the gap.
+     */
+    static void edgeToEdge(WindowManager.LayoutParams lp) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            lp.setFitInsetsTypes(0);
+        }
+        lp.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
     }
 
     /** Whether a screen position falls on {@code view}; false when it cannot be asked. */
@@ -304,37 +317,6 @@ public final class QuickPanel {
             // Unmeasurable; the intended width is still the best answer.
         }
         return wanted;
-    }
-
-    /** How tall the panel may grow: the display, less the taskbar and a little breathing room. */
-    private static int maxPanelHeight(Context ctx, int inset) {
-        int display = 0;
-        try {
-            display = ctx.getResources().getDisplayMetrics().heightPixels;
-        } catch (Throwable ignored) {
-            // Fall through to the floor below.
-        }
-        int available = display - inset - Ui.dp(ctx, 24);
-        // A floor, so a display we could not measure still gets a usable panel rather than one
-        // squeezed to nothing.
-        return Math.max(Ui.dp(ctx, 240), available);
-    }
-
-    /** A scroller that will not grow past a ceiling set when the panel opens. */
-    private static final class BoundedScrollView extends ScrollView {
-
-        private final int mMaxHeight;
-
-        BoundedScrollView(Context ctx, int maxHeight) {
-            super(ctx);
-            mMaxHeight = maxHeight;
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            super.onMeasure(widthSpec,
-                    MeasureSpec.makeMeasureSpec(mMaxHeight, MeasureSpec.AT_MOST));
-        }
     }
 
     // --- watching the things that answer late -----------------------------
