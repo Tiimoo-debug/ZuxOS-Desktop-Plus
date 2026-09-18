@@ -240,6 +240,34 @@ public final class SoundRows {
         return card;
     }
 
+    /**
+     * The track's own artwork, or null when it has none.
+     *
+     * <p>Three places to look, in the order the platform itself prefers them. The bitmap is used
+     * as it is: an ImageView draws it hardware-accelerated, so even a HARDWARE-backed one - which
+     * a software canvas could not have touched - is fine here.
+     */
+    private static Bitmap artBitmap(MediaMetadata meta) {
+        if (meta == null) {
+            return null;
+        }
+        try {
+            Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (art == null) {
+                art = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            }
+            if (art == null) {
+                // What the notification shade falls back to, and some apps set only this.
+                art = meta.getDescription() != null
+                        ? meta.getDescription().getIconBitmap() : null;
+            }
+            return art != null && !art.isRecycled() ? art : null;
+        } catch (Throwable t) {
+            L.d("sound: no readable album art (" + t + ")");
+            return null;
+        }
+    }
+
     /** Which app this is, small, in the corner - the card's own label. */
     private static View appPill(Context ctx, PackageManager pm, MediaController controller) {
         LinearLayout pill = new LinearLayout(ctx);
