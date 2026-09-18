@@ -204,24 +204,31 @@ public final class Thermals {
 
     /**
      * How specifically a zone name says "this is a CPU", 1 being the most specific and 0 none.
+     * Only the best tier with any members is used.
      *
-     * <p>Qualcomm names the per-core sensors {@code cpu-0-0-usr} and the cluster ones
-     * {@code cpuss-N-usr}; the cluster nicknames {@code silver}, {@code gold} and {@code prime}
-     * come next; a plain {@code soc} sensor is a last resort, because on some builds it measures
-     * the package rail rather than the die and reads far hotter than the cores do.
+     * <p>A CPU zone that names itself a thermometer - {@code cpu-0-0-usr}, {@code cpuss-N-usr},
+     * {@code cpu_thermal} - is a measurement and wins outright. The application-processor
+     * thermistor comes next. Bare numbered {@code cpu-N-N-N} zones come last, because on this
+     * tablet's chip that is what they are: every one of them sits between 90 and 106 degrees
+     * while the GPU on the same die reads 65, which is the signature of a limits-management
+     * threshold register rather than a temperature.
      */
     private static int cpuTier(String type) {
         if (isOffTopic(type)) {
             return 0;
         }
-        if (type.contains("cpu") || type.contains("kryo")) {
+        if ((type.contains("cpu") || type.contains("kryo"))
+                && (type.contains("usr") || type.contains("therm"))) {
             return 1;
         }
-        if (type.contains("silver") || type.contains("gold") || type.contains("prime")
-                || type.contains("apc") || type.contains("cluster")) {
+        // "therm" is required here too: the same chip exposes a zone called "socd" - a debug
+        // counter, not a thermometer - which matching on "soc" alone averaged in as 21 degrees.
+        if (type.contains("therm")
+                && (type.startsWith("ap-") || type.contains("apc") || type.contains("soc"))) {
             return 2;
         }
-        if (type.contains("soc")) {
+        if (type.contains("cpu") || type.contains("kryo") || type.contains("silver")
+                || type.contains("gold") || type.contains("prime") || type.contains("cluster")) {
             return 3;
         }
         return 0;
@@ -229,11 +236,24 @@ public final class Thermals {
 
     /** Sensors that measure something other than the chip, whatever else their name contains. */
     private static boolean isOffTopic(String type) {
-        return type.contains("batt") || type.contains("charg") || type.contains("usb")
-                || type.contains("skin") || type.contains("disp") || type.contains("case")
-                || type.contains("modem") || type.contains("camera") || type.contains("wifi")
-                || type.contains("pa-") || type.contains("pm8") || type.contains("quiet")
-                || type.contains("limit") || type.contains("virtual") || type.contains("monitor");
+        return type.contains("batt") || type.contains("charg") || type.contains("chg")
+                || type.contains("usb") || type.contains("skin") || type.contains("disp")
+                || type.contains("case") || type.contains("modem") || type.contains("camera")
+                || type.contains("wifi") || type.contains("wlan") || type.contains("pa-")
+                || type.contains("pm8") || type.contains("quiet") || type.contains("virtual")
+                || type.contains("monitor") || isThreshold(type);
+    }
+
+    /**
+     * Names that announce a configured limit rather than a measurement.
+     *
+     * <p>This chip exposes {@code cpu-hw-trip-0} and {@code cpu-hw-trip-1}, both permanently
+     * reading exactly 105 degrees. They are throttling thresholds, and mixing them in drags the
+     * reported temperature towards a number the silicon never actually reaches.
+     */
+    private static boolean isThreshold(String type) {
+        return type.contains("trip") || type.contains("limit") || type.contains("lmh")
+                || type.contains("thresh");
     }
 
     private static String readText(File file) {

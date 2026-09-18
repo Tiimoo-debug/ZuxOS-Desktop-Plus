@@ -9,6 +9,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -16,26 +17,28 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.GlassPanel;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+
 /**
  * The taskbar's own context menu: hold or right-click empty taskbar space.
  *
- * <p>The menu is triggered from a transparent view added as the drag layer's <em>first</em> child.
- * Being first means it is drawn underneath everything and, because a {@code ViewGroup} offers a
- * touch to its children topmost-first, it only ever sees presses that no icon and no navigation
- * button wanted - which is exactly "empty taskbar space" without having to work out where that is.
+ * <p>Nothing is added to the taskbar for this. The gesture is recognised by watching touches on
+ * their way through the drag layer and consuming none of them, which is the only way to add a
+ * gesture to someone else's view tree without risking the gestures already there.
  */
 public final class TaskbarMenu {
-
-    private static final String TAG_AREA = "zux-desktop-plus-taskbar-menu-area";
 
     /** The task manager this menu offers, as asked for. */
     private static final String TASK_MANAGER_PKG = "com.rk.taskmanager";
@@ -43,87 +46,199 @@ public final class TaskbarMenu {
     private static View sCurrent;
     private static WindowManager sWm;
 
+    private static boolean sInstalled;
+    private static Runnable sPending;
+    private static ViewGroup sPendingHost;
+    private static float sDownX;
+    private static float sDownY;
+    private static long sDownTime = -1;
+    private static int sSlop = 16;
+
     private TaskbarMenu() {
     }
 
-    /** Adds the hit area to a taskbar, once. */
-    static void attachTo(ViewGroup dragLayer, View reference) {
+    /**
+     * Watches the taskbar's touches without taking any.
+     *
+     * <p>The first attempt at this put a transparent, long-clickable view across the bar. That
+     * view consumed every press that reached it, the drag layer cancelled the long press before
+     * it could fire, and while the taskbar's window was expanded - which it is whenever the app
+     * drawer is open - it swallowed input meant for everything underneath. Nothing about a
+     * context menu justifies taking touches, so this observes instead: it reads events on their
+     * way through the drag layer and consumes nothing, ever.
+     */
+    static void install(ClassLoader loader) {
+        if (sInstalled) {
+            return;
+        }
+        sInstalled = true;
         try {
-            if (dragLayer.findViewWithTag(TAG_AREA) != null) {
+            Class<?> cls = Reflect.findClass(
+                    "com.android.launcher3.taskbar.TaskbarDragLayer", loader);
+            if (cls == null) {
+                L.w("taskbar menu: TaskbarDragLayer not found");
                 return;
             }
-            final int displayId = TaskbarTray.displayIdOf(dragLayer);
-            final float[] down = new float[2];
-
-            View area = new View(dragLayer.getContext());
-            area.setTag(TAG_AREA);
-            area.setLongClickable(true);
-            area.setOnTouchListener((v, event) -> {
-                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                    down[0] = event.getRawX();
-                    down[1] = event.getRawY();
+            XC_MethodHook watcher = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (param.thisObject instanceof ViewGroup
+                            && param.args.length > 0 && param.args[0] instanceof MotionEvent) {
+                        onTouch((ViewGroup) param.thisObject, (MotionEvent) param.args[0]);
+                    }
                 }
-                // Observed, never consumed here: the view's own long-press timer needs the
-                // events to carry on to onTouchEvent.
-                return false;
-            });
-            area.setOnLongClickListener(v -> {
-                show(v, displayId, down[0]);
-                return true;
-            });
-            area.setOnContextClickListener(v -> {
-                show(v, displayId, down[0]);
-                return true;
-            });
-
-            ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
-            dragLayer.addView(area, 0, lp);
-            sync(dragLayer, area, reference);
-            if (reference != null) {
-                reference.addOnLayoutChangeListener(
-                        (v, l, t, r, b, ol, ot, or, ob) -> sync(dragLayer, area, reference));
+            };
+            // onTouchEvent, not onInterceptTouchEvent. A ViewGroup only offers later events to
+            // onInterceptTouchEvent once a child has claimed the press - and a press on empty
+            // taskbar is precisely the one no child claims, so from there we would see the DOWN
+            // and never the UP that cancels it. onTouchEvent gets the whole stream in exactly
+            // that case, and stays silent when an icon took the press, which is what we want.
+            int hooked = hookUpTo(cls, "onTouchEvent", watcher);
+            if (hooked == 0) {
+                hooked = hookUpTo(cls, "onInterceptTouchEvent", watcher);
             }
-            L.i("taskbar menu: hold or right-click the taskbar");
+            L.i("taskbar menu: watching taskbar touches x" + hooked);
+            if (hooked == 0) {
+                L.w("taskbar menu: no touch method on this build - hold and right-click will "
+                        + "do nothing");
+            }
         } catch (Throwable t) {
-            L.e("taskbar menu: could not attach", t);
+            L.e("taskbar menu: could not install", t);
         }
     }
 
-    /** Takes the hit area back out, so turning the setting off returns the taskbar to normal. */
-    static void detachFrom(ViewGroup dragLayer) {
-        try {
-            View area = dragLayer.findViewWithTag(TAG_AREA);
-            if (area != null) {
-                dragLayer.removeView(area);
-                L.i("taskbar menu: removed, the setting is off");
+    /**
+     * Hooks a method declared anywhere between {@code cls} and {@code ViewGroup}, exclusive.
+     *
+     * <p>Stopping short of {@code ViewGroup} matters: its touch methods run for every view in
+     * the process, and hooking those to serve a taskbar menu would be indefensible.
+     */
+    private static int hookUpTo(Class<?> cls, String name, XC_MethodHook hook) {
+        int count = 0;
+        for (Class<?> c = cls; c != null && c != ViewGroup.class && c != View.class;
+                c = c.getSuperclass()) {
+            try {
+                count += XposedBridge.hookAllMethods(c, name, hook).size();
+            } catch (Throwable ignored) {
+                // Not declared here; keep walking.
             }
-        } catch (Throwable t) {
-            L.d("taskbar menu: could not remove (" + t + ")");
         }
+        return count;
     }
 
-    /** Stretches the hit area across the visible bar. */
-    private static void sync(ViewGroup dragLayer, View area, View reference) {
-        try {
-            ViewGroup.LayoutParams raw = area.getLayoutParams();
-            if (!(raw instanceof FrameLayout.LayoutParams)) {
+    private static void onTouch(ViewGroup dragLayer, MotionEvent event) {
+        // The hook lands on whichever class declares the method, which is the shared BaseDragLayer
+        // - and the desktop's own drag layer inherits from it too. Without this the home screen
+        // would answer a long press with the taskbar's menu.
+        if (!TaskbarTray.isTaskbar(dragLayer)) {
+            return;
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                onDown(dragLayer, event);
                 return;
-            }
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-            lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            if (reference != null && reference.getHeight() > 0) {
-                lp.gravity = Gravity.TOP | Gravity.START;
-                lp.height = reference.getHeight();
-                lp.topMargin = reference.getTop();
-            } else {
-                lp.gravity = Gravity.BOTTOM | Gravity.START;
-                lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                lp.topMargin = 0;
-            }
-            area.setLayoutParams(lp);
-        } catch (Throwable t) {
-            L.d("taskbar menu: could not place the hit area (" + t + ")");
+            case MotionEvent.ACTION_MOVE:
+                if (sPending != null && (Math.abs(event.getRawX() - sDownX) > sSlop
+                        || Math.abs(event.getRawY() - sDownY) > sSlop)) {
+                    cancelPending();
+                }
+                return;
+            default:
+                cancelPending();
         }
+    }
+
+    private static void onDown(ViewGroup dragLayer, MotionEvent event) {
+        // A class and its superclass can both declare the method, and the override calls super,
+        // so the same press can arrive here more than once.
+        if (event.getDownTime() == sDownTime) {
+            return;
+        }
+        sDownTime = event.getDownTime();
+        cancelPending();
+        // Read once per press rather than per event: this runs on the input thread, and the
+        // preference read takes a lock and stats a file.
+        if (!Cfg.taskbarMenu()) {
+            return;
+        }
+        if (!onBar(dragLayer, event.getY())
+                || !isEmptySpace(dragLayer, event.getX(), event.getY())) {
+            return;
+        }
+        sDownX = event.getRawX();
+        sDownY = event.getRawY();
+        if ((event.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0) {
+            // A right-click is already the whole gesture; there is nothing to wait for.
+            show(dragLayer, TaskbarTray.displayIdOf(dragLayer), sDownX);
+            return;
+        }
+        schedule(dragLayer);
+    }
+
+    /**
+     * Whether the press landed on the visible bar.
+     *
+     * <p>The taskbar's window grows to fill the display while the app drawer is open, so without
+     * this a long press on the drawer's own empty space would open the taskbar's menu. The bar is
+     * the icon row, not the window - and if that row cannot be found, the gesture is declined
+     * rather than guessed at.
+     */
+    private static boolean onBar(ViewGroup dragLayer, float y) {
+        View reference = TaskbarTray.rowReference(dragLayer);
+        if (reference == null || reference.getHeight() <= 0) {
+            return false;
+        }
+        return y >= reference.getTop() && y <= reference.getBottom();
+    }
+
+    private static void schedule(ViewGroup dragLayer) {
+        final ViewGroup host = dragLayer;
+        sSlop = ViewConfiguration.get(dragLayer.getContext()).getScaledTouchSlop();
+        sPending = () -> {
+            sPending = null;
+            show(host, TaskbarTray.displayIdOf(host), sDownX);
+        };
+        dragLayer.postDelayed(sPending, ViewConfiguration.getLongPressTimeout());
+        sPendingHost = dragLayer;
+    }
+
+    private static void cancelPending() {
+        if (sPending != null && sPendingHost != null) {
+            sPendingHost.removeCallbacks(sPending);
+        }
+        sPending = null;
+        sPendingHost = null;
+    }
+
+    /**
+     * Whether this point is bare taskbar rather than a button or an icon.
+     *
+     * <p>Asked of the live view tree, so it needs no knowledge of where the launcher chose to put
+     * anything - and the tray counts as occupied, since it has its own tap.
+     */
+    private static boolean isEmptySpace(ViewGroup dragLayer, float x, float y) {
+        return !hitsClickable(dragLayer, x, y);
+    }
+
+    private static boolean hitsClickable(ViewGroup group, float x, float y) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE || child.getWidth() == 0) {
+                continue;
+            }
+            float cx = x - child.getLeft();
+            float cy = y - child.getTop();
+            if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) {
+                continue;
+            }
+            if (child.isClickable() || child.isLongClickable()) {
+                return true;
+            }
+            if (child instanceof ViewGroup && hitsClickable((ViewGroup) child, cx, cy)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // --- the menu itself -------------------------------------------------
@@ -143,13 +258,16 @@ public final class TaskbarMenu {
         }
     }
 
-    private static void show(View source, int displayId, float rawX) {
-        Context ctx = source.getContext();
+    static void show(View source, int displayId, float rawX) {
         dismiss();
-        if (!canShow(ctx)) {
-            toast(ctx, "Allow \"display over other apps\" for the launcher to show this menu");
+        if (!canShow(source.getContext())) {
+            toast(source.getContext(),
+                    "Allow \"display over other apps\" for the launcher to show this menu");
             return;
         }
+        // The taskbar's own context is bound to the taskbar's window type, and the window manager
+        // refuses a window of any other type from it.
+        final Context ctx = Overlays.windowContext(source.getContext());
         try {
             List<Entry> entries = new ArrayList<>();
             entries.add(new Entry("Task manager", () -> launch(ctx, TASK_MANAGER_PKG, displayId)));
@@ -217,7 +335,7 @@ public final class TaskbarMenu {
                 return false;
             });
 
-            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,

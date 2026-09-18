@@ -75,11 +75,14 @@ public final class QuickPanel {
         }
     }
 
-    private static void show(Context ctx, View anchor, int displayId) {
-        if (!canShow(ctx)) {
-            toast(ctx, "Allow \"display over other apps\" for the launcher to open the tray");
+    private static void show(Context taskbarCtx, View anchor, int displayId) {
+        if (!canShow(taskbarCtx)) {
+            toast(taskbarCtx, "Allow \"display over other apps\" for the launcher to open the tray");
             return;
         }
+        // The taskbar's own context is bound to the taskbar's window type, and the window manager
+        // refuses a window of any other type from it.
+        final Context ctx = Overlays.windowContext(taskbarCtx);
         try {
             SysState state = SysState.get(ctx);
 
@@ -149,7 +152,7 @@ public final class QuickPanel {
                 return false;
             });
 
-            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,

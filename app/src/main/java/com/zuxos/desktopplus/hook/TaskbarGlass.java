@@ -4,10 +4,10 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 import com.zuxos.desktopplus.core.Cfg;
@@ -16,9 +16,7 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.ref.WeakReference;
-import java.util.Collections;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -27,27 +25,27 @@ import de.robv.android.xposed.XposedBridge;
 /**
  * Glass for the launcher's own taskbar.
  *
- * <p>Three things have to happen together, and none of them works alone. The taskbar paints its
- * own opaque bar in {@code TaskbarDragLayer.onDraw}, so that is suppressed. A translucent pane is
- * put in its place as the drag layer's own backdrop. And the taskbar's window is asked to blur
- * what is behind it - which is the only part that makes it read as glass rather than as a grey
- * stripe, because what sits behind the taskbar belongs to another app's window and no view of
- * ours can capture or refract it.
+ * <p>Two things have to happen: the opaque bar the launcher paints has to stop being opaque, and
+ * a translucent pane has to take its place. A pane alone is not enough - it is translucent, so
+ * the original shows straight through it, which is what "the white is still behind" looked like.
  *
- * <p>Suppressing a launcher's drawing is the most invasive thing this module does, so it is a
- * setting of its own and every step reports what it managed.
+ * <p>There is deliberately no window blur here any more. An earlier version added
+ * {@code FLAG_BLUR_BEHIND} to the taskbar's own window; that window expands to fill the display
+ * whenever the app drawer opens, so it blurred the entire screen, and pushing new layout params
+ * into a window the launcher owns is the likeliest cause of the input that stopped responding
+ * along with it. Nothing here touches the launcher's window any more. It swaps a drawable on a
+ * view and adds a child, and both are undone exactly.
  */
 public final class TaskbarGlass {
 
-    /** Tint of the bar itself. Light, because the blur behind does most of the work. */
-    private static final int TINT = 0x59101014;
+    /** Tint of the bar itself. */
+    private static final int TINT = 0x66101014;
 
     private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
 
     private static final Map<View, WeakReference<View>> PANES = new WeakHashMap<>();
-    /** Drag layers whose window we already asked to blur. */
-    private static final Set<View> BLURRED =
-            Collections.newSetFromMap(new WeakHashMap<>());
+    /** The background each taskbar had before we replaced it, so it can be put back. */
+    private static final Map<View, Drawable> ORIGINAL_BACKGROUNDS = new WeakHashMap<>();
 
     private static boolean sInstalled;
 
@@ -55,11 +53,12 @@ public final class TaskbarGlass {
     }
 
     /**
-     * Stops the taskbar painting its own bar.
+     * Stops the taskbar painting its own bar, where it paints it in {@code onDraw}.
      *
      * <p>Hooked on {@code TaskbarDragLayer} itself rather than on {@code View}, so it runs only
-     * for the taskbar. {@code onDraw} paints the background; children are drawn from
-     * {@code dispatchDraw}, which is untouched, so the icons and buttons are unaffected.
+     * for the taskbar. On this firmware the method is not declared there at all, so the hook
+     * matches nothing and {@link #apply} deals with the background drawable instead; other builds
+     * do paint the bar here, and a hook that matches nothing costs nothing.
      */
     static void install(ClassLoader loader) {
         if (sInstalled) {
@@ -83,14 +82,36 @@ public final class TaskbarGlass {
                     }
                 }
             }).size();
-            L.i("taskbar glass: background suppression installed x" + hooked);
+            L.i("taskbar glass: onDraw suppression installed x" + hooked);
             if (hooked == 0) {
-                L.w("taskbar glass: this build does not paint its bar in onDraw - the stock "
-                        + "background will stay");
+                // Whatever paints the bar on this build, it is not onDraw. Naming the drawing
+                // methods it does declare is what makes the next attempt aimed rather than
+                // another guess.
+                L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
+                        + drawMethodsOf(cls));
             }
         } catch (Throwable t) {
             L.e("taskbar glass: could not install", t);
         }
+    }
+
+    /** The draw-related methods this build actually overrides, for the log. */
+    private static String drawMethodsOf(Class<?> cls) {
+        StringBuilder sb = new StringBuilder();
+        for (Class<?> c = cls; c != null && c != View.class; c = c.getSuperclass()) {
+            for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                String name = m.getName();
+                if (name.equals("draw") || name.equals("onDraw") || name.equals("dispatchDraw")
+                        || name.startsWith("drawBackground")) {
+                    if (sb.length() > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(c.getSimpleName()).append('.').append(name)
+                            .append('(').append(m.getParameterCount()).append(')');
+                }
+            }
+        }
+        return sb.length() == 0 ? "none" : sb.toString();
     }
 
     /** Applies or removes the glass on one taskbar, following the setting. */
@@ -108,6 +129,13 @@ public final class TaskbarGlass {
                 return;
             }
             View reference = TaskbarTray.rowReference(dragLayer);
+            if (reference == null || reference.getHeight() <= 0) {
+                // Without the row's geometry the pane has no height to take, and a plain View
+                // asked to wrap its content fills the space it is offered - which is the whole
+                // drag layer. Wait for a layout pass instead; this runs again on every resume.
+                L.d("taskbar glass: the bar's geometry is not known yet");
+                return;
+            }
             ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
             if (lp == null) {
                 L.w("taskbar glass: the drag layer's layout params are not reproducible, "
@@ -116,7 +144,7 @@ public final class TaskbarGlass {
             }
             BarView pane = new BarView(dragLayer.getContext());
             pane.setTag(TAG_GLASS);
-            // Index 0 so it is behind every icon, and behind the menu hit area too.
+            // Index 0 so it is behind every icon and every button.
             dragLayer.addView(pane, 0, lp);
             PANES.put(root, new WeakReference<>(pane));
             sync(dragLayer, pane, reference);
@@ -124,14 +152,48 @@ public final class TaskbarGlass {
                 reference.addOnLayoutChangeListener(
                         (v, l, t, r, b, ol, ot, or, ob) -> sync(dragLayer, pane, reference));
             }
-            blurBehind(dragLayer, true);
+            takeBackground(dragLayer);
             dragLayer.invalidate();
             L.i("taskbar glass: applied");
         } catch (Throwable t) {
-            // The pane is what licenses the suppression, so dropping it re-exposes the stock bar
-            // rather than leaving a transparent one behind.
+            // The pane is what licenses hiding the launcher's own bar, so dropping it puts the
+            // stock one back rather than leaving a transparent taskbar behind.
             PANES.remove(root);
             L.e("taskbar glass: could not apply", t);
+        }
+    }
+
+    /**
+     * Takes the taskbar's own background off, remembering it.
+     *
+     * <p>A background drawable is painted by {@code View.draw}, not by {@code onDraw}, so no hook
+     * on {@code onDraw} can suppress it - and a child pane is drawn over it but is translucent,
+     * so it shows through. Removing it is the only thing that works, and putting the same
+     * instance back afterwards is an exact undo.
+     */
+    private static void takeBackground(ViewGroup dragLayer) {
+        if (ORIGINAL_BACKGROUNDS.containsKey(dragLayer)) {
+            return;
+        }
+        Drawable background = dragLayer.getBackground();
+        ORIGINAL_BACKGROUNDS.put(dragLayer, background);
+        if (background == null) {
+            L.i("taskbar glass: the taskbar has no background drawable - if the stock bar is "
+                    + "still visible, this build paints it in its own drawing code");
+            return;
+        }
+        dragLayer.setBackground(null);
+        L.i("taskbar glass: removed the taskbar's background ("
+                + background.getClass().getName() + ")");
+    }
+
+    private static void restoreBackground(ViewGroup dragLayer) {
+        if (!ORIGINAL_BACKGROUNDS.containsKey(dragLayer)) {
+            return;
+        }
+        Drawable background = ORIGINAL_BACKGROUNDS.remove(dragLayer);
+        if (background != null) {
+            dragLayer.setBackground(background);
         }
     }
 
@@ -168,53 +230,8 @@ public final class TaskbarGlass {
             ((ViewGroup) pane.getParent()).removeView(pane);
             L.i("taskbar glass: removed, the setting is off");
         }
-        // The blur was ours to add, so it is ours to take away - otherwise turning the setting
-        // off would leave the launcher's window blurring for the rest of its life.
-        blurBehind(dragLayer, false);
+        restoreBackground(dragLayer);
         dragLayer.invalidate();
-    }
-
-    /**
-     * Asks the system to blur whatever is behind the taskbar's window.
-     *
-     * <p>The wallpaper and any app behind the bar are drawn by other processes, so this is the
-     * only route to them. Done once per window: the params are the launcher's, and re-pushing
-     * them on every resume would make the window manager re-layout the taskbar for nothing.
-     */
-    private static void blurBehind(ViewGroup dragLayer, boolean on) {
-        if (BLURRED.contains(dragLayer) == on) {
-            return;
-        }
-        try {
-            ViewGroup.LayoutParams raw = dragLayer.getLayoutParams();
-            if (!(raw instanceof WindowManager.LayoutParams)) {
-                L.d("taskbar glass: the drag layer is not a window root, no blur behind");
-                return;
-            }
-            Context ctx = dragLayer.getContext();
-            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) raw;
-            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
-            if (wm == null) {
-                return;
-            }
-            if (on) {
-                com.zuxos.desktopplus.core.Glass.blurBehind(ctx, lp,
-                        com.zuxos.desktopplus.core.Glass.BEHIND_BLUR_DP);
-            } else {
-                lp.flags &= ~WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
-                lp.setBlurBehindRadius(0);
-            }
-            wm.updateViewLayout(dragLayer, lp);
-            if (on) {
-                BLURRED.add(dragLayer);
-            } else {
-                BLURRED.remove(dragLayer);
-            }
-            L.i("taskbar glass: blur behind the taskbar window " + (on ? "requested" : "cleared"));
-        } catch (Throwable t) {
-            // A refused blur is cosmetic; the tint still stands.
-            L.d("taskbar glass: blur behind unavailable (" + t + ")");
-        }
     }
 
     private static void sync(ViewGroup dragLayer, View pane, View reference) {
@@ -224,16 +241,15 @@ public final class TaskbarGlass {
                 return;
             }
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-            lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            if (reference != null && reference.getHeight() > 0) {
-                lp.gravity = Gravity.TOP | Gravity.START;
-                lp.height = reference.getHeight();
-                lp.topMargin = reference.getTop();
-            } else {
-                lp.gravity = Gravity.BOTTOM | Gravity.START;
-                lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                lp.topMargin = 0;
+            if (reference == null || reference.getHeight() <= 0) {
+                // Never fall back to a size that fills the parent: this pane paints a tint, and
+                // one covering the whole drag layer is the "glass took over the screen" bug.
+                return;
             }
+            lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            lp.gravity = Gravity.TOP | Gravity.START;
+            lp.height = reference.getHeight();
+            lp.topMargin = reference.getTop();
             pane.setLayoutParams(lp);
         } catch (Throwable t) {
             L.d("taskbar glass: could not place the pane (" + t + ")");
@@ -243,9 +259,10 @@ public final class TaskbarGlass {
     /**
      * The bar: a translucent fill and a hairline along the top edge.
      *
-     * <p>No lens here. The liquid-glass shader refracts a captured backdrop, and behind the
-     * taskbar there is nothing of ours to capture - so what makes this read as glass is the
-     * window blur underneath it, not a distortion of pixels we do not have.
+     * <p>No lens and no blur. The liquid-glass shader refracts a captured backdrop, and behind
+     * the taskbar is another process's window - nothing this module can capture. The one API
+     * that could blur it works on the window rather than the view, which is exactly what caused
+     * the damage this replaces.
      */
     private static final class BarView extends View {
 

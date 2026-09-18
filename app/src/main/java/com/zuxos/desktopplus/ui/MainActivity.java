@@ -118,9 +118,9 @@ public class MainActivity extends Activity {
                 "Black text and icons, for the stock light taskbar. Turn off for a dark one",
                 Const.KEY_TASKBAR_DARK_TEXT, true);
         addSwitch("Glass taskbar",
-                "Replaces the taskbar's own bar with a translucent one and blurs what is behind "
-                        + "it. Turn off if the taskbar looks wrong",
-                Const.KEY_TASKBAR_GLASS, true);
+                "Experimental. Replaces the taskbar's own bar with a translucent one. Whether it "
+                        + "works depends on how your firmware paints that bar, so it starts off",
+                Const.KEY_TASKBAR_GLASS, false);
 
         addHeader("Stock launcher unlocking (optional)");
         addSwitch("Try to unlock the stock launcher",

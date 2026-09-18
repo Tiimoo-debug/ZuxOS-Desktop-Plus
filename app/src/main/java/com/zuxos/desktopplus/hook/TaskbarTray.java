@@ -71,6 +71,10 @@ public final class TaskbarTray {
             return;
         }
         sInstalled = true;
+        // First, and outside the block below: neither of these depends on spotting the window,
+        // and an early return from that search used to take them both down with it.
+        TaskbarGlass.install(loader);
+        TaskbarMenu.install(loader);
         try {
             Class<?> impl = Reflect.findClass("android.view.WindowManagerImpl", loader);
             if (impl == null) {
@@ -89,7 +93,6 @@ public final class TaskbarTray {
         } catch (Throwable t) {
             L.e("tray: could not watch for windows", t);
         }
-        TaskbarGlass.install(loader);
     }
 
     private static void onWindowAdded(View root) {
@@ -106,14 +109,6 @@ public final class TaskbarTray {
             attach(root);
         } else {
             detach(root);
-        }
-        if (root instanceof ViewGroup) {
-            ViewGroup dragLayer = (ViewGroup) root;
-            if (Cfg.taskbarMenu()) {
-                TaskbarMenu.attachTo(dragLayer, rowReference(dragLayer));
-            } else {
-                TaskbarMenu.detachFrom(dragLayer);
-            }
         }
         TaskbarGlass.apply(root);
     }

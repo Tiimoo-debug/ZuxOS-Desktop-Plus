@@ -178,7 +178,9 @@ public final class Cfg {
     }
 
     public static boolean taskbarGlass() {
-        return getBool(Const.KEY_TASKBAR_GLASS, true);
+        // Off by default: this is the one setting that changes how the launcher's own taskbar is
+        // painted, and a fresh install should leave it exactly as the firmware drew it.
+        return getBool(Const.KEY_TASKBAR_GLASS, false);
     }
 
     public static boolean unlockStock() {
