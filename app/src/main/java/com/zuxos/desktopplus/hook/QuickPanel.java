@@ -1,14 +1,24 @@
 package com.zuxos.desktopplus.hook;
 
+import android.bluetooth.BluetoothAdapter;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.PlaybackState;
+import android.net.wifi.WifiManager;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
@@ -18,6 +28,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.zuxos.desktopplus.core.AppCtx;
+import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
@@ -31,17 +43,75 @@ import java.util.List;
  * toggles, then the sliders.
  *
  * <p>A window of its own, because the taskbar's window is a strip that clips everything inside
- * it. There is deliberately no {@code FLAG_BLUR_BEHIND} here - the window is full-screen so that
- * flag blurs the whole display, which is not what a panel in the corner should do to the desktop
- * behind it.
+ * it. That window is exactly the size of the panel and no larger: a full-screen one, which is
+ * what this was, swallows every touch on the display for as long as it is open, and would want
+ * {@code FLAG_BLUR_BEHIND} to blur the whole screen for the sake of one panel in the corner.
  */
 public final class QuickPanel {
 
-    /** Tiles per row, as DeX lays them out. */
-    private static final int COLUMNS = 5;
+    /** Tiles per row: all six on one line, the way DeX keeps its toggles to a single row. */
+    private static final int COLUMNS = 6;
+
+    /** Panel width. Wide enough that six captions fit without stacking. */
+    private static final int WIDTH_DP = 380;
+
+    /** Clear of the screen's right-hand edge, the same distance the tray keeps. */
+    private static final int EDGE_MARGIN_DP = 8;
+
+    /** Bursts of state changes are collapsed into one rebuild this far apart. */
+    private static final long REBUILD_DELAY_MS = 60L;
+
+    /** How long after an outside touch closed the panel a tap is taken as part of that press. */
+    private static final long REOPEN_GUARD_MS = 400L;
+
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static View sCurrent;
     private static WindowManager sWm;
+
+    /** Rebuilds the open panel's contents; null when no panel is open. */
+    private static Runnable sRebuild;
+    private static final Runnable REBUILD_TASK = new Runnable() {
+        @Override
+        public void run() {
+            Runnable rebuild = sRebuild;
+            if (rebuild == null) {
+                return;
+            }
+            if (sInteracting) {
+                // Rebuilding replaces every row, which would take the slider out from under the
+                // finger that is dragging it. Whatever changed can wait until it is let go.
+                MAIN.postDelayed(this, REBUILD_DELAY_MS * 4);
+                return;
+            }
+            rebuild.run();
+        }
+    };
+
+    /** The settle passes, which must survive a {@code removeCallbacks} on {@link #REBUILD_TASK}. */
+    private static final Runnable SETTLE_TASK = REBUILD_TASK::run;
+
+    /** True while a finger is on a slider; see {@link #REBUILD_TASK}. */
+    private static volatile boolean sInteracting;
+
+    /**
+     * When to look again after an action whose effect lands later.
+     *
+     * <p>Some of this cannot be listened for at all. {@code BluetoothAdapter.ACTION_STATE_CHANGED}
+     * is only delivered to receivers holding {@code BLUETOOTH_CONNECT}, which this launcher does
+     * not have - the same permission that stopped it toggling Bluetooth in the first place. So
+     * after a root command the panel simply looks again, a few times, over the seconds it takes a
+     * radio to come up. Reading the state needs no permission; only hearing about it does.
+     */
+    private static final long[] SETTLE_MS = {250L, 750L, 1500L, 3000L};
+
+    /** When an outside touch last closed the panel. See {@link #REOPEN_GUARD_MS}. */
+    private static long sClosedByTouchAt;
+
+    /** Watches the switches that answer slowly. See {@link #startReceiver}. */
+    private static BroadcastReceiver sWatcher;
+    private static Context sWatcherCtx;
+    private static final List<Watch> WATCHED_SESSIONS = new ArrayList<>();
 
     private QuickPanel() {
     }
@@ -49,6 +119,12 @@ public final class QuickPanel {
     public static void toggle(Context ctx, View anchor, int displayId) {
         if (sCurrent != null) {
             dismiss();
+            return;
+        }
+        if (android.os.SystemClock.uptimeMillis() - sClosedByTouchAt < REOPEN_GUARD_MS) {
+            // The press that closed the panel went on to reach the tray button underneath it -
+            // which is what NOT_TOUCH_MODAL is for, and which would otherwise reopen the panel
+            // the same tap just closed. The outside touch arrives on DOWN, the click on UP.
             return;
         }
         show(ctx, anchor, displayId);
@@ -69,16 +145,29 @@ public final class QuickPanel {
     public static void dismiss() {
         View current = sCurrent;
         WindowManager wm = sWm;
-        sCurrent = null;
-        sWm = null;
         if (current == null || wm == null) {
+            stopWatching();
             return;
         }
         try {
             wm.removeViewImmediate(current);
+        } catch (IllegalArgumentException notThere) {
+            // Already gone - the window manager's own answer.
+            L.d("quick panel already gone: " + notThere);
         } catch (Throwable t) {
-            L.d("quick panel already gone: " + t);
+            // Something else. Ask again the asynchronous way, then let go regardless: holding
+            // the reference to retry later sounds careful, but nothing ever retries, so it only
+            // wedges the panel shut for the life of the process.
+            L.e("quick panel would not close", t);
+            try {
+                wm.removeView(current);
+            } catch (Throwable ignored) {
+                L.w("quick panel: a window may have been left behind");
+            }
         }
+        sCurrent = null;
+        sWm = null;
+        stopWatching();
     }
 
     private static void show(Context taskbarCtx, View anchor, int displayId) {
@@ -86,14 +175,19 @@ public final class QuickPanel {
             toast(taskbarCtx, "Allow \"display over other apps\" for the launcher to open the tray");
             return;
         }
+        // A panel from a previous attempt would otherwise sit there with a second on top of it.
+        dismiss();
         // The taskbar's own context is bound to the taskbar's window type, and the window manager
         // refuses a window of any other type from it.
         final Context ctx = Overlays.windowContext(taskbarCtx);
         try {
+            final int inset = TaskbarTray.barInset(anchor);
             FrameLayout root = new FrameLayout(ctx);
             GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 22), 0x59161620);
 
-            ScrollView scroller = new ScrollView(ctx);
+            // Bounded rather than free: the window wraps its content now, so without a ceiling a
+            // long list of media cards would grow the panel straight off the top of the screen.
+            ScrollView scroller = new BoundedScrollView(ctx, maxPanelHeight(ctx, inset));
             scroller.setVerticalScrollBarEnabled(false);
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);
@@ -108,12 +202,9 @@ public final class QuickPanel {
 
             fill(ctx, body, displayId);
 
-            FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
-                    Ui.dp(ctx, 360), FrameLayout.LayoutParams.WRAP_CONTENT);
-            glp.gravity = Gravity.BOTTOM | Gravity.END;
-            glp.rightMargin = Ui.dp(ctx, 12);
-            glp.bottomMargin = anchorHeight(anchor) + Ui.dp(ctx, 12);
-            root.addView(glass, glp);
+            root.addView(glass, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT));
             glass.setSource(root);
             glass.post(glass::refresh);
 
@@ -127,47 +218,314 @@ public final class QuickPanel {
                 }
                 return false;
             });
+            // The window is the panel now, so anything outside it is outside the window too and
+            // arrives as one event. There is no inside/outside arithmetic left to get wrong.
+            final View tray = anchor;
             root.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_OUTSIDE
-                        || event.getAction() == MotionEvent.ACTION_DOWN) {
-                    float x = event.getX();
-                    float y = event.getY();
-                    boolean inside = x >= glass.getLeft() && x <= glass.getRight()
-                            && y >= glass.getTop() && y <= glass.getBottom();
-                    if (!inside) {
-                        dismiss();
-                        return true;
+                if (event.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    // Only a press on the tray itself arms the guard below. A press anywhere
+                    // else closes the panel and is done, so the tray button still opens it again
+                    // at once.
+                    if (hits(tray, event.getRawX(), event.getRawY())) {
+                        sClosedByTouchAt = android.os.SystemClock.uptimeMillis();
                     }
+                    dismiss();
+                    return true;
                 }
                 return false;
             });
 
             WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT,
+                    panelWidth(ctx),
+                    WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                    // The pair a popup wants. NOT_TOUCH_MODAL lets a touch outside the panel
+                    // reach whatever is under it, and WATCH_OUTSIDE_TOUCH still tells us it
+                    // happened so the panel can close. Without the first, a full-screen window
+                    // ate every touch on the display for as long as it was open.
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.BOTTOM | Gravity.END;
+            lp.x = Ui.dp(ctx, EDGE_MARGIN_DP);
+            // Measured off the bar on screen, so the panel sits on the taskbar rather than
+            // floating above it.
+            lp.y = inset;
             lp.setTitle("ZuxOS Desktop Plus tray");
+            // Now that the window is the panel and not the display, blurring behind it blurs
+            // what is behind the panel - which is what glass is supposed to do, and what the
+            // full-screen window could never be allowed to ask for.
+            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            // Set before the receiver goes on, and after fill() has registered its sessions -
+            // an earlier version set it first and let the receiver's own tear-down pass
+            // clear it again, which left the panel with no live refresh at all.
+            sRebuild = () -> fill(ctx, body, displayId);
+            startReceiver(ctx);
             root.requestFocus();
         } catch (Throwable t) {
+            // fill() has already registered whatever it found; without this they would follow
+            // sessions for a panel that never opened.
+            stopWatching();
             L.e("could not open the tray panel", t);
+        }
+    }
+
+    /** Whether a screen position falls on {@code view}; false when it cannot be asked. */
+    private static boolean hits(View view, float rawX, float rawY) {
+        if (view == null || view.getWindowToken() == null || view.getWidth() <= 0) {
+            // Nothing to compare against; arming the guard is the safer half of the trade, since
+            // the alternative is the tray button reopening the panel it just closed.
+            return true;
+        }
+        int[] at = new int[2];
+        view.getLocationOnScreen(at);
+        return rawX >= at[0] && rawX <= at[0] + view.getWidth()
+                && rawY >= at[1] && rawY <= at[1] + view.getHeight();
+    }
+
+    /** The panel's width, kept inside a display too narrow to hold it. */
+    private static int panelWidth(Context ctx) {
+        int wanted = Ui.dp(ctx, WIDTH_DP);
+        try {
+            int display = ctx.getResources().getDisplayMetrics().widthPixels;
+            if (display > 0) {
+                return Math.min(wanted, display - Ui.dp(ctx, 2 * EDGE_MARGIN_DP));
+            }
+        } catch (Throwable ignored) {
+            // Unmeasurable; the intended width is still the best answer.
+        }
+        return wanted;
+    }
+
+    /** How tall the panel may grow: the display, less the taskbar and a little breathing room. */
+    private static int maxPanelHeight(Context ctx, int inset) {
+        int display = 0;
+        try {
+            display = ctx.getResources().getDisplayMetrics().heightPixels;
+        } catch (Throwable ignored) {
+            // Fall through to the floor below.
+        }
+        int available = display - inset - Ui.dp(ctx, 24);
+        // A floor, so a display we could not measure still gets a usable panel rather than one
+        // squeezed to nothing.
+        return Math.max(Ui.dp(ctx, 240), available);
+    }
+
+    /** A scroller that will not grow past a ceiling set when the panel opens. */
+    private static final class BoundedScrollView extends ScrollView {
+
+        private final int mMaxHeight;
+
+        BoundedScrollView(Context ctx, int maxHeight) {
+            super(ctx);
+            mMaxHeight = maxHeight;
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            super.onMeasure(widthSpec,
+                    MeasureSpec.makeMeasureSpec(mMaxHeight, MeasureSpec.AT_MOST));
+        }
+    }
+
+    // --- watching the things that answer late -----------------------------
+
+    /**
+     * Listens for the state changes the panel cannot see happen.
+     *
+     * <p>This is what the panel was missing. {@code svc bluetooth enable} returns as soon as the
+     * command is accepted, not when the adapter is on; a media app reports its new playback state
+     * a moment after the transport call. Rebuilding straight afterwards - which is what it did -
+     * reads the old value and paints it, and the toggle only turns blue when the panel is closed
+     * and opened again. So rather than guess at a delay, the panel listens, and repaints when the
+     * thing it asked for has actually happened.
+     */
+    private static void startReceiver(Context ctx) {
+        // Only the receiver. The sessions are registered by fill(), which has already run by the
+        // time this is called, and tearing anything down here would take them with it.
+        unregisterReceiver();
+        Context app = AppCtx.get();
+        final Context target = app != null ? app : ctx;
+        try {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+            filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+            filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    scheduleRebuild();
+                }
+            };
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // All three are protected system broadcasts, so they still arrive; the flag is
+                // only there because Android 14 insists one is named.
+                target.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                target.registerReceiver(receiver, filter);
+            }
+            sWatcher = receiver;
+            sWatcherCtx = target;
+        } catch (Throwable t) {
+            L.d("quick panel: could not listen for state changes (" + t + ")");
+        }
+    }
+
+    /** Everything the open panel was listening to, undone. Called once, on dismissal. */
+    private static void stopWatching() {
+        MAIN.removeCallbacks(REBUILD_TASK);
+        MAIN.removeCallbacks(SETTLE_TASK);
+        sRebuild = null;
+        // The panel is gone, so no finger is on any of its sliders. Left set, this would defer
+        // every rebuild of the next panel by four turns of the handler, for ever.
+        sInteracting = false;
+        unregisterReceiver();
+        unwatchSessions();
+    }
+
+    private static void unregisterReceiver() {
+        BroadcastReceiver receiver = sWatcher;
+        Context ctx = sWatcherCtx;
+        sWatcher = null;
+        sWatcherCtx = null;
+        if (receiver != null && ctx != null) {
+            try {
+                ctx.unregisterReceiver(receiver);
+            } catch (Throwable ignored) {
+                // Never registered, or already gone with its context.
+            }
+        }
+    }
+
+    /**
+     * Looks again over the next few seconds, for state that no broadcast will announce.
+     *
+     * <p>Posted as its own runnable rather than as four copies of {@link #REBUILD_TASK}: a
+     * broadcast arriving mid-settle calls {@code removeCallbacks} on that one, which would take
+     * the remaining passes with it and leave the panel showing a radio that had not come up yet.
+     */
+    static void settle() {
+        if (sRebuild == null) {
+            return;
+        }
+        MAIN.removeCallbacks(SETTLE_TASK);
+        for (long delay : SETTLE_MS) {
+            MAIN.postDelayed(SETTLE_TASK, delay);
+        }
+    }
+
+    /** Told by the sliders, so a rebuild cannot happen under a moving finger. */
+    static void setInteracting(boolean interacting) {
+        sInteracting = interacting;
+    }
+
+    /** Coalesces a burst of changes into one rebuild, and keeps it off the callback's stack. */
+    private static void scheduleRebuild() {
+        MAIN.removeCallbacks(REBUILD_TASK);
+        MAIN.postDelayed(REBUILD_TASK, REBUILD_DELAY_MS);
+    }
+
+    /**
+     * Follows each playing app, so its card shows what it is doing rather than what it was doing.
+     *
+     * <p>Playback states arrive far more often than they change - some apps repost one every
+     * second to move the position - so a rebuild only happens when the state itself moves.
+     */
+    private static void watchSessions(List<MediaController> controllers) {
+        for (MediaController controller : controllers) {
+            try {
+                PlaybackState now = controller.getPlaybackState();
+                final int[] last = {now == null ? -1 : now.getState()};
+                final String[] lastTrack = {describe(controller.getMetadata())};
+                MediaController.Callback callback = new MediaController.Callback() {
+                    @Override
+                    public void onPlaybackStateChanged(PlaybackState state) {
+                        int value = state == null ? -1 : state.getState();
+                        if (value == last[0]) {
+                            return;
+                        }
+                        last[0] = value;
+                        scheduleRebuild();
+                    }
+
+                    @Override
+                    public void onMetadataChanged(MediaMetadata metadata) {
+                        // Metadata is reposted as often as playback state is, and for the same
+                        // reason. Only a different track is worth redrawing the card - and the
+                        // card's album art is decoded on this thread.
+                        String track = describe(metadata);
+                        if (track.equals(lastTrack[0])) {
+                            return;
+                        }
+                        lastTrack[0] = track;
+                        scheduleRebuild();
+                    }
+
+                    @Override
+                    public void onSessionDestroyed() {
+                        scheduleRebuild();
+                    }
+                };
+                controller.registerCallback(callback);
+                WATCHED_SESSIONS.add(new Watch(controller, callback));
+            } catch (Throwable t) {
+                L.d("quick panel: could not follow " + controller.getPackageName()
+                        + " (" + t + ")");
+            }
+        }
+    }
+
+    /** What the card would show, as one string, so an unchanged track can be recognised. */
+    private static String describe(MediaMetadata metadata) {
+        if (metadata == null) {
+            return "";
+        }
+        try {
+            return metadata.getString(MediaMetadata.METADATA_KEY_TITLE) + "\u0000"
+                    + metadata.getString(MediaMetadata.METADATA_KEY_ARTIST) + "\u0000"
+                    + metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static void unwatchSessions() {
+        for (Watch watch : WATCHED_SESSIONS) {
+            try {
+                watch.controller.unregisterCallback(watch.callback);
+            } catch (Throwable ignored) {
+                // The session is gone, which is the same outcome.
+            }
+        }
+        WATCHED_SESSIONS.clear();
+    }
+
+    private static final class Watch {
+        final MediaController controller;
+        final MediaController.Callback callback;
+
+        Watch(MediaController controller, MediaController.Callback callback) {
+            this.controller = controller;
+            this.callback = callback;
         }
     }
 
     /** Rebuilds the contents in place, so a toggle repaints without the panel blinking. */
     private static void fill(Context ctx, LinearLayout body, int displayId) {
         body.removeAllViews();
+        // The cards these belonged to are gone; the new ones register their own.
+        unwatchSessions();
         SysState state = SysState.get(ctx);
+        Runnable rebuild = () -> fill(ctx, body, displayId);
 
         body.addView(networkHeader(ctx, state));
-        body.addView(tiles(ctx, state, displayId, () -> fill(ctx, body, displayId)));
+        body.addView(tiles(ctx, state, displayId, rebuild));
         body.addView(divider(ctx));
-        SoundRows.addTo(ctx, body, displayId, () -> fill(ctx, body, displayId));
+        watchSessions(SoundRows.addTo(ctx, body, displayId));
         body.addView(divider(ctx));
         body.addView(batteryRow(ctx, state));
         body.addView(action(ctx, "Network & internet",
@@ -183,6 +541,7 @@ public final class QuickPanel {
         tiles.add(QuickTiles.torch(ctx));
         tiles.add(QuickTiles.rotation(ctx, displayId, onActed));
         tiles.add(QuickTiles.flightMode(ctx, displayId, onActed));
+        tiles.add(QuickTiles.eyeProtection(ctx, displayId, onActed));
 
         GridLayout grid = new GridLayout(ctx);
         grid.setColumnCount(COLUMNS);
@@ -337,31 +696,6 @@ public final class QuickPanel {
     }
 
     // --- plumbing --------------------------------------------------------
-
-    private static int anchorHeight(View anchor) {
-        View root = taskbarRoot(anchor);
-        if (root instanceof ViewGroup && root.getHeight() > 0) {
-            // The drag layer is taller than the bar you can see - it reserves room for the
-            // stashed handle - so the panel is placed above the row, not above the window.
-            View reference = TaskbarTray.rowReference((ViewGroup) root);
-            if (reference != null && reference.getHeight() > 0) {
-                return root.getHeight() - reference.getTop();
-            }
-            return root.getHeight();
-        }
-        return anchor != null ? anchor.getHeight() : 0;
-    }
-
-    private static View taskbarRoot(View anchor) {
-        if (anchor == null) {
-            return null;
-        }
-        View v = anchor;
-        while (v.getParent() instanceof View) {
-            v = (View) v.getParent();
-        }
-        return v;
-    }
 
     private static boolean canShow(Context ctx) {
         try {

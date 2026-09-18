@@ -1,6 +1,7 @@
 package com.zuxos.desktopplus.hook;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
@@ -11,6 +12,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
@@ -18,6 +20,7 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -52,6 +55,18 @@ public final class TaskbarGlass {
     private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
 
     /**
+     * The navigation glyphs' colour while the bar is glass.
+     *
+     * <p>Back, home and recents are painted for the stock light bar - all but black - and against
+     * a dark pane they are barely there. Near-white rather than pure white, which on glass reads
+     * as a highlight rather than as an icon.
+     */
+    private static final int NAV_TINT = 0xFFEDEFF5;
+
+    /** The navigation buttons, by the ids Launcher3 gives them. */
+    private static final String[] NAV_IDS = {"back", "home", "recent_apps"};
+
+    /**
      * The renderer class, by the names it goes under. Launcher3's own names survive this build's
      * R8 pass - the probe shows TaskbarDragLayer and TaskbarScrimView in full - so this is a
      * lookup rather than a search.
@@ -68,6 +83,15 @@ public final class TaskbarGlass {
     private static final Map<View, WeakReference<View>> PANES = new WeakHashMap<>();
     /** The background each taskbar had before we replaced it, so it can be put back. */
     private static final Map<View, Drawable> ORIGINAL_BACKGROUNDS = new WeakHashMap<>();
+    /**
+     * The tint each navigation button had before we brightened it.
+     *
+     * <p>A one-element array rather than the value itself, because "no tint" is a real state and
+     * a null value could not be told apart from "not ours to restore".
+     */
+    private static final Map<View, ColorStateList[]> ORIGINAL_NAV_TINTS = new WeakHashMap<>();
+    /** The layout listener each glazed taskbar owns, so it can be taken off again. */
+    private static final Map<View, Watcher> WATCHERS = new WeakHashMap<>();
 
     private static boolean sInstalled;
 
@@ -245,10 +269,8 @@ public final class TaskbarGlass {
             dragLayer.addView(pane, 0, lp);
             PANES.put(root, new WeakReference<>(pane));
             sync(dragLayer, pane, reference);
-            if (reference != null) {
-                reference.addOnLayoutChangeListener(
-                        (v, l, t, r, b, ol, ot, or, ob) -> sync(dragLayer, pane, reference));
-            }
+            watch(dragLayer, pane, reference);
+            brightenNavButtons(dragLayer);
             takeBackground(dragLayer);
             dragLayer.invalidate();
             L.i("taskbar glass: applied");
@@ -256,7 +278,96 @@ public final class TaskbarGlass {
             // The pane is what licenses hiding the launcher's own bar, so dropping it puts the
             // stock one back rather than leaving a transparent taskbar behind.
             PANES.remove(root);
+            unwatch(dragLayer);
+            restoreNavButtons(dragLayer);
             L.e("taskbar glass: could not apply", t);
+        }
+    }
+
+    /**
+     * Follows the bar's row, and can be taken off again.
+     *
+     * <p>Remembered rather than added and forgotten. A listener left on the row outlives the
+     * glass: it would keep re-tinting the navigation buttons after the setting was turned off and
+     * their own colours restored, and a second would be added every time the glass was applied.
+     */
+    private static void watch(ViewGroup dragLayer, View pane, View reference) {
+        unwatch(dragLayer);
+        if (reference == null) {
+            return;
+        }
+        View.OnLayoutChangeListener listener = (v, l, t, r, b, ol, ot, or, ob) -> {
+            sync(dragLayer, pane, reference);
+            // The launcher rebuilds this row - on a rotation, on a display change - and the
+            // buttons come back in their own colours when it does.
+            brightenNavButtons(dragLayer);
+        };
+        reference.addOnLayoutChangeListener(listener);
+        WATCHERS.put(dragLayer, new Watcher(reference, listener));
+    }
+
+    private static void unwatch(ViewGroup dragLayer) {
+        Watcher watcher = WATCHERS.remove(dragLayer);
+        if (watcher == null) {
+            return;
+        }
+        View row = watcher.row.get();
+        if (row != null) {
+            row.removeOnLayoutChangeListener(watcher.listener);
+        }
+    }
+
+    private static final class Watcher {
+        final WeakReference<View> row;
+        final View.OnLayoutChangeListener listener;
+
+        Watcher(View row, View.OnLayoutChangeListener listener) {
+            this.row = new WeakReference<>(row);
+            this.listener = listener;
+        }
+    }
+
+    /**
+     * Lifts the navigation glyphs off the glass.
+     *
+     * <p>Found by id rather than by position, and each button's own tint is remembered first, so
+     * turning the glass off puts the bar back exactly as the launcher drew it.
+     */
+    private static void brightenNavButtons(ViewGroup dragLayer) {
+        try {
+            List<View> buttons = Reflect.findByIdNames(dragLayer, NAV_IDS);
+            int tinted = 0;
+            for (View button : buttons) {
+                if (!(button instanceof ImageView)) {
+                    continue;
+                }
+                ImageView icon = (ImageView) button;
+                if (!ORIGINAL_NAV_TINTS.containsKey(icon)) {
+                    ORIGINAL_NAV_TINTS.put(icon, new ColorStateList[]{icon.getImageTintList()});
+                }
+                icon.setImageTintList(ColorStateList.valueOf(NAV_TINT));
+                tinted++;
+            }
+            if (tinted == 0) {
+                L.d("taskbar glass: no navigation buttons found by id (tried "
+                        + String.join(", ", NAV_IDS) + ")");
+            }
+        } catch (Throwable t) {
+            L.d("taskbar glass: could not tint the navigation buttons (" + t + ")");
+        }
+    }
+
+    /** Puts each button's own tint back. */
+    private static void restoreNavButtons(ViewGroup dragLayer) {
+        try {
+            for (View button : Reflect.findByIdNames(dragLayer, NAV_IDS)) {
+                ColorStateList[] original = ORIGINAL_NAV_TINTS.remove(button);
+                if (original != null && button instanceof ImageView) {
+                    ((ImageView) button).setImageTintList(original[0]);
+                }
+            }
+        } catch (Throwable t) {
+            L.d("taskbar glass: could not restore the navigation buttons (" + t + ")");
         }
     }
 
@@ -321,12 +432,16 @@ public final class TaskbarGlass {
     }
 
     private static void remove(ViewGroup dragLayer) {
+        // First: a listener still on the row would re-tint the buttons at the next layout, just
+        // after their own colours had been put back.
+        unwatch(dragLayer);
         PANES.remove(dragLayer);
         View pane = dragLayer.findViewWithTag(TAG_GLASS);
         if (pane != null && pane.getParent() instanceof ViewGroup) {
             ((ViewGroup) pane.getParent()).removeView(pane);
             L.i("taskbar glass: removed, the setting is off");
         }
+        restoreNavButtons(dragLayer);
         restoreBackground(dragLayer);
         dragLayer.invalidate();
     }

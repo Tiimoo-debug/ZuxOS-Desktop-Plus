@@ -39,6 +39,9 @@ public final class QuickTiles {
     private static final int ON_FILL = 0xFF3F7FF5;
     private static final int OFF_FILL = 0x33FFFFFF;
 
+    /** Night Light's own screen. Not a public SDK constant, so it is named here. */
+    private static final String NIGHT_DISPLAY_SETTINGS = "android.settings.NIGHT_DISPLAY_SETTINGS";
+
     private QuickTiles() {
     }
 
@@ -210,12 +213,23 @@ public final class QuickTiles {
         // Remembered now: root can take seconds to answer, and by then this panel may be closed
         // and another one open. Closing that one would be someone else's window disappearing.
         final Object token = QuickPanel.token();
-        Su.run(ok -> main.post(() -> {
-            if (ok) {
+        Su.run(outcome -> main.post(() -> {
+            if (outcome.ok()) {
                 L.i("tiles: " + what + " set via root");
                 if (onChanged != null) {
                     onChanged.run();
                 }
+                // The command has returned, which is not the same as the thing having happened:
+                // 'svc bluetooth enable' is accepted long before the adapter is up. The panel
+                // looks again over the next few seconds.
+                QuickPanel.settle();
+                return;
+            }
+            if (!outcome.shouldFallBack()) {
+                // Another root request is still in flight, so this tap was dropped. Nothing is
+                // known about whether root would have worked, so the panel stays where it is
+                // rather than vanishing into a settings screen.
+                L.i("tiles: " + what + " - root is busy, try again in a moment");
                 return;
             }
             L.i("tiles: " + what + " needs root and there is none, opening settings");
@@ -348,6 +362,136 @@ public final class QuickTiles {
         };
     }
 
+    /**
+     * Eye protection - the warm tint that takes the blue out of the screen after dark.
+     *
+     * <p>AOSP calls this Night Light and keeps it in {@code Settings.Secure} under
+     * {@code night_display_activated}; ZUI may use a name of its own. Rather than assume, the
+     * first read walks the known spellings, in both tables, and remembers the one that exists -
+     * and says in the log which it was, so an unfamiliar firmware can be named from a log rather
+     * than from guesswork.
+     *
+     * <p>The key is a string literal on purpose: the constants for these are not in the public
+     * SDK, and a setting is addressed by name at runtime either way.
+     */
+    public static Tile eyeProtection(Context ctx, int displayId, Runnable onChanged) {
+        return new Tile() {
+            @Override
+            public String label() {
+                return "Eye protection";
+            }
+
+            @Override
+            public Drawable icon(int color) {
+                return TrayIcons.eye(color);
+            }
+
+            @Override
+            public Boolean state() {
+                Eye.resolve(ctx);
+                return Eye.read(ctx) == 1;
+            }
+
+            @Override
+            public boolean toggle() {
+                Eye.resolve(ctx);
+                int want = Eye.read(ctx) == 1 ? 0 : 1;
+                if (!Eye.inSecure() && writeSystem(ctx, Eye.key(), want)) {
+                    // A System-table setting is ours to write outright once the user has granted
+                    // "modify system settings"; no need to wake the root daemon for it.
+                    L.i("tiles: eye protection set directly");
+                    return false;
+                }
+                viaRoot(ctx, "Eye protection", onChanged,
+                        () -> openFirst(ctx, displayId, NIGHT_DISPLAY_SETTINGS,
+                                Settings.ACTION_DISPLAY_SETTINGS),
+                        "settings put " + (Eye.inSecure() ? "secure" : "system")
+                                + " " + Eye.key() + " " + want);
+                return false;
+            }
+        };
+    }
+
+    /**
+     * The eye-protection setting this firmware actually has.
+     *
+     * <p>Resolved once and remembered: this is three content-provider reads per candidate, and
+     * the answer cannot change while the launcher is running.
+     */
+    private static final class Eye {
+
+        /** AOSP's first, then the OEM spellings seen in the wild. */
+        private static final String[] KEYS = {
+                "night_display_activated", "eye_protect_mode", "eyecare_mode",
+        };
+
+        private static String sKey = KEYS[0];
+        private static boolean sSecure = true;
+        private static boolean sResolved;
+        private static boolean sReportedMiss;
+
+        private Eye() {
+        }
+
+        static String key() {
+            return sKey;
+        }
+
+        static boolean inSecure() {
+            return sSecure;
+        }
+
+        static void resolve(Context ctx) {
+            if (sResolved) {
+                return;
+            }
+            for (String key : KEYS) {
+                if (exists(ctx, key, true)) {
+                    sKey = key;
+                    sSecure = true;
+                    sResolved = true;
+                    L.i("tiles: eye protection is 'secure/" + key + "' on this firmware");
+                    return;
+                }
+                if (exists(ctx, key, false)) {
+                    sKey = key;
+                    sSecure = false;
+                    sResolved = true;
+                    L.i("tiles: eye protection is 'system/" + key + "' on this firmware");
+                    return;
+                }
+            }
+            // Deliberately not latched. Never set is not the same as not supported - Android
+            // creates the row on first use - so AOSP's name is the best guess for now, and the
+            // next time the panel opens the search runs again and can find the real one.
+            if (!sReportedMiss) {
+                sReportedMiss = true;
+                L.i("tiles: no eye-protection setting exists yet (tried "
+                        + String.join(", ", KEYS) + ") - using secure/" + sKey + " for now");
+            }
+        }
+
+        static int read(Context ctx) {
+            try {
+                return sSecure
+                        ? Settings.Secure.getInt(ctx.getContentResolver(), sKey, 0)
+                        : Settings.System.getInt(ctx.getContentResolver(), sKey, 0);
+            } catch (Throwable t) {
+                return 0;
+            }
+        }
+
+        private static boolean exists(Context ctx, String key, boolean secure) {
+            try {
+                return (secure
+                        ? Settings.Secure.getString(ctx.getContentResolver(), key)
+                        : Settings.System.getString(ctx.getContentResolver(), key)) != null;
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+    }
+
     // --- shared plumbing -------------------------------------------------
 
     static int readSystem(Context ctx, String key, int def) {
@@ -393,18 +537,32 @@ public final class QuickTiles {
     }
 
     static void open(Context ctx, String action, int displayId) {
-        try {
-            Intent intent = new Intent(action);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(intent, launchOptions(displayId));
-        } catch (Throwable t) {
-            L.e("tiles: could not open " + action, t);
+        openFirst(ctx, displayId, action);
+    }
+
+    /**
+     * Opens the first of these screens that this firmware has.
+     *
+     * <p>Some of them are optional - Night Light has no screen at all on a build without it - so
+     * a second choice is given, and only the last failure is worth telling anyone about.
+     */
+    static void openFirst(Context ctx, int displayId, String... actions) {
+        for (String action : actions) {
             try {
-                Toast.makeText(ctx, "That settings screen is not available here",
-                        Toast.LENGTH_LONG).show();
-            } catch (Throwable ignored) {
-                // A missing toast is not worth a second failure.
+                Intent intent = new Intent(action);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(intent, launchOptions(displayId));
+                return;
+            } catch (Throwable t) {
+                L.d("tiles: " + action + " is not available here (" + t + ")");
             }
+        }
+        L.w("tiles: none of " + String.join(", ", actions) + " could be opened");
+        try {
+            Toast.makeText(ctx, "That settings screen is not available here",
+                    Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) {
+            // A missing toast is not worth a second failure.
         }
     }
 

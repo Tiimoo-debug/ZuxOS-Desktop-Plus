@@ -121,6 +121,11 @@ public class MainActivity extends Activity {
                 "Experimental. Replaces the taskbar's own bar with a translucent one. Whether it "
                         + "works depends on how your firmware paints that bar, so it starts off",
                 Const.KEY_TASKBAR_GLASS, false);
+        addSwitch("Use root",
+                "Lets the quick settings switch Bluetooth, aeroplane mode, eye protection and "
+                        + "take screenshots, which an ordinary launcher may not. Turn off and "
+                        + "those buttons open the matching settings screen instead",
+                Const.KEY_USE_ROOT, true);
 
         addHeader("Stock launcher unlocking (optional)");
         addSwitch("Try to unlock the stock launcher",

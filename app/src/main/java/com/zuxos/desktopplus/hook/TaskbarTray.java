@@ -2,9 +2,11 @@ package com.zuxos.desktopplus.hook;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -271,6 +273,59 @@ public final class TaskbarTray {
         }
     }
 
+    /**
+     * How far the visible bar reaches up from the bottom of the display, in pixels.
+     *
+     * <p>What a popup anchored to the taskbar needs, and the one measurement that cannot be got
+     * wrong by asking the drag layer. The drag layer is taller than the bar - it reserves room for
+     * the stashed handle - and its own height is the whole window, which grows to fill the display
+     * while the app drawer is open. Reading the row's position on screen sidesteps both: it is
+     * where the bar actually is.
+     *
+     * @return the gap to leave under a popup, or a sane guess when the bar cannot be measured
+     */
+    static int barInset(View source) {
+        if (source == null) {
+            return 0;
+        }
+        View root = source;
+        while (root.getParent() instanceof View) {
+            root = (View) root.getParent();
+        }
+        View reference = root instanceof ViewGroup ? rowReference((ViewGroup) root) : null;
+        if (reference != null && reference.getHeight() > 0) {
+            int display = displayHeight(reference.getContext());
+            int[] at = new int[2];
+            reference.getLocationOnScreen(at);
+            int fromBottom = display - at[1];
+            if (display > 0 && fromBottom > 0 && fromBottom <= display) {
+                return fromBottom;
+            }
+            // Not on screen yet, or on a display we could not measure; the row's own height is
+            // still closer to the truth than the window's.
+            return reference.getHeight();
+        }
+        return source.getHeight() > 0 ? source.getHeight() : Ui.dp(source.getContext(), 56);
+    }
+
+    private static int displayHeight(Context ctx) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+                if (wm != null) {
+                    return wm.getCurrentWindowMetrics().getBounds().height();
+                }
+            }
+        } catch (Throwable ignored) {
+            // Not a display-bound context; the metrics below are the next best thing.
+        }
+        try {
+            return ctx.getResources().getDisplayMetrics().heightPixels;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** Black on a light taskbar, white on a dark one; the taskbar here is light. */
     static int textColor() {
         return Cfg.taskbarDarkText() ? 0xFF14161A : Ui.COLOR_TEXT;
@@ -348,6 +403,10 @@ public final class TaskbarTray {
             addView(mTemps, templp);
 
             mClock = label(ctx, 13f);
+            // The clock and the date are as tall as the row so their ripple fills it, which
+            // leaves their text sitting at the top unless it is told to centre. That is what put
+            // them off the line the icons sit on.
+            mClock.setGravity(Gravity.CENTER_VERTICAL);
             mClock.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
             mClock.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
             mClock.setOnClickListener(v -> Shortcuts.openClock(getContext(), mDisplayId));
@@ -357,6 +416,7 @@ public final class TaskbarTray {
             addView(mClock, clp);
 
             mDate = label(ctx, 13f);
+            mDate.setGravity(Gravity.CENTER_VERTICAL);
             mDate.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
             mDate.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
             mDate.setOnClickListener(v -> Shortcuts.openCalendar(getContext(), mDisplayId));
@@ -396,6 +456,8 @@ public final class TaskbarTray {
             TextView tv = new TextView(ctx);
             tv.setTextSize(sizeSp);
             tv.setSingleLine(true);
+            // Every label on the same line as the icons, whatever height it ends up with.
+            tv.setGravity(Gravity.CENTER_VERTICAL);
             return tv;
         }
 

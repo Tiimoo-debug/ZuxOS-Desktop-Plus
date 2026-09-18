@@ -63,6 +63,8 @@ public final class Const {
     public static final String KEY_TASKBAR_DARK_TEXT = "taskbar_dark_text";
     /** Replace the taskbar's own opaque bar with a translucent, blurred one. */
     public static final String KEY_TASKBAR_GLASS = "taskbar_glass";
+    /** Allow shell commands as root for the things a launcher may not do itself. */
+    public static final String KEY_USE_ROOT = "use_root";
 
     // --- Stock-launcher unlocking hooks ----------------------------------
     public static final String KEY_UNLOCK_STOCK = "unlock_stock";

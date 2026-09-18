@@ -50,6 +50,11 @@ public final class Overlays {
             L.d("overlay: no window context for this display (" + t + ")");
         }
         Context app = AppCtx.get();
+        // Worth saying out loud. The application context is bound to no display, so a window
+        // opened from it lands on the default one - which, with the desktop on an external
+        // screen, means the panel appears on the tablet instead.
+        L.w("overlay: no window context for this display, falling back to the application "
+                + "context - the window may open on the built-in screen");
         return app != null ? app : ctx;
     }
 

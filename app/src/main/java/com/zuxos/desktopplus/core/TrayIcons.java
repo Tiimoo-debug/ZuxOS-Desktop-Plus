@@ -310,19 +310,18 @@ public final class TrayIcons {
         };
     }
 
-    /** A sun, for the brightness row. */
-    public static Drawable brightness(int color) {
+    /** An eye, for the eye-protection toggle. */
+    public static Drawable eye(int color) {
         return new BoxIcon(color) {
             @Override
             void drawBox(Canvas canvas, Paint fill, Paint stroke) {
-                canvas.drawCircle(12f, 12f, 4.2f, stroke);
-                for (int i = 0; i < 8; i++) {
-                    double a = Math.PI * i / 4.0;
-                    float sin = (float) Math.sin(a);
-                    float cos = (float) Math.cos(a);
-                    canvas.drawLine(12f + cos * 6.4f, 12f + sin * 6.4f,
-                            12f + cos * 8.6f, 12f + sin * 8.6f, stroke);
-                }
+                Path lens = new Path();
+                lens.moveTo(2.6f, 12f);
+                lens.quadTo(12f, 4.6f, 21.4f, 12f);
+                lens.quadTo(12f, 19.4f, 2.6f, 12f);
+                lens.close();
+                canvas.drawPath(lens, stroke);
+                canvas.drawCircle(12f, 12f, 2.7f, fill);
             }
         };
     }

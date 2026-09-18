@@ -183,6 +183,12 @@ public final class Cfg {
         return getBool(Const.KEY_TASKBAR_GLASS, false);
     }
 
+    public static boolean useRoot() {
+        // On by default. Every caller tries the ordinary route first, so this only decides whether
+        // the fallback is allowed to ask; turning it off costs the toggles and nothing else.
+        return getBool(Const.KEY_USE_ROOT, true);
+    }
+
     public static boolean unlockStock() {
         return getBool(Const.KEY_UNLOCK_STOCK, true);
     }
