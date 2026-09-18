@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
@@ -32,13 +33,29 @@ import java.util.WeakHashMap;
  */
 final class DrawerGlass {
 
-    /** Class names the all-apps sheet goes under; the first one found is the one glazed. */
+    /**
+     * Names the drawer's sheet may go under.
+     *
+     * <p>Wider than it looks like it needs to be, because the first attempt guessed Launcher3's
+     * own names and found nothing at all on this firmware - which means ZUI has named its own.
+     * Both the class names and the view ids are tried, and what the window actually contained is
+     * written to the log, so a build that matches none of these can be named from a log rather
+     * than from another guess.
+     */
     private static final String[] SHEET_CLASSES = {
             "AllAppsSlideInView", "AllAppsContainerView", "AppsContainerView", "AllAppsView",
+            "AppsSlideInView", "AllAppsSheet", "AppDrawer", "DrawerContainer", "AppsView",
+    };
+
+    private static final String[] SHEET_IDS = {
+            "apps_view", "all_apps", "apps_list_view", "search_container_all_apps",
+            "apps_container", "all_apps_sheet",
     };
 
     /** What each glazed sheet had before, so it can be put back exactly. */
     private static final Map<View, Drawable[]> ORIGINALS = new WeakHashMap<>();
+
+    private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
 
     private static boolean sDescribed;
 
@@ -53,10 +70,17 @@ final class DrawerGlass {
         try {
             List<View> found = Reflect.findByClassFragments(root, SHEET_CLASSES);
             if (found.isEmpty()) {
+                found = Reflect.findByIdNames(root, SHEET_IDS);
+            }
+            if (found.isEmpty()) {
+                note(root);
                 return;
             }
             View sheet = pick(found);
             if (sheet == null) {
+                // Matched by name but none of them owns a background - which is worth hearing
+                // about, since it means the pane you can see is something else again.
+                note(root);
                 return;
             }
             if (!sDescribed) {
@@ -102,9 +126,18 @@ final class DrawerGlass {
             Drawable original = sheet.getBackground();
             int tint = tintFor(original);
             ORIGINALS.put(sheet, new Drawable[]{original});
-            sheet.setBackground(Glass.pill(sheet.getContext(),
-                    Ui.dp(sheet.getContext(), 28), tint));
-            L.i("drawer glass: applied, tint #" + Integer.toHexString(tint));
+            float corner = Ui.dp(sheet.getContext(), 28);
+            Drawable backdrop = Blur.backdrop(sheet, Ui.dp(sheet.getContext(), 40), corner, tint);
+            if (backdrop != null) {
+                sheet.setBackground(backdrop);
+                L.i("drawer glass: applied with a real blur, tint #" + Integer.toHexString(tint));
+                return;
+            }
+            // Nothing real behind it, so the pane has to carry itself: a 35%-alpha sheet over
+            // the wallpaper is a smear with unreadable labels.
+            int solid = (tint | 0xFF000000) & 0xB8FFFFFF;
+            sheet.setBackground(Glass.pill(sheet.getContext(), (int) corner, solid));
+            L.i("drawer glass: applied without blur, tint #" + Integer.toHexString(solid));
         } catch (Throwable t) {
             L.d("drawer glass: could not apply (" + t + ")");
         }
@@ -129,11 +162,12 @@ final class DrawerGlass {
         if (base == 0) {
             // Nothing to sample - no background at all, or one that drew nothing. Dark is the
             // safer guess under a taskbar that is itself dark.
-            return 0xB0202024;
+            return 0x59202024;
         }
         double luminance = (0.299 * Color.red(base) + 0.587 * Color.green(base)
                 + 0.114 * Color.blue(base)) / 255.0;
-        return luminance > 0.5 ? 0xB8F2F3F7 : 0xB0202024;
+        // Enough to keep the drawer's own labels readable, little enough to see through.
+        return luminance > 0.5 ? 0x73F2F3F7 : 0x59202024;
     }
 
     /** The drawable's colour, by drawing it into one pixel - works for any kind of drawable. */
@@ -154,6 +188,39 @@ final class DrawerGlass {
             return Color.alpha(colour) < 16 ? 0 : colour;
         } catch (Throwable t) {
             return 0;
+        }
+    }
+
+    /**
+     * Writes down what a window held when nothing matched.
+     *
+     * <p>Once per class of window. This is how the drawer gets named on a firmware whose views
+     * are called something nobody has guessed.
+     */
+    private static void note(View root) {
+        if (root.getClass().getName().startsWith("com.zuxos")) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (View child : Reflect.findByClassFragments(root, "View", "Layout", "Group")) {
+            if (sb.length() > 240) {
+                break;
+            }
+            String simple = child.getClass().getSimpleName();
+            if (simple.isEmpty() || sb.indexOf(simple) >= 0) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(simple);
+        }
+        // Keyed on what the window holds, not on its class: every launcher window is a
+        // DecorView, so keying on that would spend the one slot on the first window opened and
+        // never describe the drawer at all.
+        String description = root.getClass().getSimpleName() + " [" + sb + "]";
+        if (SEEN.size() < 8 && SEEN.add(description)) {
+            L.i("drawer glass: no sheet in " + description);
         }
     }
 

@@ -1,5 +1,7 @@
 package com.zuxos.desktopplus.hook;
 
+import android.app.ActivityOptions;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -37,6 +39,7 @@ final class Notifications {
     private static final Uri URI = Uri.parse("content://com.zuxos.desktopplus.notifications/active");
     private static final String METHOD_OPEN = "open";
     private static final String METHOD_DISMISS = "dismiss";
+    private static final String METHOD_CLEAR_ALL = "clearAll";
 
     /** How many fit above the sliders without the panel becoming a shade. */
     private static final int MAX_ROWS = 4;
@@ -91,7 +94,7 @@ final class Notifications {
         }
     }
 
-    static List<Note> list(Context ctx) {
+    static List<Note> list(Context ctx, int limit) {
         List<Note> out = new ArrayList<>();
         try (Cursor cursor = ctx.getContentResolver().query(URI, null, null, null, null)) {
             if (cursor == null) {
@@ -110,7 +113,7 @@ final class Notifications {
             // Newest first, then cut: the system hands them over in its own order, so taking the
             // first four unsorted could hide the one that just arrived behind three old ones.
             Collections.sort(out, (a, b) -> Long.compare(b.when, a.when));
-            while (out.size() > MAX_ROWS) {
+            while (limit > 0 && out.size() > limit) {
                 out.remove(out.size() - 1);
             }
             if (out.isEmpty()) {
@@ -135,22 +138,40 @@ final class Notifications {
         }
     }
 
-    /** Adds a section of notification rows, or nothing at all when there are none. */
-    static void addTo(Context ctx, LinearLayout body, int displayId) {
-        if (!available(ctx)) {
-            report("access has not been granted - switch the listener on in the module's "
-                    + "settings to see the shade here");
-            return;
+    /**
+     * How many are waiting, for the tray's bell.
+     *
+     * <p>Held for a moment between asks. The tray repaints on every change of state - a
+     * temperature is enough - and each ask is a call into another process on the UI thread.
+     */
+    private static final long COUNT_TTL_MS = 3000L;
+    private static int sCount;
+    private static long sCountedAt;
+
+    static int count(Context ctx) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - sCountedAt < COUNT_TTL_MS) {
+            return sCount;
         }
-        List<Note> notes = list(ctx);
-        if (notes.isEmpty()) {
-            return;
-        }
-        body.addView(QuickPanel.sectionLabel(ctx, "Notifications"));
+        sCountedAt = now;
+        sCount = available(ctx) ? list(ctx, 0).size() : 0;
+        return sCount;
+    }
+
+    /** Called when the shade moves, so the next ask is answered fresh. */
+    static void countChanged() {
+        sCountedAt = 0;
+    }
+
+    static void addRows(Context ctx, LinearLayout body, List<Note> notes, int displayId) {
         PackageManager pm = ctx.getPackageManager();
         for (Note note : notes) {
             body.addView(row(ctx, pm, note, displayId));
         }
+    }
+
+    static void clearAll(Context ctx) {
+        call(ctx, METHOD_CLEAR_ALL, "", -1);
     }
 
     private static View row(Context ctx, PackageManager pm, Note note, int displayId) {
@@ -192,8 +213,8 @@ final class Notifications {
         }
 
         line.setOnClickListener(v -> {
-            QuickPanel.dismiss();
-            call(ctx, METHOD_OPEN, note.key, displayId);
+            NotifyPanel.dismiss();
+            open(ctx, note, displayId);
         });
 
         if (note.clearable) {
@@ -214,6 +235,43 @@ final class Notifications {
             line.addView(clear, new LinearLayout.LayoutParams(button, button));
         }
         return line;
+    }
+
+    /**
+     * Opens what the notification points at.
+     *
+     * <p>The intent is fetched from the module's process and sent from here, which is the whole
+     * trick: the module's process is a background one, and since Android 14 a background process
+     * may not start an activity - so sending it over there quietly did nothing. The launcher is
+     * the foreground app on this display, so from here it simply works, and it can put the
+     * activity on the right display while it is at it.
+     */
+    private static void open(Context ctx, Note note, int displayId) {
+        try {
+            Bundle result = ctx.getContentResolver().call(URI, METHOD_OPEN, note.key, null);
+            PendingIntent intent = result == null ? null
+                    : result.getParcelable("pendingIntent");
+            if (intent == null) {
+                L.i("notifications: " + note.pkg + " has nothing to open");
+                return;
+            }
+            Bundle options = null;
+            try {
+                ActivityOptions opts = ActivityOptions.makeBasic();
+                if (displayId >= 0) {
+                    opts.setLaunchDisplayId(displayId);
+                }
+                options = opts.toBundle();
+            } catch (Throwable ignored) {
+                // Without options it still opens, just on the default display.
+            }
+            intent.send(ctx, 0, null, null, null, null, options);
+            if (result.getBoolean("autoCancel")) {
+                call(ctx, METHOD_DISMISS, note.key, -1);
+            }
+        } catch (Throwable t) {
+            L.e("notifications: could not open " + note.pkg, t);
+        }
     }
 
     private static void call(Context ctx, String method, String key, int displayId) {

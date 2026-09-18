@@ -366,6 +366,7 @@ public final class TaskbarTray {
         private final TextView mClock;
         private final TextView mDate;
         private final ImageView mScreenshot;
+        private final ImageView mBell;
         private final ImageView mPanelButton;
         private final Runnable mOnChanged = this::render;
         /** The clock shows seconds, so it repaints once a second while the tray is on screen. */
@@ -382,6 +383,7 @@ public final class TaskbarTray {
         private int mShownNetLevel = -1;
         private int mShownBattery = Integer.MIN_VALUE;
         private boolean mShownCharging;
+        private boolean mShownWaiting;
         private int mShownColor;
 
         TrayView(Context ctx, int displayId) {
@@ -422,6 +424,16 @@ public final class TaskbarTray {
             templp.leftMargin = Ui.dp(ctx, 10);
             addView(mTemps, templp);
 
+            mDate = label(ctx, 13f);
+            mDate.setGravity(Gravity.CENTER_VERTICAL);
+            mDate.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
+            mDate.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            mDate.setOnClickListener(v -> Shortcuts.openCalendar(getContext(), mDisplayId));
+            LayoutParams dlp = new LayoutParams(LayoutParams.WRAP_CONTENT,
+                    LayoutParams.MATCH_PARENT);
+            dlp.leftMargin = Ui.dp(ctx, 6);
+            addView(mDate, dlp);
+
             mClock = label(ctx, 13f);
             // The clock and the date are as tall as the row so their ripple fills it, which
             // leaves their text sitting at the top unless it is told to centre. That is what put
@@ -432,16 +444,12 @@ public final class TaskbarTray {
             mClock.setOnClickListener(v -> Shortcuts.openClock(getContext(), mDisplayId));
             LayoutParams clp = new LayoutParams(LayoutParams.WRAP_CONTENT,
                     LayoutParams.MATCH_PARENT);
-            clp.leftMargin = Ui.dp(ctx, 6);
+            clp.leftMargin = Ui.dp(ctx, 2);
             addView(mClock, clp);
 
-            mDate = label(ctx, 13f);
-            mDate.setGravity(Gravity.CENTER_VERTICAL);
-            mDate.setPadding(Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6), 0);
-            mDate.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
-            mDate.setOnClickListener(v -> Shortcuts.openCalendar(getContext(), mDisplayId));
-            addView(mDate, new LayoutParams(LayoutParams.WRAP_CONTENT,
-                    LayoutParams.MATCH_PARENT));
+            mBell = iconButton(ctx, "Notifications",
+                    () -> NotifyPanel.toggle(getContext(), TrayView.this, mDisplayId));
+            addView(mBell, buttonParams(ctx, 4));
 
             mPanelButton = iconButton(ctx, "Quick settings",
                     () -> QuickPanel.toggle(getContext(), TrayView.this, mDisplayId));
@@ -501,9 +509,10 @@ public final class TaskbarTray {
             if (mState != null) {
                 mState.removeListener(mOnChanged);
             }
-            // The panel is a window of its own and would outlive the tray that opened it,
+            // These are windows of their own and would outlive the tray that opened them,
             // leaving the next tray with a stale "already open" and no way to show anything.
             QuickPanel.dismiss();
+            NotifyPanel.dismiss();
         }
 
         private void render() {
@@ -522,6 +531,7 @@ public final class TaskbarTray {
                 mScreenshot.setImageDrawable(TrayIcons.screenshot(color));
                 mPanelButton.setImageDrawable(TrayIcons.panelChevron(color));
             }
+            renderBell(color, recolour);
             // The temperatures change every few seconds; the icons almost never do. Rebuilding
             // a drawable for an unchanged indicator is pure allocation on a view that is on
             // screen the whole time the desktop is.
@@ -541,6 +551,30 @@ public final class TaskbarTray {
             }
             renderTemps(state);
             renderClock();
+        }
+
+        /**
+         * The bell, with a dot on it when the shade has something in it.
+         *
+         * <p>The count is a query into another process, so it is asked when the tray repaints -
+         * once a minute or on a state change - and not on the clock's every second.
+         */
+        private void renderBell(int color, boolean recolour) {
+            if (!Cfg.notifications()) {
+                mBell.setVisibility(GONE);
+                return;
+            }
+            mBell.setVisibility(VISIBLE);
+            boolean waiting = false;
+            try {
+                waiting = Notifications.count(getContext()) > 0;
+            } catch (Throwable t) {
+                L.d("tray: could not count notifications (" + t + ")");
+            }
+            if (recolour || waiting != mShownWaiting) {
+                mShownWaiting = waiting;
+                mBell.setImageDrawable(TrayIcons.bell(waiting, color));
+            }
         }
 
         /**

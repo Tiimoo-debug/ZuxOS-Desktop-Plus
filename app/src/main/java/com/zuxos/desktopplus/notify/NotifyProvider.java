@@ -1,6 +1,5 @@
 package com.zuxos.desktopplus.notify;
 
-import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.ContentProvider;
@@ -9,7 +8,6 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
 
@@ -49,6 +47,7 @@ public final class NotifyProvider extends ContentProvider {
     /** {@code call} methods the launcher may use. */
     public static final String METHOD_OPEN = "open";
     public static final String METHOD_DISMISS = "dismiss";
+    public static final String METHOD_CLEAR_ALL = "clearAll";
 
     @Override
     public boolean onCreate() {
@@ -130,14 +129,16 @@ public final class NotifyProvider extends ContentProvider {
     }
 
     /**
-     * Opens or dismisses one notification, here rather than in the launcher.
+     * Dismisses, clears, or hands back what a notification points at.
      *
-     * <p>A {@link PendingIntent} belongs to the app that made it and cancelling belongs to the
-     * listener; neither travels across a process boundary as data.
+     * <p>Opening is deliberately not done here. This process exists to listen and is otherwise in
+     * the background, and since Android 14 a background process may not start an activity - so
+     * sending the intent from here failed silently. The {@link PendingIntent} is handed to the
+     * launcher instead, which is the app in the foreground on that display, and it sends it.
      */
     @Override
     public Bundle call(String method, String key, Bundle extras) {
-        if (!allowed() || key == null) {
+        if (!allowed()) {
             return null;
         }
         NotifyService service = NotifyService.connected();
@@ -145,6 +146,13 @@ public final class NotifyProvider extends ContentProvider {
             return null;
         }
         try {
+            if (METHOD_CLEAR_ALL.equals(method)) {
+                service.cancelAllNotifications();
+                return null;
+            }
+            if (key == null) {
+                return null;
+            }
             if (METHOD_DISMISS.equals(method)) {
                 service.cancelNotification(key);
                 return null;
@@ -154,47 +162,22 @@ public final class NotifyProvider extends ContentProvider {
                     if (!key.equals(sbn.getKey())) {
                         continue;
                     }
-                    PendingIntent intent = sbn.getNotification().contentIntent;
-                    if (intent != null) {
-                        // Onto the display the panel is on. Without this the app opens on the
-                        // tablet's own screen while you are looking at the external one.
-                        intent.send(getContext(), 0, null, null, null, null,
-                                launchOptions(extras));
-                        L.i("notifications: opened " + sbn.getPackageName());
-                        if (sbn.isClearable()
-                                && (sbn.getNotification().flags & Notification.FLAG_AUTO_CANCEL) != 0) {
-                            service.cancelNotification(key);
-                        }
+                    Notification notification = sbn.getNotification();
+                    PendingIntent intent = notification.contentIntent;
+                    if (intent == null) {
+                        return null;
                     }
-                    break;
+                    Bundle result = new Bundle();
+                    result.putParcelable("pendingIntent", intent);
+                    result.putBoolean("autoCancel", sbn.isClearable()
+                            && (notification.flags & Notification.FLAG_AUTO_CANCEL) != 0);
+                    return result;
                 }
             }
         } catch (Throwable t) {
             L.d("notifications: " + method + " failed (" + t + ")");
         }
         return null;
-    }
-
-    /** Puts whatever opens on the display the caller asked for. */
-    private Bundle launchOptions(Bundle extras) {
-        try {
-            ActivityOptions options = ActivityOptions.makeBasic();
-            int displayId = extras != null ? extras.getInt("displayId", -1) : -1;
-            if (displayId >= 0) {
-                options.setLaunchDisplayId(displayId);
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // This process is in the background - it exists to listen, not to be looked at -
-                // and since Android 14 a background process may not start an activity unless it
-                // says so when sending the intent. Without this the row would close the panel
-                // and open nothing.
-                options.setPendingIntentBackgroundActivityStartMode(
-                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
-            }
-            return options.toBundle();
-        } catch (Throwable t) {
-            return null;
-        }
     }
 
     /** Only the launcher this module is set to hook, and the module itself. */

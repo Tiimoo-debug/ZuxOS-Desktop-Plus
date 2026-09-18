@@ -22,7 +22,7 @@ import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
-import com.zuxos.desktopplus.desktop.GlassPanel;
+import com.zuxos.desktopplus.core.GlassSurface;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -158,6 +158,7 @@ public final class TaskbarMenu {
         // as they are concerned, and pressing it should close them, exactly as pressing the
         // desktop does.
         QuickPanel.onTaskbarPressed(event.getRawX(), event.getRawY());
+        NotifyPanel.onTaskbarPressed(event.getRawX(), event.getRawY());
         dismiss();
         // Read once per press rather than per event: this runs on the input thread, and the
         // preference read takes a lock and stats a file.
@@ -302,7 +303,7 @@ public final class TaskbarMenu {
                     () -> open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId)));
 
             FrameLayout root = new FrameLayout(ctx);
-            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x4D1C1C22);
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 16), 0x14FFFFFF);
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);
             int padV = Ui.dp(ctx, 8);
@@ -323,7 +324,6 @@ public final class TaskbarMenu {
             // menu sits on the taskbar rather than a bar's height above it.
             glp.bottomMargin = TaskbarTray.barInset(source);
             root.addView(glass, glp);
-            glass.setSource(root);
             glass.post(() -> {
                 // Held near the right-hand edge - where the tray is - the menu would run off the
                 // display. Its width is only known once it has been measured.
@@ -334,7 +334,6 @@ public final class TaskbarMenu {
                     lp.leftMargin = clamped;
                     glass.setLayoutParams(lp);
                 }
-                glass.refresh();
             });
 
             root.setFocusableInTouchMode(true);

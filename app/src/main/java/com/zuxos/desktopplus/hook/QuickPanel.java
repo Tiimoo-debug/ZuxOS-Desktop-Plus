@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.ContentObserver;
 import android.graphics.PixelFormat;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
@@ -34,7 +33,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
-import com.zuxos.desktopplus.desktop.GlassPanel;
+import com.zuxos.desktopplus.core.GlassSurface;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -115,8 +114,6 @@ public final class QuickPanel {
     /** Watches the switches that answer slowly. See {@link #startReceiver}. */
     private static BroadcastReceiver sWatcher;
     private static Context sWatcherCtx;
-    private static ContentObserver sShadeWatcher;
-    private static Context sShadeCtx;
     private static final List<Watch> WATCHED_SESSIONS = new ArrayList<>();
 
     private QuickPanel() {
@@ -214,7 +211,7 @@ public final class QuickPanel {
         try {
             final int inset = TaskbarTray.barInset(anchor);
             FrameLayout root = new FrameLayout(ctx);
-            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 22), 0x59161620);
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), 0x14FFFFFF);
 
             ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);
@@ -239,8 +236,6 @@ public final class QuickPanel {
             glp.rightMargin = Ui.dp(ctx, EDGE_MARGIN_DP);
             glp.bottomMargin = inset;
             root.addView(glass, glp);
-            glass.setSource(root);
-            glass.post(glass::refresh);
 
             root.setFocusableInTouchMode(true);
             root.setOnKeyListener((v, keyCode, event) -> {
@@ -363,7 +358,6 @@ public final class QuickPanel {
         // Only the receiver. The sessions are registered by fill(), which has already run by the
         // time this is called, and tearing anything down here would take them with it.
         unregisterReceiver();
-        unwatchShade();
         Context app = AppCtx.get();
         final Context target = app != null ? app : ctx;
         try {
@@ -389,9 +383,6 @@ public final class QuickPanel {
         } catch (Throwable t) {
             L.d("quick panel: could not listen for state changes (" + t + ")");
         }
-        // Outside that try on purpose: these are two separate things to listen to, and a
-        // firmware that refuses one should not quietly cost you the other.
-        watchShade(target);
     }
 
     /** Everything the open panel was listening to, undone. Called once, on dismissal. */
@@ -403,42 +394,7 @@ public final class QuickPanel {
         // every rebuild of the next panel by four turns of the handler, for ever.
         sInteracting = false;
         unregisterReceiver();
-        unwatchShade();
         unwatchSessions();
-    }
-
-    /** Repaints when a notification arrives or is cleared while the panel is open. */
-    private static void watchShade(Context ctx) {
-        if (!Cfg.notifications() || !Notifications.available(ctx)) {
-            return;
-        }
-        try {
-            ContentObserver observer = new ContentObserver(MAIN) {
-                @Override
-                public void onChange(boolean selfChange) {
-                    scheduleRebuild();
-                }
-            };
-            ctx.getContentResolver().registerContentObserver(Notifications.uri(), true, observer);
-            sShadeWatcher = observer;
-            sShadeCtx = ctx;
-        } catch (Throwable t) {
-            L.d("quick panel: could not follow the shade (" + t + ")");
-        }
-    }
-
-    private static void unwatchShade() {
-        ContentObserver observer = sShadeWatcher;
-        Context ctx = sShadeCtx;
-        sShadeWatcher = null;
-        sShadeCtx = null;
-        if (observer != null && ctx != null) {
-            try {
-                ctx.getContentResolver().unregisterContentObserver(observer);
-            } catch (Throwable ignored) {
-                // Never registered, or already gone.
-            }
-        }
     }
 
     private static void unregisterReceiver() {
@@ -579,9 +535,6 @@ public final class QuickPanel {
         body.addView(networkHeader(ctx, state));
         body.addView(tiles(ctx, state, displayId, rebuild));
         body.addView(divider(ctx));
-        if (Cfg.notifications()) {
-            Notifications.addTo(ctx, body, displayId);
-        }
         watchSessions(SoundRows.addTo(ctx, body, displayId));
         body.addView(divider(ctx));
         body.addView(batteryRow(ctx, state));

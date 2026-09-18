@@ -14,6 +14,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
+import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
@@ -484,12 +485,39 @@ public final class TaskbarGlass {
         private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float mRadius;
 
+        private boolean mBlurred;
+
         BarView(Context ctx) {
             super(ctx);
             mEdge.setStyle(Paint.Style.STROKE);
             mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
             mEdge.setColor(0x4DFFFFFF);
             mRadius = Ui.dp(ctx, 18);
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (mBlurred) {
+                return;
+            }
+            // The real thing: the compositor blurs what is behind this strip and nothing else -
+            // no window flags, no blur across the display. Where it is unavailable the painted
+            // tint below carries the bar on its own, as it did before.
+            Drawable backdrop = Blur.backdrop(this, Ui.dp(getContext(), 40), mRadius, 0x1AFFFFFF);
+            if (backdrop != null) {
+                setBackground(backdrop);
+                mBlurred = true;
+            }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            // The drawable belongs to the window that made it. On the next attach the question
+            // is asked again, so a device that has since turned blur off gets its tint back.
+            setBackground(null);
+            mBlurred = false;
         }
 
         @Override
@@ -516,7 +544,11 @@ public final class TaskbarGlass {
             // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
             // rectangle is extended past it and the bottom corners fall off the view.
             RectF r = new RectF(0, 0, w, h + mRadius);
-            canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            if (!mBlurred) {
+                // Only when there is nothing behind it: painted over a real blur, this tint is
+                // exactly the colour cast that stops it reading as glass.
+                canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            }
             canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
             canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
         }
