@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.content.pm.LauncherApps;
 import android.content.pm.ShortcutInfo;
 import android.net.Uri;
-import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.view.View;
@@ -261,15 +260,28 @@ final class TaskbarApps {
     }
 
     private static boolean show(View icon) {
+        Object info = icon.getTag();
+        String pkg = IconInfo.packageOf(info);
+        if (pkg == null) {
+            // Not one app: the all-apps button, or one of our own drawer folders, which the
+            // native-drawer hooks answer for themselves.
+            return false;
+        }
+        return showMenu(icon, pkg, IconInfo.userOf(info), TaskbarTray.displayIdOf(icon));
+    }
+
+    /**
+     * The hold menu for an app, wherever its icon lives.
+     *
+     * <p>Shared with the running-apps row, so an app that the launcher has no icon for gets the
+     * same menu as one it does rather than a second menu that looks nearly like it.
+     *
+     * @return true when a menu really went up; saying yes when it did not would cancel the
+     *         launcher's own popup and leave a long press doing nothing at all
+     */
+    static boolean showMenu(View icon, String pkg, UserHandle user, int displayId) {
         try {
-            Object info = icon.getTag();
-            String pkg = packageOf(info);
-            if (pkg == null) {
-                return false;
-            }
             Context ctx = icon.getContext();
-            int displayId = TaskbarTray.displayIdOf(icon);
-            UserHandle user = userOf(info);
             List<TaskbarMenu.Entry> entries = new ArrayList<>();
 
             entries.add(new TaskbarMenu.Entry("Open",
@@ -288,8 +300,6 @@ final class TaskbarApps {
 
             int[] at = new int[2];
             icon.getLocationOnScreen(at);
-            // Only claim the press if a menu really went up. Saying yes when it did not would
-            // cancel the launcher's own popup and leave a long press doing nothing at all.
             return TaskbarMenu.showEntries(icon, displayId, at[0] + icon.getWidth() / 2f, entries);
         } catch (Throwable t) {
             L.e("taskbar apps: could not show the icon menu", t);
@@ -379,28 +389,4 @@ final class TaskbarApps {
         }
     }
 
-    /** The package behind an icon, from whichever field its item info keeps it in. */
-    private static String packageOf(Object info) {
-        if (info == null) {
-            return null;
-        }
-        Object direct = Reflect.field(info, "packageName");
-        if (direct instanceof String && !((String) direct).isEmpty()) {
-            return (String) direct;
-        }
-        Object intent = Reflect.field(info, "intent");
-        if (intent instanceof Intent) {
-            Intent i = (Intent) intent;
-            if (i.getComponent() != null) {
-                return i.getComponent().getPackageName();
-            }
-            return i.getPackage();
-        }
-        return null;
-    }
-
-    private static UserHandle userOf(Object info) {
-        Object user = Reflect.field(info, "user");
-        return user instanceof UserHandle ? (UserHandle) user : Process.myUserHandle();
-    }
 }

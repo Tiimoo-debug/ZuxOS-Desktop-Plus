@@ -306,6 +306,19 @@ public final class TaskbarMenu {
      * almost like it - one window, one glass pane, one set of rules about closing.
      */
     static boolean showEntries(View source, int displayId, float rawX, List<Entry> entries) {
+        return showEntries(source, displayId, rawX, -1f, entries);
+    }
+
+    /**
+     * The same menu, anchored where it was asked for rather than on the bar.
+     *
+     * <p>A menu for a taskbar icon belongs on the taskbar, which is what a negative {@code rawY}
+     * asks for. A menu for something in the middle of the screen - a folder in the app drawer -
+     * belongs beside the thing that was held, and one held near the bottom edge is nudged back up
+     * once its height is known.
+     */
+    static boolean showEntries(View source, int displayId, float rawX, float rawY,
+            List<Entry> entries) {
         dismiss();
         if (!canShow(source.getContext())) {
             toast(source.getContext(),
@@ -332,23 +345,37 @@ public final class TaskbarMenu {
                 body.addView(rowFor(ctx, entry));
             }
 
+            final boolean onTheBar = rawY < 0;
             FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT);
-            glp.gravity = Gravity.BOTTOM | Gravity.START;
             glp.leftMargin = (int) Math.max(0, rawX - Ui.dp(ctx, 90));
-            // Measured off the bar on screen, and the window reaches the screen's edge, so the
-            // menu sits on the taskbar rather than a bar's height above it.
-            glp.bottomMargin = TaskbarTray.barInset(source);
+            if (onTheBar) {
+                glp.gravity = Gravity.BOTTOM | Gravity.START;
+                // Measured off the bar on screen, and the window reaches the screen's edge, so the
+                // menu sits on the taskbar rather than a bar's height above it.
+                glp.bottomMargin = TaskbarTray.barInset(source);
+            } else {
+                glp.gravity = Gravity.TOP | Gravity.START;
+                glp.topMargin = (int) Math.max(0, rawY);
+            }
             root.addView(glass, glp);
             glass.post(() -> {
                 // Held near the right-hand edge - where the tray is - the menu would run off the
-                // display. Its width is only known once it has been measured.
+                // display. Its size is only known once it has been measured.
                 FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) glass.getLayoutParams();
-                int max = root.getWidth() - glass.getWidth() - Ui.dp(ctx, 8);
-                int clamped = Math.max(0, Math.min(lp.leftMargin, Math.max(0, max)));
-                if (clamped != lp.leftMargin) {
-                    lp.leftMargin = clamped;
+                int edge = Ui.dp(ctx, 8);
+                int maxLeft = root.getWidth() - glass.getWidth() - edge;
+                int left = Math.max(0, Math.min(lp.leftMargin, Math.max(0, maxLeft)));
+                int top = lp.topMargin;
+                if (!onTheBar) {
+                    int maxTop = root.getHeight() - glass.getHeight() - TaskbarTray
+                            .barInset(source);
+                    top = Math.max(edge, Math.min(lp.topMargin, Math.max(edge, maxTop)));
+                }
+                if (left != lp.leftMargin || top != lp.topMargin) {
+                    lp.leftMargin = left;
+                    lp.topMargin = top;
                     glass.setLayoutParams(lp);
                 }
             });

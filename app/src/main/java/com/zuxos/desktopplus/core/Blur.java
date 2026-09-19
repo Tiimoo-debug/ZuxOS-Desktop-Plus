@@ -43,6 +43,19 @@ public final class Blur {
      * @param tint   colour laid over the blur - keep it faint, the blur is the effect
      */
     public static Drawable backdrop(View host, int radius, float corner, int tint) {
+        return backdrop(host, radius, corner, corner, corner, corner, tint);
+    }
+
+    /**
+     * The same, with a radius per corner.
+     *
+     * <p>A sheet that slides up from the bottom edge is rounded at the top and square at the
+     * bottom; rounding all four would cut two notches out of it at the screen edge. The drawable
+     * carries a four-argument {@code setCornerRadius} for exactly this, and falls back to the
+     * one-argument form where it does not.
+     */
+    public static Drawable backdrop(View host, int radius, float topLeft, float topRight,
+            float bottomLeft, float bottomRight, int tint) {
         if (host == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return null;
         }
@@ -70,7 +83,10 @@ public final class Blur {
             }
             describe(drawable);
             set(drawable, "setBlurRadius", int.class, radius);
-            set(drawable, "setCornerRadius", float.class, corner);
+            if (!corners(drawable, topLeft, topRight, bottomLeft, bottomRight)) {
+                // One radius for all four, which is what every panel but the drawer wants anyway.
+                set(drawable, "setCornerRadius", float.class, topLeft);
+            }
             set(drawable, "setColor", int.class, tint);
             sAvailable = Boolean.TRUE;
             return (Drawable) drawable;
@@ -113,6 +129,25 @@ public final class Blur {
             }
         }
         return null;
+    }
+
+    /** The four-corner setter, where the build has one. */
+    private static boolean corners(Object target, float topLeft, float topRight,
+            float bottomLeft, float bottomRight) {
+        if (topLeft == topRight && topLeft == bottomLeft && topLeft == bottomRight) {
+            // Nothing to gain: the plain setter says the same thing and exists everywhere.
+            return false;
+        }
+        try {
+            Method m = target.getClass().getMethod("setCornerRadius", float.class, float.class,
+                    float.class, float.class);
+            m.setAccessible(true);
+            m.invoke(target, topLeft, topRight, bottomLeft, bottomRight);
+            return true;
+        } catch (Throwable t) {
+            L.d("blur: no four-corner setCornerRadius (" + t + ")");
+            return false;
+        }
     }
 
     private static void set(Object target, String name, Class<?> type, Number value) {

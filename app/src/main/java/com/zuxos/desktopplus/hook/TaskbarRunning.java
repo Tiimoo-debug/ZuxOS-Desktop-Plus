@@ -5,14 +5,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,9 +33,16 @@ import java.util.WeakHashMap;
  * instead: the apps that are not open are hidden, and the ones that are open but not pinned are
  * added.
  *
+ * <p>Ours go in a row of our own, because nothing of ours may be a child of {@code TaskbarView} -
+ * that crash-looped the launcher 62 times, since it animates its children through a property that
+ * casts every one of them to {@code Reorderable}. But a row of our own parked out by the tray is
+ * what made the bar look like two taskbars, so it is placed where it belongs instead: hard against
+ * the last icon the launcher is showing, at the launcher's own icon size and the launcher's own
+ * spacing, so the whole thing reads as one row.
+ *
  * <p>Everything is reversible and nothing is destroyed. Hiding is a visibility change on the
  * launcher's own icons, remembered so it can be put back; the added icons are ours and are
- * removed with the setting. Turning it off restores the bar the launcher built.
+ * removed with the setting.
  */
 final class TaskbarRunning {
 
@@ -63,7 +75,8 @@ final class TaskbarRunning {
         if (icons == null) {
             return;
         }
-        Set<String> running = running(dragLayer.getContext(), icons);
+        Set<String> running = running(dragLayer.getContext(), icons,
+                TaskbarTray.displayIdOf(dragLayer));
         if (running.isEmpty()) {
             // Nothing readable: better to leave the launcher's bar alone than to empty it.
             restore(dragLayer);
@@ -81,8 +94,7 @@ final class TaskbarRunning {
      * not a mistake worth risking for one shared helper.
      */
     private static ViewGroup iconRow(ViewGroup dragLayer) {
-        for (View view : com.zuxos.desktopplus.core.Reflect.findByIdNames(dragLayer,
-                "taskbar_view")) {
+        for (View view : Reflect.findByIdNames(dragLayer, "taskbar_view")) {
             if (view instanceof ViewGroup) {
                 return (ViewGroup) view;
             }
@@ -117,7 +129,7 @@ final class TaskbarRunning {
     private static void hideWhatIsNotOpen(ViewGroup icons, Set<String> running) {
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
             View child = icons.getChildAt(i);
-            String pkg = packageOf(child);
+            String pkg = IconInfo.packageOfView(child);
             if (pkg == null) {
                 // The all-apps button and anything else without an app behind it stays.
                 continue;
@@ -136,20 +148,15 @@ final class TaskbarRunning {
     /**
      * The open apps the launcher has no icon for, in a row of our own.
      *
-     * <p>This used to put them in the launcher's row, and that crash-looped the launcher 62
-     * times: {@code TaskbarView} animates its children through a property that casts every one of
-     * them to {@code Reorderable}, so a plain image view there kills the process the moment the
-     * row animates - which adding one is itself what triggers. The row lays out a foreign child
-     * perfectly well; it is what happens afterwards that does not.
-     *
-     * <p>So nothing of ours is ever its child. These go in the drag layer beside the tray, the
-     * same way and by the same means the tray itself does, where the launcher's animations never
-     * see them.
+     * <p>This used to put them in the launcher's row, and that crash-looped the launcher: {@code
+     * TaskbarView} animates its children through a property that casts every one of them to
+     * {@code Reorderable}, so a plain image view there kills the process the moment the row
+     * animates - which adding one is itself what triggers. So nothing of ours is ever its child.
      */
     private static void extras(ViewGroup dragLayer, ViewGroup icons, Set<String> running) {
         Set<String> missing = new LinkedHashSet<>(running);
         for (int i = 0; i < icons.getChildCount(); i++) {
-            String pkg = packageOf(icons.getChildAt(i));
+            String pkg = IconInfo.packageOfView(icons.getChildAt(i));
             if (pkg != null) {
                 missing.remove(pkg);
             }
@@ -170,23 +177,66 @@ final class TaskbarRunning {
                 return;
             }
         }
-        if (missing.equals(row.mShowing)) {
+        List<String> wanted = inOrder(row.mShowing, missing);
+        int size = iconSize(icons);
+        int gap = spacing(icons);
+        trimToFit(dragLayer, wanted, size, gap);
+        if (wanted.equals(row.mShowing)) {
             return;
         }
         row.removeAllViews();
-        int size = iconSize(icons);
-        Set<String> shown = new LinkedHashSet<>();
-        for (String pkg : missing) {
+        List<String> shown = new ArrayList<>();
+        for (String pkg : wanted) {
             View icon = iconFor(dragLayer.getContext(), pkg, size,
                     TaskbarTray.displayIdOf(dragLayer));
-            if (icon != null) {
-                row.addView(icon);
-                shown.add(pkg);
+            if (icon == null) {
+                continue;
             }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            lp.leftMargin = row.getChildCount() == 0 ? 0 : gap;
+            row.addView(icon, lp);
+            shown.add(pkg);
         }
         // What went in, not what was asked for: an app whose icon could not be drawn would
         // otherwise be remembered as shown and never tried again.
         row.mShowing = shown;
+    }
+
+    /**
+     * The same apps, in an order that holds still.
+     *
+     * <p>The task list is most-recent-first, so following it would move every icon in the row
+     * every few seconds. The ones already up keep their places and new ones join at the end,
+     * which is what a taskbar does.
+     */
+    private static List<String> inOrder(List<String> shown, Set<String> missing) {
+        List<String> out = new ArrayList<>();
+        for (String pkg : shown) {
+            if (missing.contains(pkg)) {
+                out.add(pkg);
+            }
+        }
+        for (String pkg : missing) {
+            if (!out.contains(pkg)) {
+                out.add(pkg);
+            }
+        }
+        return out;
+    }
+
+    /** Drops the icons that would not fit between the launcher's row and the tray. */
+    private static void trimToFit(ViewGroup dragLayer, List<String> wanted, int size, int gap) {
+        int room = room(dragLayer);
+        int step = size + gap;
+        if (room <= 0 || step <= 0) {
+            // Nothing measured yet; the next layout places the row and asks again.
+            return;
+        }
+        int fits = Math.max(1, (room + gap) / step);
+        while (wanted.size() > fits) {
+            // Better to leave the last few out than to run underneath the clock.
+            wanted.remove(wanted.size() - 1);
+        }
     }
 
     private static RunningRow rowIn(ViewGroup dragLayer) {
@@ -203,25 +253,19 @@ final class TaskbarRunning {
         try {
             View reference = TaskbarTray.rowReference(dragLayer);
             ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
-            if (!(lp instanceof android.widget.FrameLayout.LayoutParams)) {
+            if (!(lp instanceof FrameLayout.LayoutParams)) {
                 L.w("taskbar running: the drag layer's layout params are not reproducible, so "
                         + "open apps that are not pinned cannot be shown");
                 return null;
             }
             RunningRow row = new RunningRow(dragLayer.getContext());
-            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
             dragLayer.addView(row, lp);
             place(dragLayer, row, reference);
-            if (reference != null) {
-                // Placed again on every layout of the bar. At the moment the row is added the
-                // tray beside it has usually not been measured yet, so its width is nought and
-                // the margin meant to clear it clears nothing - the row would sit on top of the
-                // clock until something else moved it.
-                reference.addOnLayoutChangeListener(
-                        (v, l, t, r, b, ol, ot, or, ob) -> place(dragLayer, row, reference));
-            }
-            L.i("taskbar running: a row of our own for open apps that are not pinned");
+            watchGeometry(dragLayer, reference);
+            L.i("taskbar running: a row of our own, beside the launcher's, for open apps that "
+                    + "are not pinned");
             return row;
         } catch (Throwable t) {
             L.e("taskbar running: could not add our row", t);
@@ -229,56 +273,164 @@ final class TaskbarRunning {
         }
     }
 
-    /** Lines the row up with the bar, clear of the tray. */
+    /**
+     * Follows the launcher's own row wherever it goes.
+     *
+     * <p>Its icons are centred in a full-width row, so every icon hidden or shown moves the edge
+     * ours has to sit against - and when the row is first added nothing has been measured at all.
+     * One listener per taskbar, which finds the current row rather than holding one: ours comes
+     * and goes with whether there is anything to put in it, and a listener per row would pile up
+     * a dead one every time it went.
+     */
+    private static void watchGeometry(ViewGroup dragLayer, View reference) {
+        if (WATCHING.containsKey(dragLayer)) {
+            return;
+        }
+        View.OnLayoutChangeListener again = (v, l, t, r, b, ol, ot, or, ob) -> {
+            RunningRow current = rowIn(dragLayer);
+            if (current != null) {
+                place(dragLayer, current, reference);
+            }
+        };
+        if (reference != null) {
+            reference.addOnLayoutChangeListener(again);
+        }
+        View icons = iconRow(dragLayer);
+        if (icons != null && icons != reference) {
+            icons.addOnLayoutChangeListener(again);
+        }
+        WATCHING.put(dragLayer, again);
+    }
+
+    /** One geometry listener per taskbar, whether or not our row is up at the moment. */
+    private static final Map<View, View.OnLayoutChangeListener> WATCHING = new WeakHashMap<>();
+
+    /**
+     * Lines the row up with the launcher's icons.
+     *
+     * <p>Hard against the right-hand end of them, at the gap the launcher leaves between two of
+     * its own, so that the bar reads as one row rather than as two clusters with a hole between
+     * them. Which is what it looked like when this was measured from the tray instead.
+     */
     private static void place(ViewGroup dragLayer, RunningRow row, View reference) {
         try {
             ViewGroup.LayoutParams raw = row.getLayoutParams();
-            if (!(raw instanceof android.widget.FrameLayout.LayoutParams)) {
+            if (!(raw instanceof FrameLayout.LayoutParams)) {
                 return;
             }
-            android.widget.FrameLayout.LayoutParams lp =
-                    (android.widget.FrameLayout.LayoutParams) raw;
-            lp.rightMargin = TaskbarTray.trayWidth(dragLayer) + Ui.dp(dragLayer.getContext(), 8);
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+            int gravity;
+            int height;
+            int top;
             if (reference != null && reference.getHeight() > 0) {
-                lp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-                lp.height = reference.getHeight();
-                lp.topMargin = reference.getTop();
+                gravity = Gravity.TOP;
+                height = reference.getHeight();
+                top = reference.getTop();
             } else {
                 // Without the row's geometry, the bottom of the drag layer is the bar; the top
                 // of it is a row of icons floating in the middle of the screen.
-                lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
-                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                lp.topMargin = 0;
+                gravity = Gravity.BOTTOM;
+                height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                top = 0;
             }
+            int edge = leftEdge(dragLayer);
+            int left;
+            int right;
+            if (edge >= 0) {
+                gravity |= Gravity.START;
+                left = edge;
+                right = 0;
+            } else {
+                // No icons to sit beside - a bar of navigation buttons only. Beside the tray is
+                // then the only place left that is not on top of something else.
+                gravity |= Gravity.END;
+                left = 0;
+                right = TaskbarTray.trayWidth(dragLayer) + Ui.dp(dragLayer.getContext(), 8);
+            }
+            if (lp.gravity == gravity && lp.height == height && lp.topMargin == top
+                    && lp.leftMargin == left && lp.rightMargin == right) {
+                // Nothing moved. This runs from a layout listener, and setting layout params
+                // asks for another layout whether or not they changed - which would be a pass
+                // per frame, for ever, over a row that was already in the right place.
+                return;
+            }
+            lp.gravity = gravity;
+            lp.height = height;
+            lp.topMargin = top;
+            lp.leftMargin = left;
+            lp.rightMargin = right;
             row.setLayoutParams(lp);
         } catch (Throwable t) {
             L.d("taskbar running: could not place our row (" + t + ")");
         }
     }
 
+    /** Where our row starts: just past the last icon the launcher is showing. */
+    private static int leftEdge(ViewGroup dragLayer) {
+        ViewGroup icons = iconRow(dragLayer);
+        if (icons == null || icons.getWidth() <= 0
+                || icons.getVisibility() != View.VISIBLE) {
+            return -1;
+        }
+        int edge = -1;
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            View child = icons.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE && child.getWidth() > 0) {
+                edge = Math.max(edge, child.getRight());
+            }
+        }
+        if (edge < 0) {
+            return -1;
+        }
+        return edge + offsetIn(dragLayer, icons) + spacing(icons);
+    }
+
+    /** How much room there is between the launcher's icons and the tray. */
+    private static int room(ViewGroup dragLayer) {
+        int left = leftEdge(dragLayer);
+        if (dragLayer.getWidth() <= 0 || left < 0) {
+            return 0;
+        }
+        return dragLayer.getWidth() - TaskbarTray.trayWidth(dragLayer) - left;
+    }
+
+    /** How far a view's left edge is from the drag layer's. */
+    private static int offsetIn(ViewGroup dragLayer, View view) {
+        int left = 0;
+        for (View v = view; v != null && v != dragLayer; ) {
+            left += v.getLeft();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return left;
+    }
+
+    /** The gap the launcher leaves between two of its own icons, so ours matches it. */
+    private static int spacing(ViewGroup icons) {
+        View previous = null;
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            View child = icons.getChildAt(i);
+            if (child.getVisibility() != View.VISIBLE || child.getWidth() <= 0) {
+                continue;
+            }
+            if (previous != null) {
+                int gap = child.getLeft() - previous.getRight();
+                if (gap > 0 && gap <= Ui.dp(icons.getContext(), 64)) {
+                    return gap;
+                }
+            }
+            previous = child;
+        }
+        return Ui.dp(icons.getContext(), 12);
+    }
+
     /** Ours, and never a child of the launcher's icon row. */
-    private static final class RunningRow extends android.widget.LinearLayout {
-        Set<String> mShowing = new LinkedHashSet<>();
+    private static final class RunningRow extends LinearLayout {
+        /** In the order they are on screen, which is the order that has to hold still. */
+        List<String> mShowing = new ArrayList<>();
 
         RunningRow(Context ctx) {
             super(ctx);
         }
-    }
-
-    private static String packageOf(View icon) {
-        Object info = icon.getTag();
-        if (info == null) {
-            return null;
-        }
-        Object direct = com.zuxos.desktopplus.core.Reflect.field(info, "packageName");
-        if (direct instanceof String && !((String) direct).isEmpty()) {
-            return (String) direct;
-        }
-        Object intent = com.zuxos.desktopplus.core.Reflect.field(info, "intent");
-        if (intent instanceof Intent && ((Intent) intent).getComponent() != null) {
-            return ((Intent) intent).getComponent().getPackageName();
-        }
-        return null;
     }
 
     // --- what is open ------------------------------------------------------
@@ -298,8 +450,8 @@ final class TaskbarRunning {
      * second only knows about icons that are already there, so with it the bar can be narrowed
      * but not added to - which is said plainly in the log rather than silently half-done.
      */
-    private static Set<String> running(Context ctx, ViewGroup icons) {
-        Set<String> out = fromActivityManager(ctx);
+    private static Set<String> running(Context ctx, ViewGroup icons, int displayId) {
+        Set<String> out = fromActivityManager(ctx, displayId);
         if (!out.isEmpty()) {
             source(0, "the activity manager");
             sShowing = out;
@@ -329,9 +481,15 @@ final class TaskbarRunning {
      *
      * <p>{@code getRunningTasks} is refused to ordinary apps - they get their own task and
      * nothing else, which is why one result counts as no answer rather than as one app.
+     *
+     * <p>What comes back is task <em>records</em>, which outlive the app that made them: without
+     * the two tests below, everything the user had open this week would be in the bar. Both read
+     * fields the framework keeps but does not publish, so both are skipped where they cannot be
+     * read rather than guessed at.
      */
-    private static Set<String> fromActivityManager(Context ctx) {
+    private static Set<String> fromActivityManager(Context ctx, int displayId) {
         Set<String> out = new LinkedHashSet<>();
+        Set<String> everything = new LinkedHashSet<>();
         try {
             ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
             if (am == null) {
@@ -342,17 +500,76 @@ final class TaskbarRunning {
                 return out;
             }
             for (ActivityManager.RunningTaskInfo task : tasks) {
-                if (task.baseActivity != null) {
-                    out.add(task.baseActivity.getPackageName());
+                if (task.baseActivity == null) {
+                    continue;
+                }
+                describeTaskFields(task);
+                String pkg = task.baseActivity.getPackageName();
+                everything.add(pkg);
+                if (isOpen(task) && onDisplay(task, displayId)) {
+                    out.add(pkg);
                 }
             }
-            if (out.size() <= 1) {
-                out.clear();
+            if (everything.size() <= 1) {
+                return new LinkedHashSet<>();
+            }
+            if (out.isEmpty()) {
+                // The tests threw everything away, which means they are reading something other
+                // than what they are named after on this build. A bar of every task is wrong;
+                // an empty one is worse.
+                if (sSaidUnfiltered.add("")) {
+                    L.i("taskbar running: nothing survived the running/display tests, so every "
+                            + "task in the list counts");
+                }
+                return everything;
             }
         } catch (Throwable t) {
             L.d("taskbar running: the activity manager will not list tasks (" + t + ")");
         }
         return out;
+    }
+
+    private static final Set<String> sSaidUnfiltered = new LinkedHashSet<>();
+    private static boolean sSaidFields;
+
+    /** Which of the task list's unpublished fields this build actually lets us read. */
+    private static void describeTaskFields(Object task) {
+        if (sSaidFields) {
+            return;
+        }
+        sSaidFields = true;
+        L.i("taskbar running: the task list says isRunning="
+                + Reflect.field(task, "isRunning") + ", isVisible="
+                + Reflect.field(task, "isVisible") + ", displayId="
+                + Reflect.field(task, "displayId"));
+    }
+
+    /**
+     * Whether a task is an app that is open, rather than a record of one that was.
+     *
+     * <p>Visibility is not the test: an app minimised on the desktop is exactly what a taskbar is
+     * for, and it is not visible. Running is the test, and where the build will not say, every
+     * task counts - which is where this started.
+     */
+    private static boolean isOpen(Object task) {
+        Object visible = Reflect.field(task, "isVisible");
+        if (visible instanceof Boolean && (Boolean) visible) {
+            return true;
+        }
+        Object running = Reflect.field(task, "isRunning");
+        if (running instanceof Boolean) {
+            return (Boolean) running;
+        }
+        return true;
+    }
+
+    /** This bar belongs to one display; an app on the tablet screen is not on it. */
+    private static boolean onDisplay(Object task, int displayId) {
+        if (displayId < 0) {
+            return true;
+        }
+        Object where = Reflect.field(task, "displayId");
+        return !(where instanceof Integer) || (Integer) where == displayId;
     }
 
     /**
@@ -370,12 +587,11 @@ final class TaskbarRunning {
         }
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
-            String pkg = packageOf(child);
+            String pkg = IconInfo.packageOfView(child);
             if (pkg == null) {
                 continue;
             }
-            Object state = com.zuxos.desktopplus.core.Reflect.call(
-                    controller, "getRunningAppState", child.getTag());
+            Object state = Reflect.call(controller, "getRunningAppState", child.getTag());
             if (state == null) {
                 // Not "this app is not running" - no answer at all, which for the first icon
                 // means the method is not there. Hiding every icon on the strength of that
@@ -410,7 +626,7 @@ final class TaskbarRunning {
     private static int iconSize(ViewGroup icons) {
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
-            if (child.getWidth() > 0 && packageOf(child) != null) {
+            if (child.getWidth() > 0 && IconInfo.packageOfView(child) != null) {
                 return child.getWidth();
             }
         }
@@ -440,7 +656,10 @@ final class TaskbarRunning {
                     L.d("taskbar running: could not open " + pkg + " (" + t + ")");
                 }
             });
-            view.setLayoutParams(new android.widget.LinearLayout.LayoutParams(size, size));
+            // The same menu a pinned icon gives, for the same reason: from here on the bar is
+            // one row, and one row should not behave two ways.
+            view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
+                    android.os.Process.myUserHandle(), displayId));
             return view;
         } catch (Throwable t) {
             // An app we cannot draw is an app we leave out.

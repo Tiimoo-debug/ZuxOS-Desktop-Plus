@@ -5,8 +5,10 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 
 import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
@@ -15,6 +17,7 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -26,42 +29,44 @@ import java.util.WeakHashMap;
  * this is a background swap and nothing more - no hooks in its drawing, no window flags, and the
  * exact drawable it had is put back when the setting goes off.
  *
- * <p>The one thing that must not be guessed is the tone. The drawer's own labels are painted for
- * whatever colour the sheet was, and a dark pane under dark text is unreadable. So the original
+ * <p>Three rounds were spent guessing which view that is, by name and then by a fixed size
+ * threshold, and every one of them went quiet: the log said the window held the sheet and nothing
+ * was ever glazed. So nothing is guessed here any more. Every view in the drawer's window is
+ * weighed on what actually matters - is it big enough to be the pane, and is its background opaque
+ * enough to be what hides a blur - the biggest one wins, and every candidate it weighed is written
+ * to the log. A miss now names itself instead of going silent.
+ *
+ * <p>The one thing that must not be guessed either is the tone. The drawer's own labels are painted
+ * for whatever colour the sheet was, and a dark pane under dark text is unreadable. So the original
  * background is sampled - drawn into a single pixel, which works whatever kind of drawable it is -
- * and the glass is built light or dark to match. The labels stay legible without being touched.
+ * and the glass is built light or dark to match.
  */
 final class DrawerGlass {
 
+    /** Smallest share of the window a view can cover and still be the sheet. */
+    private static final float MIN_SHARE = 0.25f;
     /**
-     * Names the drawer's sheet may go under.
-     *
-     * <p>Wider than it looks like it needs to be, because the first attempt guessed Launcher3's
-     * own names and found nothing at all on this firmware - which means ZUI has named its own.
-     * Both the class names and the view ids are tried, and what the window actually contained is
-     * written to the log, so a build that matches none of these can be named from a log rather
-     * than from another guess.
+     * Largest share. The drawer's window also holds a scrim across the whole of it, and glazing
+     * that would blur the entire screen - the one thing this module has been told repeatedly not
+     * to do.
      */
-    private static final String[] SHEET_CLASSES = {
-            "AllAppsSlideInView", "AllAppsContainerView", "AppsContainerView", "AllAppsView",
-            "AppsSlideInView", "AllAppsSheet", "AppDrawer", "DrawerContainer", "AppsView",
-    };
+    private static final float MAX_SHARE = 0.95f;
+    /** How opaque a background has to be to be worth replacing. */
+    private static final int MIN_ALPHA = 0x80;
 
-    private static final String[] SHEET_IDS = {
-            "apps_view", "all_apps", "apps_list_view", "search_container_all_apps",
-            "apps_container", "all_apps_sheet",
-    };
+    /** How deep into a window the sheet can be. Beyond this are list rows, not panes. */
+    private static final int MAX_DEPTH = 8;
 
-    /** What each glazed sheet had before, so it can be put back exactly. */
-    private static final Map<View, Drawable[]> ORIGINALS = new WeakHashMap<>();
+    /** What each view we repainted had before, so it can be put back exactly. */
+    private static final Map<View, Drawable> ORIGINALS = new WeakHashMap<>();
     /** Windows being watched for their sheet to appear. */
-    private static final Map<View, View.OnLayoutChangeListener> WATCHED = new WeakHashMap<>();
+    private static final Map<View, ViewTreeObserver.OnGlobalLayoutListener> WATCHED =
+            new WeakHashMap<>();
+    /** Windows already glazed, so a later layout does not weigh the same tree again. */
+    private static final Map<View, Boolean> DONE = new WeakHashMap<>();
 
-    private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
-    /** Windows already described once they had something in them. */
-    private static final java.util.Set<String> FILLED = new java.util.HashSet<>();
-
-    private static boolean sDescribed;
+    /** Windows whose candidates have been written down once. */
+    private static final java.util.Set<String> DESCRIBED = new java.util.HashSet<>();
 
     private DrawerGlass() {
     }
@@ -72,219 +77,334 @@ final class DrawerGlass {
             return;
         }
         try {
-            List<View> found = sheetsIn(root);
-            if (found.isEmpty()) {
-                // This is the ordinary case, not a failure: the log said the drawer's window -
-                // a TaskbarOverlayDragLayer - arrives with no children at all, because the sheet
-                // is put into it afterwards. So the window is watched instead of inspected once.
-                watch(root);
-                note(root);
+            if (!on()) {
+                restore((ViewGroup) root);
+                unwatch(root);
                 return;
             }
-            View sheet = pick(found);
-            if (sheet == null) {
-                // Matched by name but none of them owns a background - which is worth hearing
-                // about, since it means the pane you can see is something else again.
-                note(root);
+            if (!couldHoldTheDrawer(root)) {
                 return;
             }
-            if (!sDescribed) {
-                sDescribed = true;
-                L.i("drawer glass: found " + sheet.getClass().getSimpleName()
-                        + " with background " + describe(sheet.getBackground()));
-            }
-            // After the window has been laid out: a sheet asked for its background before it has
-            // any size is a sheet whose own background has not been set yet.
-            sheet.post(() -> apply(sheet));
+            // The window arrives empty - the log showed the drag layer with no children at all -
+            // and is filled a moment later, so one look is never enough.
+            watch(root);
+            root.post(() -> scan((ViewGroup) root));
         } catch (Throwable t) {
             L.d("drawer glass: could not look at this window (" + t + ")");
         }
     }
 
+    private static boolean on() {
+        return Cfg.drawerGlass() && Cfg.glass();
+    }
+
     /**
-     * Which of the matching views is the pane you can see.
+     * Only the window that can hold a drawer.
      *
-     * <p>The search returns the outermost first, and on this launcher that is the slide-in
-     * wrapper: it has no background of its own, so glazing it would paint behind an opaque sheet
-     * and, worse, sample nothing and guess the tone. The one that carries a background is the
-     * sheet, so that is the one taken - innermost first, since that is the one drawn last.
+     * <p>A listener on every launcher window would walk that window's whole tree on every layout
+     * it ever does, on the UI thread, for windows that will never contain one.
      */
-    private static List<View> sheetsIn(View root) {
-        List<View> found = Reflect.findByClassFragments(root, SHEET_CLASSES);
-        if (found.isEmpty()) {
-            found = Reflect.findByIdNames(root, SHEET_IDS);
-        }
-        return found;
+    private static boolean couldHoldTheDrawer(View root) {
+        String name = root.getClass().getSimpleName();
+        return name.contains("Overlay") || name.contains("AllApps");
     }
 
     /**
      * Waits for the drawer to be put into its window.
      *
-     * <p>The window is created empty and filled a moment later, so a single look finds nothing.
-     * A layout listener costs nothing while the window is idle and takes itself off as soon as
-     * the sheet has been glazed.
+     * <p>On the view tree rather than on the root itself: a layout listener on the root fires only
+     * when the root's own bounds change, and the root is the window - it is the same size before
+     * and after the sheet is put into it. That is what kept this quiet.
      */
     private static void watch(View root) {
-        if (!(root instanceof ViewGroup) || WATCHED.containsKey(root)) {
+        if (WATCHED.containsKey(root)) {
             return;
         }
-        if (!(Cfg.drawerGlass() && Cfg.glass())) {
-            return;
-        }
-        // Only the window that can hold one. A listener on every launcher window would run two
-        // recursive scans of that window's whole tree on every layout it ever does, on the UI
-        // thread, for windows that will never contain a drawer.
-        String name = root.getClass().getSimpleName();
-        if (!name.contains("Overlay") && !name.contains("AllApps")) {
-            return;
-        }
-        View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
+        ViewTreeObserver.OnGlobalLayoutListener listener = new ViewTreeObserver
+                .OnGlobalLayoutListener() {
             @Override
-            public void onLayoutChange(View v, int l, int t, int r, int b,
-                    int ol, int ot, int or, int ob) {
-                // Said once, the moment this window stops being empty. If the drawer is not
-                // glazed after this, this line names every view it does contain - which is the
-                // one thing three rounds of guessing at Launcher3's names has not produced.
-                if (v instanceof ViewGroup && ((ViewGroup) v).getChildCount() > 0
-                        && FILLED.add(v.getClass().getSimpleName())) {
-                    L.i("drawer glass: " + v.getClass().getSimpleName() + " now holds "
-                            + contentsOf(v));
-                }
-                View sheet = pick(sheetsIn(v));
-                if (sheet == null) {
+            public void onGlobalLayout() {
+                if (!on()) {
+                    restore((ViewGroup) root);
+                    unwatch(root);
                     return;
                 }
-                v.removeOnLayoutChangeListener(this);
-                WATCHED.remove(v);
-                L.i("drawer glass: the sheet turned up - " + sheet.getClass().getSimpleName());
-                apply(sheet);
+                if (scan((ViewGroup) root)) {
+                    unwatch(root);
+                }
             }
         };
-        root.addOnLayoutChangeListener(listener);
-        WATCHED.put(root, listener);
-    }
-
-    private static View pick(List<View> candidates) {
-        for (int i = candidates.size() - 1; i >= 0; i--) {
-            View view = candidates.get(i);
-            if (ORIGINALS.containsKey(view) || sample(view.getBackground()) != 0) {
-                return view;
+        root.post(() -> {
+            try {
+                root.getViewTreeObserver().addOnGlobalLayoutListener(listener);
+                WATCHED.put(root, listener);
+            } catch (Throwable t) {
+                L.d("drawer glass: could not watch this window (" + t + ")");
             }
-        }
-        // None of the views named after the drawer paints anything. On this firmware the sheet
-        // you can see is a plain FrameLayout inside them with a GradientDrawable on it - the log
-        // named it - so the search goes one level down: whichever descendant is actually filling
-        // the pane is the one to replace.
-        for (int i = candidates.size() - 1; i >= 0; i--) {
-            View pane = candidates.get(i);
-            View painted = paintedChild(pane, pane, 0);
-            if (painted != null) {
-                return painted;
-            }
-        }
-        return null;
+        });
     }
 
-    /**
-     * The nearest descendant that fills a real area with a real background.
-     *
-     * <p>Size matters as much as the background: a search box and a row of tabs have backgrounds
-     * too, and glazing one of those would leave the sheet behind it exactly as opaque as before.
-     */
-    /**
-     * The descendants worth looking at, no deeper than they need to be.
-     *
-     * <p>Bounded on purpose: this runs on every layout of a watched window, and sampling a
-     * background means allocating a bitmap and drawing into it. A sheet is near the top of its
-     * own window, not buried in a list row.
-     */
-    private static List<View> within(View root, int depth) {
-        List<View> out = new java.util.ArrayList<>();
-        collect(root, depth, out);
-        return out;
-    }
-
-    private static void collect(View root, int depth, List<View> out) {
-        if (depth < 0 || !(root instanceof ViewGroup)) {
+    private static void unwatch(View root) {
+        ViewTreeObserver.OnGlobalLayoutListener listener = WATCHED.remove(root);
+        if (listener == null) {
             return;
         }
-        ViewGroup group = (ViewGroup) root;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            out.add(child);
-            collect(child, depth - 1, out);
-        }
-    }
-
-    private static View paintedChild(View pane, View root, int depth) {
-        if (pane.getWidth() <= 0 || pane.getHeight() <= 0) {
-            // Before a layout every view is nought by nought and every test passes, which would
-            // pick whatever came first and glaze it for good. The watcher asks again after the
-            // window has been laid out.
-            return null;
-        }
-        View best = null;
-        long bestArea = 0;
-        for (View child : within(root, 4)) {
-            if (child.getBackground() == null
-                    || child.getWidth() <= 0 || child.getHeight() <= 0) {
-                continue;
-            }
-            // The biggest of them, rather than the first one over a threshold. A fixed
-            // proportion is a guess about a layout nobody here has seen, and the log said the
-            // sheet was in this window while the threshold quietly rejected it.
-            long area = (long) child.getWidth() * child.getHeight();
-            if (area <= bestArea || area < (long) pane.getWidth() * pane.getHeight() / 4) {
-                continue;
-            }
-            if (sample(child.getBackground()) == 0) {
-                continue;
-            }
-            best = child;
-            bestArea = area;
-        }
-        if (best != null && SEEN.add("painted:" + best.getClass().getSimpleName())) {
-            L.i("drawer glass: the painted part of " + pane.getClass().getSimpleName() + " is "
-                    + best.getClass().getSimpleName() + " [" + best.getWidth() + "x"
-                    + best.getHeight() + "] in a pane of " + pane.getWidth() + "x"
-                    + pane.getHeight());
-        }
-        return best;
-    }
-
-    private static void apply(View sheet) {
         try {
-            if (!(Cfg.drawerGlass() && Cfg.glass())) {
-                restore(sheet);
-                return;
+            root.getViewTreeObserver().removeOnGlobalLayoutListener(listener);
+        } catch (Throwable ignored) {
+            // The tree is gone, which is the same outcome.
+        }
+    }
+
+    // --- choosing the pane --------------------------------------------------
+
+    /** One view and what was measured about it, so a rejection can say why. */
+    private static final class Candidate {
+        final View view;
+        final int order;
+        final long area;
+        final int colour;
+
+        Candidate(View view, int order, long area, int colour) {
+            this.view = view;
+            this.order = order;
+            this.area = area;
+            this.colour = colour;
+        }
+
+        boolean big(long window) {
+            return area >= window * MIN_SHARE && area <= window * MAX_SHARE;
+        }
+
+        boolean opaque() {
+            return Color.alpha(colour) >= MIN_ALPHA;
+        }
+
+        @Override
+        public String toString() {
+            String id = Reflect.idName(view);
+            return view.getClass().getSimpleName() + (id != null ? "#" + id : "")
+                    + " [" + view.getWidth() + "x" + view.getHeight() + "] bg="
+                    + view.getBackground().getClass().getSimpleName()
+                    + " #" + Integer.toHexString(colour);
+        }
+    }
+
+    /**
+     * Weighs everything in the window and glazes the pane, if it is there yet.
+     *
+     * @return true once the window has been dealt with and need not be watched any more
+     */
+    private static boolean scan(ViewGroup window) {
+        try {
+            if (Boolean.TRUE.equals(DONE.get(window))) {
+                return true;
             }
+            long area = (long) window.getWidth() * window.getHeight();
+            if (area <= 0 || window.getChildCount() == 0) {
+                // Nothing laid out yet. Every view is nought by nought and every test passes,
+                // which would pick whatever came first and glaze it for good.
+                return false;
+            }
+            List<Candidate> candidates = new ArrayList<>();
+            collect(window, 0, candidates);
+            Candidate best = null;
+            for (Candidate c : candidates) {
+                if (!c.big(area) || !c.opaque()) {
+                    continue;
+                }
+                // The biggest of them, and on a tie the one drawn last - that is the one you can
+                // see. A fixed proportion was a guess about a layout nobody here has seen.
+                if (best == null || c.area > best.area
+                        || (c.area == best.area && c.order > best.order)) {
+                    best = c;
+                }
+            }
+            describe(window, candidates, best, area);
+            if (best == null || !apply(best.view, window, candidates, best)) {
+                // Not there yet, or it would not take. Either way this window stays watched:
+                // giving up here is how the last three rounds ended in silence.
+                return false;
+            }
+            DONE.put(window, Boolean.TRUE);
+            return true;
+        } catch (Throwable t) {
+            L.d("drawer glass: could not weigh this window (" + t + ")");
+            return false;
+        }
+    }
+
+    /**
+     * Every view worth weighing, in draw order.
+     *
+     * <p>Pre-order, so a view's index is greater than every view drawn before it - which is how
+     * {@link #clearWhatIsDrawnOver} knows which backgrounds would paint over the glass. Lists are
+     * not descended into: a row of a recycler is never the pane, and there can be hundreds of them.
+     */
+    private static void collect(View view, int depth, List<Candidate> out) {
+        if (depth > MAX_DEPTH || out.size() > 200 || view.getVisibility() != View.VISIBLE) {
+            // Nothing under a view that is not on screen is on screen either.
+            return;
+        }
+        if (view.getBackground() != null && view.getWidth() > 0 && view.getHeight() > 0) {
+            out.add(new Candidate(view, out.size(), (long) view.getWidth() * view.getHeight(),
+                    sample(view.getBackground())));
+        }
+        if (!(view instanceof ViewGroup) || isAList(view)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            collect(group.getChildAt(i), depth + 1, out);
+        }
+    }
+
+    private static boolean isAList(View view) {
+        String name = view.getClass().getName();
+        return name.contains("RecyclerView") || name.contains("ListView")
+                || name.contains("GridView");
+    }
+
+    /** What was weighed and what was chosen - once per kind of window. */
+    private static void describe(ViewGroup window, List<Candidate> candidates, Candidate best,
+            long area) {
+        String key = window.getClass().getSimpleName() + ":" + candidates.size();
+        if (candidates.isEmpty() || DESCRIBED.size() > 12 || !DESCRIBED.add(key)) {
+            // Keyed on what the window held, so a tree that has changed is heard about once
+            // more - but not on every layout of a window that keeps changing shape.
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Candidate c : candidates) {
+            if (sb.length() > 600) {
+                sb.append(", ...");
+                break;
+            }
+            if (sb.length() > 0) {
+                sb.append("; ");
+            }
+            sb.append(c);
+            if (c == best) {
+                sb.append(" <- the sheet");
+            } else if (!c.big(area)) {
+                sb.append(" (wrong size)");
+            } else if (!c.opaque()) {
+                sb.append(" (see-through already)");
+            }
+        }
+        L.i("drawer glass: " + window.getClass().getSimpleName() + " is "
+                + window.getWidth() + "x" + window.getHeight() + ", weighed " + sb);
+    }
+
+    // --- glazing ------------------------------------------------------------
+
+    private static boolean apply(View sheet, ViewGroup window, List<Candidate> candidates,
+            Candidate best) {
+        try {
             if (ORIGINALS.containsKey(sheet)) {
-                return;
+                return true;
             }
             Drawable original = sheet.getBackground();
-            int tint = tintFor(original);
-            ORIGINALS.put(sheet, new Drawable[]{original});
-            float corner = Ui.dp(sheet.getContext(), 28);
-            Drawable backdrop = Blur.backdrop(sheet, Ui.dp(sheet.getContext(), 40), corner, tint);
+            int tint = tintFor(best.colour);
+            ORIGINALS.put(sheet, original);
+            float corner = cornerOf(original, sheet);
+            // A sheet that reaches the bottom of the window is sitting on the screen edge: round
+            // its top and leave the bottom square, or the blur cuts two notches out of it.
+            boolean toTheEdge = bottomOf(sheet, window) >= window.getHeight() - Ui.dp(
+                    sheet.getContext(), 2);
+            float bottom = toTheEdge ? 0f : corner;
+            Drawable backdrop = Blur.backdrop(sheet, Ui.dp(sheet.getContext(), 40),
+                    corner, corner, bottom, bottom, tint);
             if (backdrop != null) {
                 sheet.setBackground(backdrop);
-                L.i("drawer glass: applied with a real blur, tint #" + Integer.toHexString(tint));
-                return;
+                clearWhatIsDrawnOver(candidates, best, (long) window.getWidth()
+                        * window.getHeight());
+                L.i("drawer glass: applied with a real blur to "
+                        + sheet.getClass().getSimpleName() + ", tint #"
+                        + Integer.toHexString(tint));
+                return true;
             }
             // Nothing real behind it, so the pane has to carry itself: a 35%-alpha sheet over
             // the wallpaper is a smear with unreadable labels.
             int solid = (tint | 0xFF000000) & 0xB8FFFFFF;
             sheet.setBackground(Glass.pill(sheet.getContext(), (int) corner, solid));
+            clearWhatIsDrawnOver(candidates, best, (long) window.getWidth() * window.getHeight());
             L.i("drawer glass: applied without blur, tint #" + Integer.toHexString(solid));
+            return true;
         } catch (Throwable t) {
             L.d("drawer glass: could not apply (" + t + ")");
+            return false;
         }
     }
 
-    private static void restore(View sheet) {
-        Drawable[] original = ORIGINALS.remove(sheet);
-        if (original != null) {
-            sheet.setBackground(original[0]);
+    /**
+     * Takes the opaque backgrounds that would paint over the glass out of the way.
+     *
+     * <p>Glazing one layer while an opaque one on top of it still paints is indistinguishable from
+     * doing nothing at all - which is exactly what the user has reported three rounds running. Only
+     * what is drawn after the sheet counts: its own children, and the views after it in the
+     * window's draw order. Anything behind it is hidden by the glass anyway and is left alone -
+     * the drawer's scrim among it, which is the launcher's own dimming and not ours to remove.
+     */
+    private static void clearWhatIsDrawnOver(List<Candidate> candidates, Candidate best,
+            long window) {
+        for (Candidate c : candidates) {
+            if (c == best || c.order <= best.order || !c.opaque()) {
+                continue;
+            }
+            if (c.area < window * MIN_SHARE) {
+                // A search box or a tab strip. Those are meant to be solid.
+                continue;
+            }
+            ORIGINALS.put(c.view, c.view.getBackground());
+            c.view.setBackground(null);
+            L.i("drawer glass: cleared " + c.view.getClass().getSimpleName()
+                    + ", which was painting over the glass");
+        }
+    }
+
+    /** The sheet's own corner radius where the drawable will say, or a sensible one. */
+    private static float cornerOf(Drawable original, View sheet) {
+        try {
+            if (original instanceof GradientDrawable) {
+                float radius = ((GradientDrawable) original).getCornerRadius();
+                if (radius > 0f) {
+                    return radius;
+                }
+                float[] radii = ((GradientDrawable) original).getCornerRadii();
+                if (radii != null && radii.length > 0 && radii[0] > 0f) {
+                    return radii[0];
+                }
+            }
+        } catch (Throwable ignored) {
+            // Older shapes do not keep their radius where it can be read back.
+        }
+        return Ui.dp(sheet.getContext(), 28);
+    }
+
+    /** Where the view's bottom edge is, in the window's own coordinates. */
+    private static int bottomOf(View view, ViewGroup window) {
+        int bottom = view.getHeight();
+        for (View v = view; v != null && v != window; ) {
+            bottom += v.getTop();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return bottom;
+    }
+
+    /** Puts a window back exactly as the launcher built it. */
+    static void restore(ViewGroup window) {
+        DONE.remove(window);
+        if (ORIGINALS.isEmpty()) {
+            // Nothing was ever repainted, and this runs for every window the launcher opens -
+            // walking each of their trees to find nothing would be the expensive way to do that.
+            return;
+        }
+        for (View view : Reflect.findByClassFragments(window, "")) {
+            Drawable original = ORIGINALS.remove(view);
+            if (original != null) {
+                view.setBackground(original);
+            }
         }
     }
 
@@ -295,11 +415,9 @@ final class DrawerGlass {
      * the sheet it had, and this is what keeps them readable without repainting a recycler's worth
      * of views that scroll in and out from under us.
      */
-    private static int tintFor(Drawable original) {
-        int base = sample(original);
+    private static int tintFor(int base) {
         if (base == 0) {
-            // Nothing to sample - no background at all, or one that drew nothing. Dark is the
-            // safer guess under a taskbar that is itself dark.
+            // Nothing to sample. Dark is the safer guess under a taskbar that is itself dark.
             return 0x59202024;
         }
         double luminance = (0.299 * Color.red(base) + 0.587 * Color.green(base)
@@ -318,13 +436,16 @@ final class DrawerGlass {
         }
         android.graphics.Rect bounds = new android.graphics.Rect(drawable.getBounds());
         try {
-            Bitmap pixel = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(pixel);
-            drawable.setBounds(0, 0, 1, 1);
+            // Eight pixels rather than one, and the middle of them: a rounded sheet drawn into a
+            // single pixel is a circle the size of that pixel, and its antialiased edge would
+            // read back as half transparent on a background that is not.
+            Bitmap patch = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(patch);
+            drawable.setBounds(0, 0, 8, 8);
             drawable.draw(canvas);
-            int colour = pixel.getPixel(0, 0);
-            pixel.recycle();
-            return Color.alpha(colour) < 16 ? 0 : colour;
+            int colour = patch.getPixel(4, 4);
+            patch.recycle();
+            return colour;
         } catch (Throwable t) {
             return 0;
         } finally {
@@ -333,61 +454,5 @@ final class DrawerGlass {
             // would have been left with a one-pixel background.
             drawable.setBounds(bounds);
         }
-    }
-
-    /**
-     * Writes down what a window held when nothing matched.
-     *
-     * <p>Once per class of window. This is how the drawer gets named on a firmware whose views
-     * are called something nobody has guessed.
-     */
-    private static void note(View root) {
-        if (root.getClass().getName().startsWith("com.zuxos")) {
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        for (View child : Reflect.findByClassFragments(root, "View", "Layout", "Group")) {
-            if (sb.length() > 240) {
-                break;
-            }
-            String simple = child.getClass().getSimpleName();
-            if (simple.isEmpty() || sb.indexOf(simple) >= 0) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(", ");
-            }
-            sb.append(simple);
-        }
-        // Keyed on what the window holds, not on its class: every launcher window is a
-        // DecorView, so keying on that would spend the one slot on the first window opened and
-        // never describe the drawer at all.
-        String description = root.getClass().getSimpleName() + " [" + sb + "]";
-        if (SEEN.size() < 8 && SEEN.add(description)) {
-            L.i("drawer glass: no sheet in " + description);
-        }
-    }
-
-    /** Every distinct class in a window, with whichever of them owns a background marked. */
-    private static String contentsOf(View root) {
-        StringBuilder sb = new StringBuilder();
-        for (View child : Reflect.findByClassFragments(root, "")) {
-            String name = child.getClass().getSimpleName();
-            if (name.isEmpty() || sb.indexOf(name) >= 0 || sb.length() > 400) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(", ");
-            }
-            sb.append(name);
-            if (child.getBackground() != null) {
-                sb.append("(bg:").append(describe(child.getBackground())).append(')');
-            }
-        }
-        return sb.toString();
-    }
-
-    private static String describe(Drawable drawable) {
-        return drawable == null ? "none" : drawable.getClass().getSimpleName();
     }
 }

@@ -134,6 +134,25 @@ public final class NativeDrawerHooks {
         } catch (Throwable t) {
             L.e("native drawer: could not intercept clicks", t);
         }
+
+        // And the long press, for the same reason and in the same place. Without this the
+        // launcher opens its own popup for a folder, reads the package off the icon - ours, since
+        // that is how a synthetic entry is recognised - and offers app info for this module.
+        try {
+            int holds = XposedBridge.hookAllMethods(View.class, "performLongClick",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof View
+                                    && showFolderMenu((View) param.thisObject)) {
+                                param.setResult(Boolean.TRUE);
+                            }
+                        }
+                    }).size();
+            L.i("native drawer: folder long-press interception installed x" + holds);
+        } catch (Throwable t) {
+            L.e("native drawer: could not intercept long presses", t);
+        }
     }
 
     private static int hookUpTheHierarchy(Class<?> clazz, String name, XC_MethodHook callback) {
@@ -368,6 +387,8 @@ public final class NativeDrawerHooks {
             if (sShape.user != null) {
                 Mirror.set(sShape.user, info, android.os.Process.myUserHandle());
             }
+            // Pointed at the folder, not at the app this entry was copied from, and not left
+            // null: the launcher reads this field, and a null there would be its crash.
             if (sShape.intent != null) {
                 Mirror.set(sShape.intent, info, new Intent(Intent.ACTION_MAIN).setComponent(cn));
             }
@@ -476,10 +497,84 @@ public final class NativeDrawerHooks {
         return false;
     }
 
+    /**
+     * The hold menu for one of our folders in the stock drawer.
+     *
+     * <p>Renaming is not offered here: it needs a text field, and this window belongs to the
+     * launcher - the module's own drawer and the desktop both have somewhere to put one, and this
+     * does not. Everything offered here works from where it is.
+     *
+     * @return true when a menu went up, which is what stops the launcher opening its own
+     */
+    private static boolean showFolderMenu(View view) {
+        if (sFolderEntries.isEmpty()) {
+            return false;
+        }
+        try {
+            final String folderId = folderIdOf(view.getTag());
+            if (folderId == null) {
+                return false;
+            }
+            final Context ctx = view.getContext();
+            final DrawerStore drawerStore = store(AppCtx.get() != null ? AppCtx.get() : ctx);
+            Item found = null;
+            for (Item folder : drawerStore.folders()) {
+                if (folder.id.equals(folderId)) {
+                    found = folder;
+                    break;
+                }
+            }
+            if (found == null) {
+                return false;
+            }
+            final Item folder = found;
+            int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
+            List<TaskbarMenu.Entry> entries = new ArrayList<>();
+            entries.add(new TaskbarMenu.Entry("Open folder", () -> openFolderFor(view)));
+            entries.add(new TaskbarMenu.Entry("Break up folder",
+                    () -> breakUp(drawerStore, folder)));
+            int[] at = new int[2];
+            view.getLocationOnScreen(at);
+            return TaskbarMenu.showEntries(view, displayId, at[0] + view.getWidth() / 2f,
+                    at[1] + view.getHeight(), entries);
+        } catch (Throwable t) {
+            L.e("native drawer: could not show the folder menu", t);
+            return false;
+        }
+    }
+
+    /**
+     * Empties a folder back into the drawer.
+     *
+     * <p>The drawer is closed afterwards rather than rebuilt in place: the list the launcher is
+     * showing was built before this, and closing it is what makes the next open read the store
+     * again. Nothing is lost either way - the apps were only ever hidden by being filed.
+     */
+    private static void breakUp(DrawerStore drawerStore, Item folder) {
+        try {
+            for (Item child : new ArrayList<>(folder.children)) {
+                drawerStore.order().add(child.key());
+            }
+            folder.children.clear();
+            drawerStore.folders().remove(folder);
+            drawerStore.order().remove(folder.key());
+            drawerStore.save();
+            sFolderEntries.remove(folder.id);
+            TaskbarBridge.closeStockDrawer();
+        } catch (Throwable t) {
+            L.e("native drawer: could not break up that folder", t);
+        }
+    }
+
+    /** True for one of the synthetic entries this class puts in the drawer for a folder. */
+    static boolean isFolderEntry(Object entry) {
+        return !sFolderEntries.isEmpty() && folderIdOf(entry) != null;
+    }
+
     // --- small helpers ---------------------------------------------------
 
     /** The ComponentName an app entry carries, located by type and cached per class. */
-    private static ComponentName componentOf(Object entry) {
+    static ComponentName componentOf(Object entry) {
         if (entry == null) {
             return null;
         }
@@ -506,7 +601,7 @@ public final class NativeDrawerHooks {
         return value instanceof ComponentName ? (ComponentName) value : null;
     }
 
-    private static String folderIdOf(Object entry) {
+    static String folderIdOf(Object entry) {
         ComponentName component = componentOf(entry);
         if (component == null || !FOLDER_PKG.equals(component.getPackageName())
                 || !component.getClassName().startsWith(FOLDER_PREFIX)) {
