@@ -97,6 +97,13 @@ public final class TaskbarGlass {
      */
     private static final Map<View, Integer> APPLIED_NAV = new WeakHashMap<>();
 
+    /**
+     * The repaint, as one object so it can be coalesced.
+     *
+     * <p>One instance, so posting it again replaces the pending one instead of queuing a second.
+     */
+    private static final Runnable REPAINT = TaskbarTray::refresh;
+
     private TaskbarGlass() {
     }
 
@@ -375,10 +382,16 @@ public final class TaskbarGlass {
             }
             if (news) {
                 // The background changed under us, so everything else on the bar is now the
-                // wrong colour - including the glyphs just painted from the old answer. Posted,
-                // because this runs from a layout pass and the repaint adds and removes views.
+                // wrong colour - including the glyphs just painted from the old answer.
+                //
+                // Coalesced rather than rate-limited: this runs from a layout pass, and layout
+                // passes come in bursts, but a change dropped for being too soon after the last
+                // one is a bar left in the wrong colour until something unrelated repaints it.
+                // Posting cancels the pending one and schedules this one, so the last word wins
+                // and none of them are lost.
                 L.i("taskbar glass: the background changed tone, repainting the bar");
-                dragLayer.post(TaskbarTray::refresh);
+                dragLayer.removeCallbacks(REPAINT);
+                dragLayer.postDelayed(REPAINT, 150L);
             }
         } catch (Throwable t) {
             L.d("taskbar glass: could not tint the navigation buttons (" + t + ")");

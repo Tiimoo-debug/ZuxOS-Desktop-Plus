@@ -104,12 +104,32 @@ public final class Su {
         void done(Outcome outcome);
     }
 
+    /** The same, for a caller that wants what the command printed rather than only whether. */
+    public interface Output {
+        void done(Outcome outcome, String text);
+    }
+
     /**
      * Runs shell lines as root, off the calling thread.
      *
      * @param onDone called on the shell thread, not the main one; hop back yourself if you must
      */
+    /**
+     * Runs one command and hands back what it printed, on the shell thread.
+     *
+     * <p>The text is read on the shell thread before the busy flag is cleared, so it belongs to
+     * the request that asked for it. Read afterwards, a second request starting in between would
+     * have replaced it with its own - or with nothing.
+     */
+    public static void read(Output onDone, String command) {
+        run(null, onDone, command);
+    }
+
     public static void run(Result onDone, String... commands) {
+        run(onDone, null, commands);
+    }
+
+    private static void run(Result onDone, Output onRead, String... commands) {
         if (!Cfg.useRoot()) {
             L.i("su: the root setting is off, not asking");
             finish(onDone, Outcome.UNAVAILABLE);
@@ -138,8 +158,10 @@ public final class Su {
         try {
             IO.execute(() -> {
                 Outcome outcome = Outcome.FAILED;
+                String text = "";
                 try {
                     outcome = runAll(commands);
+                    text = LAST_OUTPUT.get();
                 } catch (Throwable t) {
                     L.d("su: the request went wrong (" + t + ")");
                 } finally {
@@ -148,6 +170,7 @@ public final class Su {
                 // Outside the finally, but after it: the caller is always told something, and
                 // it is told it with the flag already cleared.
                 finish(onDone, outcome);
+                finish(onRead, outcome, text);
             });
         } catch (Throwable t) {
             // The executor would not take it. Holding BUSY here would refuse every root request
@@ -155,6 +178,22 @@ public final class Su {
             BUSY.set(false);
             L.d("su: could not start the shell thread (" + t + ")");
             finish(onDone, Outcome.FAILED);
+            finish(onRead, Outcome.FAILED, "");
+        }
+    }
+
+    /** What the command printed, written and read on the shell thread. See {@link #read}. */
+    private static final java.util.concurrent.atomic.AtomicReference<String> LAST_OUTPUT =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
+    private static void finish(Output onDone, Outcome outcome, String text) {
+        if (onDone == null) {
+            return;
+        }
+        try {
+            onDone.done(outcome, text);
+        } catch (Throwable t) {
+            L.d("su: callback failed (" + t + ")");
         }
     }
 
@@ -260,8 +299,9 @@ public final class Su {
                 L.i("su: granted");
             }
             String text = output.get();
+            LAST_OUTPUT.set(text);
             L.i("su: ran '" + command + "' -> exit " + code
-                    + (text.isEmpty() ? "" : " (" + text + ")"));
+                    + (text.isEmpty() ? "" : " (" + head(text) + ")"));
             return ok ? Step.OK : Step.FAILED;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -274,6 +314,12 @@ public final class Su {
         } finally {
             process.destroy();
         }
+    }
+
+    /** As much of the output as belongs in a log line. */
+    private static String head(String text) {
+        String flat = text.replace('\n', '|');
+        return flat.length() <= 200 ? flat : flat.substring(0, 200) + "...";
     }
 
     /**
@@ -289,8 +335,10 @@ public final class Su {
                     new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (sb.length() < 200) {
-                        sb.append(sb.length() == 0 ? "" : " | ").append(line.trim());
+                    // Kept whole for a caller that asked to read it; the log prints a short head
+                    // of it rather than all of it.
+                    if (sb.length() < 4000) {
+                        sb.append(sb.length() == 0 ? "" : "\n").append(line.trim());
                     }
                 }
             } catch (Throwable ignored) {

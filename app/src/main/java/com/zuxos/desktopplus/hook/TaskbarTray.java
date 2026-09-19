@@ -117,6 +117,9 @@ public final class TaskbarTray {
             detach(root);
         }
         TaskbarGlass.apply(root);
+        if (root instanceof ViewGroup) {
+            TaskbarRunning.apply((ViewGroup) root);
+        }
         // After the glass, because whether it went on is half of what decides the tone, and the
         // tray only repaints itself when the battery or the network moves - which could be
         // minutes away.

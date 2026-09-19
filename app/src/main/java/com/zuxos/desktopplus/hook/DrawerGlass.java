@@ -192,7 +192,8 @@ final class DrawerGlass {
      * too, and glazing one of those would leave the sheet behind it exactly as opaque as before.
      */
     private static View paintedChild(View pane, View root, int depth) {
-        if (!(root instanceof ViewGroup) || depth > 3 || pane.getWidth() <= 0) {
+        if (!(root instanceof ViewGroup) || depth > 3
+                || pane.getWidth() <= 0 || pane.getHeight() <= 0) {
             // Before a layout every view is nought by nought and every test passes, which would
             // pick whatever came first and glaze it for good. The watcher asks again after the
             // window has been laid out.
@@ -206,7 +207,9 @@ final class DrawerGlass {
             // mistake for the sheet.
             boolean large = child.getWidth() >= pane.getWidth() * 0.8f
                     && child.getHeight() >= pane.getHeight() * 0.5f;
-            if (large && sample(child.getBackground()) != 0) {
+            // Size first: sampling draws the drawable, and doing that to every view in the
+            // window on every layout would be a bitmap each for a question already answered.
+            if (large && child.getBackground() != null && sample(child.getBackground()) != 0) {
                 return child;
             }
             View deeper = paintedChild(pane, child, depth + 1);
@@ -281,6 +284,7 @@ final class DrawerGlass {
         if (drawable instanceof ColorDrawable) {
             return ((ColorDrawable) drawable).getColor();
         }
+        android.graphics.Rect bounds = new android.graphics.Rect(drawable.getBounds());
         try {
             Bitmap pixel = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(pixel);
@@ -291,6 +295,11 @@ final class DrawerGlass {
             return Color.alpha(colour) < 16 ? 0 : colour;
         } catch (Throwable t) {
             return 0;
+        } finally {
+            // Put them back. These are the launcher's own drawables and a view only re-bounds
+            // its background when its size changes - so a view sampled and then left alone
+            // would have been left with a one-pixel background.
+            drawable.setBounds(bounds);
         }
     }
 

@@ -83,7 +83,20 @@ final class TaskbarApps {
         }
     }
 
+    /** The launcher's recent-apps controller, for whoever needs to ask it something. */
+    static Object recentAppsController() {
+        java.lang.ref.WeakReference<Object> ref = sRecentApps;
+        return ref == null ? null : ref.get();
+    }
+
+    private static java.lang.ref.WeakReference<Object> sRecentApps;
+
     private static void apply(Object controller) {
+        if (controller != null) {
+            // Kept whether or not the setting is on: it is the only thing that will say which
+            // icons are running, and that question outlives this one switch.
+            sRecentApps = new java.lang.ref.WeakReference<>(controller);
+        }
         if (controller == null || !Cfg.taskbarRunningOnly()) {
             // Nothing to say when the setting is off. Setting the flags the other way round
             // would not be leaving the launcher alone - it would be overriding it in the

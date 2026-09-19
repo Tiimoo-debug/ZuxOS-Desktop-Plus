@@ -147,14 +147,15 @@ public final class Tone {
     }
 
     /**
-     * Ask the wallpaper again next time - after it has changed, or the glass has.
+     * Forget what was read - after the wallpaper changes, or the glass does.
      *
-     * <p>The glyph reading is deliberately kept. It is not about the wallpaper: the launcher
-     * paints its glyphs to contrast with the bar they sit on, whether that bar is our glass or
-     * its own, so it stays the better answer either way.
+     * <p>The glyph goes too. Glyphs are only read while our glass is on, so a reading taken with
+     * a dark app in front would otherwise outlive the glass and keep the tray white on the
+     * launcher's own light bar, with nothing left to correct it.
      */
     public static void forget() {
         sWallpaperLight = null;
+        sGlyph = null;
         sAskedAt = 0;
     }
 
