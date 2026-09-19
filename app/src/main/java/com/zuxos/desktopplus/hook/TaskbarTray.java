@@ -234,6 +234,13 @@ public final class TaskbarTray {
         }
     }
 
+    /** How much of the bar's right-hand end the tray occupies, margin included. */
+    static int trayWidth(ViewGroup dragLayer) {
+        View tray = dragLayer.findViewWithTag(TAG_TRAY);
+        int width = tray != null ? tray.getWidth() : 0;
+        return width + Ui.dp(dragLayer.getContext(), EDGE_MARGIN_DP);
+    }
+
     static int displayIdOf(View view) {
         try {
             return view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;

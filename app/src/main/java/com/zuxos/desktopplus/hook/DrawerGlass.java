@@ -191,33 +191,65 @@ final class DrawerGlass {
      * <p>Size matters as much as the background: a search box and a row of tabs have backgrounds
      * too, and glazing one of those would leave the sheet behind it exactly as opaque as before.
      */
+    /**
+     * The descendants worth looking at, no deeper than they need to be.
+     *
+     * <p>Bounded on purpose: this runs on every layout of a watched window, and sampling a
+     * background means allocating a bitmap and drawing into it. A sheet is near the top of its
+     * own window, not buried in a list row.
+     */
+    private static List<View> within(View root, int depth) {
+        List<View> out = new java.util.ArrayList<>();
+        collect(root, depth, out);
+        return out;
+    }
+
+    private static void collect(View root, int depth, List<View> out) {
+        if (depth < 0 || !(root instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) root;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            out.add(child);
+            collect(child, depth - 1, out);
+        }
+    }
+
     private static View paintedChild(View pane, View root, int depth) {
-        if (!(root instanceof ViewGroup) || depth > 3
-                || pane.getWidth() <= 0 || pane.getHeight() <= 0) {
+        if (pane.getWidth() <= 0 || pane.getHeight() <= 0) {
             // Before a layout every view is nought by nought and every test passes, which would
             // pick whatever came first and glaze it for good. The watcher asks again after the
             // window has been laid out.
             return null;
         }
-        ViewGroup group = (ViewGroup) root;
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            // Measured against the pane, not against whatever happens to be its parent: a search
-            // box fills its own little row completely, and that is exactly what this must not
-            // mistake for the sheet.
-            boolean large = child.getWidth() >= pane.getWidth() * 0.8f
-                    && child.getHeight() >= pane.getHeight() * 0.5f;
-            // Size first: sampling draws the drawable, and doing that to every view in the
-            // window on every layout would be a bitmap each for a question already answered.
-            if (large && child.getBackground() != null && sample(child.getBackground()) != 0) {
-                return child;
+        View best = null;
+        long bestArea = 0;
+        for (View child : within(root, 4)) {
+            if (child.getBackground() == null
+                    || child.getWidth() <= 0 || child.getHeight() <= 0) {
+                continue;
             }
-            View deeper = paintedChild(pane, child, depth + 1);
-            if (deeper != null) {
-                return deeper;
+            // The biggest of them, rather than the first one over a threshold. A fixed
+            // proportion is a guess about a layout nobody here has seen, and the log said the
+            // sheet was in this window while the threshold quietly rejected it.
+            long area = (long) child.getWidth() * child.getHeight();
+            if (area <= bestArea || area < (long) pane.getWidth() * pane.getHeight() / 4) {
+                continue;
             }
+            if (sample(child.getBackground()) == 0) {
+                continue;
+            }
+            best = child;
+            bestArea = area;
         }
-        return null;
+        if (best != null && SEEN.add("painted:" + best.getClass().getSimpleName())) {
+            L.i("drawer glass: the painted part of " + pane.getClass().getSimpleName() + " is "
+                    + best.getClass().getSimpleName() + " [" + best.getWidth() + "x"
+                    + best.getHeight() + "] in a pane of " + pane.getWidth() + "x"
+                    + pane.getHeight());
+        }
+        return best;
     }
 
     private static void apply(View sheet) {
