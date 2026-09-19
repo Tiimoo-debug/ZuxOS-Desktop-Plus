@@ -24,6 +24,7 @@ import android.widget.TextView;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.ModuleStatus;
 import com.zuxos.desktopplus.core.Prefs;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 
 /** Settings for the module, plus a short explanation of what to expect on the device. */
@@ -114,9 +115,11 @@ public class MainActivity extends Activity {
         addSwitch("Taskbar menu",
                 "Hold or right-click empty taskbar space for Task manager and settings",
                 Const.KEY_TASKBAR_MENU, true);
-        addSwitch("Dark tray text",
-                "Black text and icons, for the stock light taskbar. Turn off for a dark one",
-                Const.KEY_TASKBAR_DARK_TEXT, true);
+        addSpinner("Taskbar text and icons", new String[]{
+                        "Follow the background",
+                        "Always black",
+                        "Always white"},
+                Const.KEY_TASKBAR_TEXT_MODE, Tone.MODE_AUTO);
         addSwitch("Glass taskbar",
                 "Experimental. Replaces the taskbar's own bar with a translucent one. Whether it "
                         + "works depends on how your firmware paints that bar, so it starts off",

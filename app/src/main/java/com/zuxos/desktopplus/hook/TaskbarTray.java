@@ -12,10 +12,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Thermals;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.TrayIcons;
 import com.zuxos.desktopplus.core.Ui;
 
@@ -115,6 +117,27 @@ public final class TaskbarTray {
             detach(root);
         }
         TaskbarGlass.apply(root);
+        // After the glass, because whether it went on is half of what decides the tone, and the
+        // tray only repaints itself when the battery or the network moves - which could be
+        // minutes away.
+        retint();
+        if (root instanceof ViewGroup) {
+            TaskbarApps.describeLongPress((ViewGroup) root);
+        }
+    }
+
+    /** Repaints every tray, for when the reason its colour might change is not its own state. */
+    private static void retint() {
+        // The glyphs as well as the tray: they are tinted once when the glass goes on, so
+        // changing the setting afterwards would otherwise recolour the clock and leave back,
+        // home and recents as they were.
+        TaskbarGlass.retintNav();
+        for (WeakReference<View> ref : TRAYS.values()) {
+            View tray = ref != null ? ref.get() : null;
+            if (tray instanceof TrayView && tray.getParent() != null) {
+                ((TrayView) tray).render();
+            }
+        }
     }
 
     /**
@@ -347,13 +370,13 @@ public final class TaskbarTray {
         }
     }
 
-    /** Black on a light taskbar, white on a dark one; the taskbar here is light. */
+    /** One decision for everything on the bar; see {@code core/Tone.java}. */
     static int textColor() {
-        return Cfg.taskbarDarkText() ? 0xFF14161A : Ui.COLOR_TEXT;
+        return Tone.text(AppCtx.get());
     }
 
     static int dimTextColor() {
-        return Cfg.taskbarDarkText() ? 0xB314161A : Ui.COLOR_TEXT_DIM;
+        return Tone.dimText(AppCtx.get());
     }
 
     /** The row of indicators, which repaints itself whenever the state behind it moves. */

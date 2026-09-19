@@ -9,6 +9,7 @@ import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.view.View;
+import android.view.ViewGroup;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
@@ -94,7 +95,14 @@ final class TaskbarApps {
         // alongside a row of guesses, which is not what "only what is open" means.
         boolean recents = invoke(controller, "setCanShowRecentApps", false);
         if (running && recents) {
-            L.i("taskbar apps: running apps on, predictions off");
+            // Both setters took last time and the bar did not change, so the interesting part is
+            // what the controller says afterwards: if it reads back true and still shows the
+            // same pinned items, then this controller is not what fills this firmware's bar.
+            L.i("taskbar apps: running apps on, predictions off"
+                    + " - reads back " + read(controller, "getCanShowRunningApps")
+                    + ", shown=" + size(controller, "getShownHotseatItems")
+                    + ", tasks=" + size(controller, "getShownTasks")
+                    + ", running=" + size(controller, "getRunningTaskIds"));
         } else {
             L.w("taskbar apps: this controller has no setCanShowRunningApps/RecentApps - the "
                     + "taskbar will keep showing whatever it chose");
@@ -119,7 +127,81 @@ final class TaskbarApps {
         return false;
     }
 
+    private static String read(Object target, String getter) {
+        Object value = Reflect.call(target, getter);
+        return value == null ? "?" : String.valueOf(value);
+    }
+
+    /** How many things a getter handed back, for a getter that hands back a collection. */
+    private static String size(Object target, String getter) {
+        Object value = Reflect.call(target, getter);
+        if (value instanceof java.util.Collection) {
+            return String.valueOf(((java.util.Collection<?>) value).size());
+        }
+        if (value != null && value.getClass().isArray()) {
+            // Including int[], which getRunningTaskIds hands back and which is not an Object[].
+            return String.valueOf(java.lang.reflect.Array.getLength(value));
+        }
+        return value == null ? "?" : String.valueOf(value);
+    }
+
     // --- the menu on a long press ------------------------------------------
+
+    /**
+     * Who actually handles a long press on a taskbar icon.
+     *
+     * <p>The menu hooked last time turned out to be the app drawer's: the same popup controller
+     * serves both, and only the drawer goes through it. Rather than guess again, each icon is
+     * asked directly what its own long-click listener is - the answer is the thing to hook.
+     */
+    static void describeLongPress(ViewGroup dragLayer) {
+        if (sDescribedLongPress) {
+            return;
+        }
+        View row = TaskbarTray.rowReference(dragLayer);
+        if (!(row instanceof ViewGroup) || ((ViewGroup) row).getChildCount() == 0) {
+            return;
+        }
+        sDescribedLongPress = true;
+        StringBuilder sb = new StringBuilder();
+        ViewGroup icons = (ViewGroup) row;
+        for (int i = 0; i < icons.getChildCount() && i < 4; i++) {
+            View icon = icons.getChildAt(i);
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(icon.getClass().getSimpleName()).append(" -> ")
+                    .append(longClickListener(icon));
+        }
+        L.i("taskbar apps: long press is handled by " + sb);
+    }
+
+    private static boolean sDescribedLongPress;
+
+    /**
+     * An icon's long-click listener, out of the private box View keeps its listeners in.
+     *
+     * <p>{@code View.mListenerInfo} is where they all live and there is no getter for it; the
+     * class name of what is in there is the whole answer, so this reads it and nothing else.
+     */
+    private static String longClickListener(View icon) {
+        try {
+            java.lang.reflect.Field infoField = View.class.getDeclaredField("mListenerInfo");
+            infoField.setAccessible(true);
+            Object info = infoField.get(icon);
+            if (info == null) {
+                return "none";
+            }
+            java.lang.reflect.Field listenerField =
+                    info.getClass().getDeclaredField("mOnLongClickListener");
+            listenerField.setAccessible(true);
+            Object listener = listenerField.get(info);
+            return listener == null ? "none" : listener.getClass().getName();
+        } catch (Throwable t) {
+            return "unreadable (" + t + ")";
+        }
+    }
+
 
     /**
      * Replaces the launcher's own icon popup with ours.

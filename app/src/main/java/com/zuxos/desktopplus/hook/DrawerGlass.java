@@ -58,6 +58,8 @@ final class DrawerGlass {
     private static final Map<View, View.OnLayoutChangeListener> WATCHED = new WeakHashMap<>();
 
     private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
+    /** Windows already described once they had something in them. */
+    private static final java.util.Set<String> FILLED = new java.util.HashSet<>();
 
     private static boolean sDescribed;
 
@@ -140,6 +142,14 @@ final class DrawerGlass {
             @Override
             public void onLayoutChange(View v, int l, int t, int r, int b,
                     int ol, int ot, int or, int ob) {
+                // Said once, the moment this window stops being empty. If the drawer is not
+                // glazed after this, this line names every view it does contain - which is the
+                // one thing three rounds of guessing at Launcher3's names has not produced.
+                if (v instanceof ViewGroup && ((ViewGroup) v).getChildCount() > 0
+                        && FILLED.add(v.getClass().getSimpleName())) {
+                    L.i("drawer glass: " + v.getClass().getSimpleName() + " now holds "
+                            + contentsOf(v));
+                }
                 View sheet = pick(sheetsIn(v));
                 if (sheet == null) {
                     return;
@@ -272,6 +282,25 @@ final class DrawerGlass {
         if (SEEN.size() < 8 && SEEN.add(description)) {
             L.i("drawer glass: no sheet in " + description);
         }
+    }
+
+    /** Every distinct class in a window, with whichever of them owns a background marked. */
+    private static String contentsOf(View root) {
+        StringBuilder sb = new StringBuilder();
+        for (View child : Reflect.findByClassFragments(root, "")) {
+            String name = child.getClass().getSimpleName();
+            if (name.isEmpty() || sb.indexOf(name) >= 0 || sb.length() > 400) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(name);
+            if (child.getBackground() != null) {
+                sb.append("(bg:").append(describe(child.getBackground())).append(')');
+            }
+        }
+        return sb.toString();
     }
 
     private static String describe(Drawable drawable) {

@@ -172,9 +172,32 @@ public final class Cfg {
         return getBool(Const.KEY_TASKBAR_MENU, true);
     }
 
-    public static boolean taskbarDarkText() {
-        // The stock taskbar is light, so dark text is the readable default.
-        return getBool(Const.KEY_TASKBAR_DARK_TEXT, true);
+    /**
+     * Black, white, or read from the background.
+     *
+     * <p>Carries the old switch forward: somebody who turned "Dark tray text" off had chosen
+     * white, and replacing a setting is no reason to quietly undo their choice. Only when they
+     * never touched it does this fall through to deciding for itself.
+     */
+    public static int taskbarTextMode() {
+        int mode = getInt(Const.KEY_TASKBAR_TEXT_MODE, -1);
+        if (mode >= 0) {
+            return mode;
+        }
+        if (has(Const.KEY_TASKBAR_DARK_TEXT)) {
+            return getBool(Const.KEY_TASKBAR_DARK_TEXT, true) ? Tone.MODE_DARK : Tone.MODE_LIGHT;
+        }
+        return Tone.MODE_AUTO;
+    }
+
+    /** Whether a setting has ever been written, as opposed to having a default. */
+    private static boolean has(String key) {
+        XSharedPreferences p = prefs();
+        try {
+            return p != null && p.contains(key);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public static boolean taskbarGlass() {

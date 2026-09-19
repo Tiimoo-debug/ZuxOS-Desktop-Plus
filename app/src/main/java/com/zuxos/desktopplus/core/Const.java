@@ -59,8 +59,10 @@ public final class Const {
     public static final String KEY_TASKBAR_TEMPS = "taskbar_temps";
     /** Hold or right-click the taskbar for a menu. */
     public static final String KEY_TASKBAR_MENU = "taskbar_menu";
-    /** Dark tray text, for a light taskbar. */
+    /** Dark tray text, for a light taskbar. Superseded by {@link #KEY_TASKBAR_TEXT_MODE}. */
     public static final String KEY_TASKBAR_DARK_TEXT = "taskbar_dark_text";
+    /** Black, white, or decided from the background. See {@code core/Tone.java}. */
+    public static final String KEY_TASKBAR_TEXT_MODE = "taskbar_text_mode";
     /** Replace the taskbar's own opaque bar with a translucent, blurred one. */
     public static final String KEY_TASKBAR_GLASS = "taskbar_glass";
     /** Show only apps that are open in the stock taskbar, instead of its predictions. */

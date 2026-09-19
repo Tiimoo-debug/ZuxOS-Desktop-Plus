@@ -18,6 +18,7 @@ import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.lang.ref.WeakReference;
@@ -54,15 +55,6 @@ public final class TaskbarGlass {
     private static final int TINT_BOTTOM = 0x8C0E0E14;
 
     private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
-
-    /**
-     * The navigation glyphs' colour while the bar is glass.
-     *
-     * <p>Back, home and recents are painted for the stock light bar - all but black - and against
-     * a dark pane they are barely there. Near-white rather than pure white, which on glass reads
-     * as a highlight rather than as an icon.
-     */
-    private static final int NAV_TINT = 0xFFEDEFF5;
 
     /** The navigation buttons, by the ids Launcher3 gives them. */
     private static final String[] NAV_IDS = {"back", "home", "recent_apps"};
@@ -112,6 +104,9 @@ public final class TaskbarGlass {
             return;
         }
         sInstalled = true;
+        // What colour the bar's contents should be depends on whether it is our glass or the
+        // launcher's own bar, and this is the only thing that knows which.
+        Tone.glazedBy(TaskbarGlass::anyGlazed);
         try {
             Class<?> cls = Reflect.findClass(
                     "com.android.launcher3.taskbar.TaskbarDragLayer", loader);
@@ -271,6 +266,9 @@ public final class TaskbarGlass {
             PANES.put(root, new WeakReference<>(pane));
             sync(dragLayer, pane, reference);
             watch(dragLayer, pane, reference);
+            // The pane is in the map by now, so the tone already reads as a glazed bar - which
+            // is what the tint below asks about.
+            Tone.forget();
             brightenNavButtons(dragLayer);
             takeBackground(dragLayer);
             dragLayer.invalidate();
@@ -280,6 +278,7 @@ public final class TaskbarGlass {
             // stock one back rather than leaving a transparent taskbar behind.
             PANES.remove(root);
             unwatch(dragLayer);
+            Tone.forget();
             restoreNavButtons(dragLayer);
             L.e("taskbar glass: could not apply", t);
         }
@@ -346,7 +345,9 @@ public final class TaskbarGlass {
                 if (!ORIGINAL_NAV_TINTS.containsKey(icon)) {
                     ORIGINAL_NAV_TINTS.put(icon, new ColorStateList[]{icon.getImageTintList()});
                 }
-                icon.setImageTintList(ColorStateList.valueOf(NAV_TINT));
+                // The same decision the clock and the temperatures use, so the bar reads as one
+                // row rather than as a light half and a dark half.
+                icon.setImageTintList(ColorStateList.valueOf(TaskbarTray.textColor()));
                 tinted++;
             }
             if (tinted == 0) {
@@ -417,6 +418,28 @@ public final class TaskbarGlass {
         return pane != null && pane.getParent() != null;
     }
 
+    /** Whether any taskbar currently has a live pane. See {@link Tone#glazedBy}. */
+    static boolean anyGlazed() {
+        for (WeakReference<View> ref : PANES.values()) {
+            View pane = ref != null ? ref.get() : null;
+            if (pane != null && pane.getParent() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Re-tints the navigation glyphs of every glazed taskbar, for when the tone has moved. */
+    static void retintNav() {
+        for (Map.Entry<View, WeakReference<View>> entry : PANES.entrySet()) {
+            View pane = entry.getValue() != null ? entry.getValue().get() : null;
+            if (pane != null && pane.getParent() != null
+                    && entry.getKey() instanceof ViewGroup) {
+                brightenNavButtons((ViewGroup) entry.getKey());
+            }
+        }
+    }
+
     private static View paneIn(ViewGroup dragLayer) {
         WeakReference<View> ref = PANES.get(dragLayer);
         View pane = ref != null ? ref.get() : null;
@@ -437,6 +460,7 @@ public final class TaskbarGlass {
         // after their own colours had been put back.
         unwatch(dragLayer);
         PANES.remove(dragLayer);
+        Tone.forget();
         View pane = dragLayer.findViewWithTag(TAG_GLASS);
         if (pane != null && pane.getParent() instanceof ViewGroup) {
             ((ViewGroup) pane.getParent()).removeView(pane);
