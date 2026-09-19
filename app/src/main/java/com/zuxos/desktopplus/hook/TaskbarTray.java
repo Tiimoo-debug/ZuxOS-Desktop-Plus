@@ -76,6 +76,7 @@ public final class TaskbarTray {
         // and an early return from that search used to take them both down with it.
         TaskbarGlass.install(loader);
         TaskbarMenu.install(loader);
+        TaskbarApps.install(loader);
         try {
             Class<?> impl = Reflect.findClass("android.view.WindowManagerImpl", loader);
             if (impl == null) {

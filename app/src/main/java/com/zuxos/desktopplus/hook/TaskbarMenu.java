@@ -285,23 +285,39 @@ public final class TaskbarMenu {
     }
 
     static void show(View source, int displayId, float rawX) {
+        // The plain context, not a window one: these only start activities, and asking for a
+        // window context here made a second one for every menu - before we even knew whether a
+        // menu was allowed.
+        final Context ctx = source.getContext();
+        List<Entry> entries = new ArrayList<>();
+        entries.add(new Entry("Task manager", () -> launch(ctx, TASK_MANAGER_PKG, displayId)));
+        entries.add(new Entry("Desktop Plus settings",
+                () -> launch(ctx, Const.MODULE_PKG, displayId)));
+        entries.add(new Entry("Display settings",
+                () -> open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId)));
+        showEntries(source, displayId, rawX, entries);
+    }
+
+    /**
+     * The same menu, with whatever someone wants in it.
+     *
+     * <p>Split out so the menu for an app icon is this menu and not a second one that looks
+     * almost like it - one window, one glass pane, one set of rules about closing.
+     */
+    static boolean showEntries(View source, int displayId, float rawX, List<Entry> entries) {
         dismiss();
         if (!canShow(source.getContext())) {
             toast(source.getContext(),
                     "Allow \"display over other apps\" for the launcher to show this menu");
-            return;
+            return false;
+        }
+        if (entries.isEmpty()) {
+            return false;
         }
         // The taskbar's own context is bound to the taskbar's window type, and the window manager
         // refuses a window of any other type from it.
         final Context ctx = Overlays.windowContext(source.getContext());
         try {
-            List<Entry> entries = new ArrayList<>();
-            entries.add(new Entry("Task manager", () -> launch(ctx, TASK_MANAGER_PKG, displayId)));
-            entries.add(new Entry("Desktop Plus settings",
-                    () -> launch(ctx, Const.MODULE_PKG, displayId)));
-            entries.add(new Entry("Display settings",
-                    () -> open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId)));
-
             FrameLayout root = new FrameLayout(ctx);
             GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 16), 0x14FFFFFF);
             LinearLayout body = new LinearLayout(ctx);
@@ -379,8 +395,10 @@ public final class TaskbarMenu {
             sCurrent = root;
             sWm = wm;
             root.requestFocus();
+            return true;
         } catch (Throwable t) {
             L.e("could not show the taskbar menu", t);
+            return false;
         }
     }
 
@@ -390,6 +408,11 @@ public final class TaskbarMenu {
         tv.setTextColor(Ui.COLOR_TEXT);
         tv.setTextSize(14);
         tv.setSingleLine(true);
+        // An app's own shortcut titles come through here and some of them are sentences. Left to
+        // wrap the pane wider than the display, the clamp that keeps it on screen has nothing
+        // left to work with and the right-hand end simply falls off.
+        tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tv.setMaxWidth(Ui.dp(ctx, 300));
         int padH = Ui.dp(ctx, 18);
         int padV = Ui.dp(ctx, 11);
         tv.setPadding(padH, padV, padH, padV);
@@ -406,7 +429,7 @@ public final class TaskbarMenu {
         return tv;
     }
 
-    private static void launch(Context ctx, String pkg, int displayId) {
+    static void launch(Context ctx, String pkg, int displayId) {
         try {
             Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
             if (intent == null) {
@@ -421,7 +444,7 @@ public final class TaskbarMenu {
         }
     }
 
-    private static void open(Context ctx, String action, int displayId) {
+    static void open(Context ctx, String action, int displayId) {
         try {
             Intent intent = new Intent(action);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -433,7 +456,7 @@ public final class TaskbarMenu {
     }
 
     /** Whatever is opened has to land on the display the taskbar is on. */
-    private static Bundle launchOptions(int displayId) {
+    static Bundle launchOptions(int displayId) {
         try {
             ActivityOptions opts = ActivityOptions.makeBasic();
             if (displayId >= 0) {
@@ -453,7 +476,7 @@ public final class TaskbarMenu {
         }
     }
 
-    private static void toast(Context ctx, String msg) {
+    static void toast(Context ctx, String msg) {
         try {
             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show();
         } catch (Throwable ignored) {
@@ -461,7 +484,7 @@ public final class TaskbarMenu {
         }
     }
 
-    private static final class Entry {
+    static final class Entry {
         final String title;
         final Runnable action;
 

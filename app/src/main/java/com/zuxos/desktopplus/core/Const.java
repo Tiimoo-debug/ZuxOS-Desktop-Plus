@@ -63,6 +63,10 @@ public final class Const {
     public static final String KEY_TASKBAR_DARK_TEXT = "taskbar_dark_text";
     /** Replace the taskbar's own opaque bar with a translucent, blurred one. */
     public static final String KEY_TASKBAR_GLASS = "taskbar_glass";
+    /** Show only apps that are open in the stock taskbar, instead of its predictions. */
+    public static final String KEY_TASKBAR_RUNNING_ONLY = "taskbar_running_only";
+    /** Hold a taskbar icon for open, close, app info and the app's own shortcuts. */
+    public static final String KEY_TASKBAR_APP_MENU = "taskbar_app_menu";
     /** Translucent glass behind the launcher's own app drawer. */
     public static final String KEY_DRAWER_GLASS = "native_drawer_glass";
     /** Show notifications in the quick panel, through the module's own listener. */

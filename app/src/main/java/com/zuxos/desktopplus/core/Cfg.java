@@ -183,6 +183,16 @@ public final class Cfg {
         return getBool(Const.KEY_TASKBAR_GLASS, false);
     }
 
+    public static boolean taskbarRunningOnly() {
+        // Off by default: this changes what the stock taskbar shows, and a fresh install should
+        // leave the launcher's own idea of its bar alone until asked.
+        return getBool(Const.KEY_TASKBAR_RUNNING_ONLY, false);
+    }
+
+    public static boolean taskbarAppMenu() {
+        return getBool(Const.KEY_TASKBAR_APP_MENU, true);
+    }
+
     public static boolean drawerGlass() {
         return getBool(Const.KEY_DRAWER_GLASS, true);
     }
