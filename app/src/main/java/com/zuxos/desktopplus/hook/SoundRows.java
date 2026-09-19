@@ -190,57 +190,57 @@ public final class SoundRows {
             card.addView(scrim, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT));
+
+            // And a second one from the bottom: the transport sits over the lightest part of the
+            // artwork, where white on white is no button at all.
+            View base = new View(ctx);
+            base.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.BOTTOM_TOP,
+                    new int[]{0xCC101014, 0x40101014, 0x00101014}));
+            card.addView(base, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
         }
 
-        LinearLayout content = new LinearLayout(ctx);
-        content.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(ctx, 12);
-        content.setPadding(pad, pad, pad, pad);
-        card.addView(content, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
 
-        LinearLayout top = new LinearLayout(ctx);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.addView(appPill(ctx, pm, controller));
-        if (live.size() > 1) {
-            View spacer = new View(ctx);
-            top.addView(spacer, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            top.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 26, false,
-                    () -> step(live, index, -1, onChanged)));
-            top.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 26, false,
-                    () -> step(live, index, 1, onChanged)));
-        }
-        content.addView(top, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        // The artwork is the app, so pressing it opens the app - the same thing the system's
-        // own card does, and the reason it is the whole background rather than a thumbnail.
-        card.setOnClickListener(v -> {
-            QuickPanel.dismiss();
-            openApp(ctx, controller.getPackageName());
-        });
-
-        View filler = new View(ctx);
-        content.addView(filler, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        LinearLayout bottom = new LinearLayout(ctx);
-        bottom.setOrientation(LinearLayout.HORIZONTAL);
-        bottom.setGravity(Gravity.CENTER_VERTICAL);
-        content.addView(bottom, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        // Everything below is anchored to an edge of the card rather than stacked in a column.
+        // Stacked, the transport was the last thing measured and the first thing squeezed out
+        // when the artwork, the pill and the row of session arrows wanted the same space - which
+        // is how the play button went missing. Anchored, it cannot be pushed anywhere.
+        LinearLayout transport = new LinearLayout(ctx);
+        transport.setOrientation(LinearLayout.HORIZONTAL);
+        transport.setGravity(Gravity.CENTER_VERTICAL);
+        boolean playing = playback.getState() == PlaybackState.STATE_PLAYING;
+        transport.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 32, false,
+                () -> controller.getTransportControls().skipToPrevious()));
+        transport.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
+                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 42, true,
+                () -> {
+                    // Read now, not when this card was drawn: after the first press the card is
+                    // out of date, and a captured flag would pause a second time instead of
+                    // resuming.
+                    PlaybackState current = controller.getPlaybackState();
+                    boolean nowPlaying = current != null
+                            && current.getState() == PlaybackState.STATE_PLAYING;
+                    if (nowPlaying) {
+                        controller.getTransportControls().pause();
+                    } else {
+                        controller.getTransportControls().play();
+                    }
+                }));
+        transport.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 32, false,
+                () -> controller.getTransportControls().skipToNext()));
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+        plp.gravity = Gravity.BOTTOM | Gravity.END;
+        plp.rightMargin = pad;
+        plp.bottomMargin = pad;
+        card.addView(transport, plp);
 
         LinearLayout text = new LinearLayout(ctx);
         text.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        bottom.addView(text, tlp);
-
         String title = meta != null ? meta.getString(MediaMetadata.METADATA_KEY_TITLE) : null;
         TextView line = new TextView(ctx);
         line.setText(title != null && !title.isEmpty() ? title
@@ -262,27 +262,50 @@ public final class SoundRows {
             sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
             text.addView(sub);
         }
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+        tlp.gravity = Gravity.BOTTOM | Gravity.START;
+        tlp.leftMargin = pad;
+        // Clear of the transport, which owns the right-hand end of the card.
+        tlp.rightMargin = Ui.dp(ctx, 124);
+        tlp.bottomMargin = Ui.dp(ctx, 14);
+        card.addView(text, tlp);
 
-        boolean playing = playback.getState() == PlaybackState.STATE_PLAYING;
-        bottom.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 32, false,
-                () -> controller.getTransportControls().skipToPrevious()));
-        bottom.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
-                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 44, true,
-                () -> {
-                    // Read now, not when this card was drawn: after the first press the card is
-                    // out of date, and a captured flag would pause a second time instead of
-                    // resuming.
-                    PlaybackState current = controller.getPlaybackState();
-                    boolean nowPlaying = current != null
-                            && current.getState() == PlaybackState.STATE_PLAYING;
-                    if (nowPlaying) {
-                        controller.getTransportControls().pause();
-                    } else {
-                        controller.getTransportControls().play();
-                    }
-                }));
-        bottom.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 32, false,
-                () -> controller.getTransportControls().skipToNext()));
+        // The app's own badge, top left.
+        FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT);
+        alp.gravity = Gravity.TOP | Gravity.START;
+        alp.leftMargin = pad;
+        alp.topMargin = Ui.dp(ctx, 8);
+        card.addView(appPill(ctx, pm, controller), alp);
+
+        if (live.size() > 1) {
+            // Stepping between what is playing, kept apart from the transport so the two are not
+            // mistaken for each other - these are chevrons at the top, that is the player below.
+            LinearLayout steps = new LinearLayout(ctx);
+            steps.setOrientation(LinearLayout.HORIZONTAL);
+            steps.setGravity(Gravity.CENTER_VERTICAL);
+            steps.addView(transport(ctx, TrayIcons.chevronLeft(Ui.COLOR_TEXT), 26, false,
+                    () -> step(live, index, -1, onChanged)));
+            steps.addView(transport(ctx, TrayIcons.chevronRight(Ui.COLOR_TEXT), 26, false,
+                    () -> step(live, index, 1, onChanged)));
+            FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT);
+            slp.gravity = Gravity.TOP | Gravity.END;
+            slp.rightMargin = Ui.dp(ctx, 6);
+            slp.topMargin = Ui.dp(ctx, 4);
+            card.addView(steps, slp);
+        }
+
+        // The artwork is the app, so pressing it opens the app - the same thing the system's own
+        // card does. The buttons above take their own presses first.
+        card.setOnClickListener(v -> {
+            QuickPanel.dismiss();
+            openApp(ctx, controller.getPackageName());
+        });
 
         long duration = meta != null
                 ? meta.getLong(MediaMetadata.METADATA_KEY_DURATION) : 0L;
@@ -298,7 +321,7 @@ public final class SoundRows {
         }
 
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(ctx, 108));
+                LinearLayout.LayoutParams.MATCH_PARENT, Ui.dp(ctx, 116));
         clp.topMargin = Ui.dp(ctx, 6);
         card.setLayoutParams(clp);
         return card;

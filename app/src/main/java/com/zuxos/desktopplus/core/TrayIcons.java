@@ -269,6 +269,27 @@ public final class TrayIcons {
         };
     }
 
+    /** Chevrons, for stepping between things - deliberately not the media skip glyphs. */
+    public static Drawable chevronLeft(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawLine(14.5f, 5.5f, 8f, 12f, stroke);
+                canvas.drawLine(8f, 12f, 14.5f, 18.5f, stroke);
+            }
+        };
+    }
+
+    public static Drawable chevronRight(int color) {
+        return new BoxIcon(color) {
+            @Override
+            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
+                canvas.drawLine(9.5f, 5.5f, 16f, 12f, stroke);
+                canvas.drawLine(16f, 12f, 9.5f, 18.5f, stroke);
+            }
+        };
+    }
+
     /** A cog. */
     public static Drawable gear(int color) {
         return new BoxIcon(color) {
