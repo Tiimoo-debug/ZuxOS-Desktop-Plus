@@ -32,6 +32,7 @@ import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.TrayIcons;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.GlassSurface;
 
@@ -211,7 +212,7 @@ public final class QuickPanel {
         try {
             final int inset = TaskbarTray.barInset(anchor);
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), 0x14FFFFFF);
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx));
 
             ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);

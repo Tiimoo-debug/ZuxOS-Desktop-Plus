@@ -15,6 +15,7 @@ import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.GlassSurface;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 
 import java.util.List;
@@ -101,7 +102,7 @@ public final class NotifyPanel {
         try {
             final int inset = TaskbarTray.barInset(anchor);
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), 0x14FFFFFF);
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx));
 
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);

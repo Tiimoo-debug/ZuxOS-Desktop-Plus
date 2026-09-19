@@ -21,6 +21,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.GlassSurface;
 
@@ -319,7 +320,7 @@ public final class TaskbarMenu {
         final Context ctx = Overlays.windowContext(source.getContext());
         try {
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 16), 0x14FFFFFF);
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 16), Tone.panelTint(ctx));
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);
             int padV = Ui.dp(ctx, 8);

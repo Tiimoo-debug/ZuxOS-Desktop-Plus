@@ -171,6 +171,49 @@ final class DrawerGlass {
                 return view;
             }
         }
+        // None of the views named after the drawer paints anything. On this firmware the sheet
+        // you can see is a plain FrameLayout inside them with a GradientDrawable on it - the log
+        // named it - so the search goes one level down: whichever descendant is actually filling
+        // the pane is the one to replace.
+        for (int i = candidates.size() - 1; i >= 0; i--) {
+            View pane = candidates.get(i);
+            View painted = paintedChild(pane, pane, 0);
+            if (painted != null) {
+                return painted;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The nearest descendant that fills a real area with a real background.
+     *
+     * <p>Size matters as much as the background: a search box and a row of tabs have backgrounds
+     * too, and glazing one of those would leave the sheet behind it exactly as opaque as before.
+     */
+    private static View paintedChild(View pane, View root, int depth) {
+        if (!(root instanceof ViewGroup) || depth > 3 || pane.getWidth() <= 0) {
+            // Before a layout every view is nought by nought and every test passes, which would
+            // pick whatever came first and glaze it for good. The watcher asks again after the
+            // window has been laid out.
+            return null;
+        }
+        ViewGroup group = (ViewGroup) root;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            // Measured against the pane, not against whatever happens to be its parent: a search
+            // box fills its own little row completely, and that is exactly what this must not
+            // mistake for the sheet.
+            boolean large = child.getWidth() >= pane.getWidth() * 0.8f
+                    && child.getHeight() >= pane.getHeight() * 0.5f;
+            if (large && sample(child.getBackground()) != 0) {
+                return child;
+            }
+            View deeper = paintedChild(pane, child, depth + 1);
+            if (deeper != null) {
+                return deeper;
+            }
+        }
         return null;
     }
 

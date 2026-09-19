@@ -49,6 +49,17 @@ public final class Tone {
 
     private static volatile Glazed sGlazed;
 
+    /**
+     * What the launcher last painted its own navigation glyphs.
+     *
+     * <p>This is the answer to the question the wallpaper cannot answer. The system tells the
+     * taskbar whether what sits behind it is light or dark - it is the same signal that decides
+     * whether the navigation bar's own icons go black - and the launcher acts on it every time
+     * the app in front changes. So rather than guess from the wallpaper, which is only what you
+     * see when nothing is open, this watches what the launcher decided and agrees with it.
+     */
+    private static volatile Integer sGlyph;
+
     /** The wallpaper's answer, held briefly: it is a call into another process. */
     private static final long CACHE_MS = 30_000L;
     private static volatile Boolean sWallpaperLight;
@@ -85,6 +96,13 @@ public final class Tone {
             case MODE_LIGHT:
                 return true;
             default:
+                Integer glyph = sGlyph;
+                if (glyph != null) {
+                    // Agree with it, rather than reason about it. A light glyph means the
+                    // launcher decided the bar is dark, and everything else on that bar wants
+                    // to be light for the same reason.
+                    return isLight(glyph);
+                }
                 return glazed() && ctx != null && !wallpaperIsLight(ctx);
         }
     }
@@ -97,7 +115,44 @@ public final class Tone {
         return lightOnDark(ctx) ? LIGHT_DIM : DARK_DIM;
     }
 
-    /** Ask the wallpaper again next time - after it has changed, or the glass has. */
+    /**
+     * What a panel of ours should lay over its blur.
+     *
+     * <p>Our panels keep white text, so over a light app a nearly clear pane leaves that text on
+     * white. A darker scrim under it costs a little of the blur and keeps the panel readable,
+     * which is the better trade every time.
+     */
+    public static int panelTint(Context ctx) {
+        return lightOnDark(ctx) ? 0x26FFFFFF : 0x8C0E0E14;
+    }
+
+    private static boolean isLight(int color) {
+        double luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color)
+                + 0.114 * Color.blue(color)) / 255.0;
+        return luminance > 0.5;
+    }
+
+    /**
+     * Told what colour the launcher painted a navigation glyph.
+     *
+     * @return true when this is news, so the caller knows to repaint the rest of the bar
+     */
+    public static boolean observeGlyph(int color) {
+        Integer previous = sGlyph;
+        if (previous != null && previous == color) {
+            return false;
+        }
+        sGlyph = color;
+        return previous != null;
+    }
+
+    /**
+     * Ask the wallpaper again next time - after it has changed, or the glass has.
+     *
+     * <p>The glyph reading is deliberately kept. It is not about the wallpaper: the launcher
+     * paints its glyphs to contrast with the bar they sit on, whether that bar is our glass or
+     * its own, so it stays the better answer either way.
+     */
     public static void forget() {
         sWallpaperLight = null;
         sAskedAt = 0;

@@ -88,6 +88,15 @@ public final class TaskbarGlass {
 
     private static boolean sInstalled;
 
+    /**
+     * What we last painted each glyph.
+     *
+     * <p>Per button, not one value for all of them: with two displays there are two sets, and a
+     * single field means one taskbar reads back the other's colour as though the launcher had
+     * chosen it - which flips the tone and asks for a repaint, on every layout, for ever.
+     */
+    private static final Map<View, Integer> APPLIED_NAV = new WeakHashMap<>();
+
     private TaskbarGlass() {
     }
 
@@ -337,6 +346,7 @@ public final class TaskbarGlass {
         try {
             List<View> buttons = Reflect.findByIdNames(dragLayer, NAV_IDS);
             int tinted = 0;
+            boolean news = false;
             for (View button : buttons) {
                 if (!(button instanceof ImageView)) {
                     continue;
@@ -345,14 +355,30 @@ public final class TaskbarGlass {
                 if (!ORIGINAL_NAV_TINTS.containsKey(icon)) {
                     ORIGINAL_NAV_TINTS.put(icon, new ColorStateList[]{icon.getImageTintList()});
                 }
-                // The same decision the clock and the temperatures use, so the bar reads as one
-                // row rather than as a light half and a dark half.
-                icon.setImageTintList(ColorStateList.valueOf(TaskbarTray.textColor()));
+                // Read before it is written over. Whatever is here that we did not put here is
+                // the launcher's own answer to "is the thing behind this bar light or dark",
+                // which it revises every time the app in front changes - and which is the one
+                // thing on the bar that actually knows.
+                ColorStateList current = icon.getImageTintList();
+                Integer ours = APPLIED_NAV.get(icon);
+                if (current != null && (ours == null || ours != current.getDefaultColor())) {
+                    news |= Tone.observeGlyph(current.getDefaultColor());
+                }
+                int wanted = TaskbarTray.textColor();
+                APPLIED_NAV.put(icon, wanted);
+                icon.setImageTintList(ColorStateList.valueOf(wanted));
                 tinted++;
             }
             if (tinted == 0) {
                 L.d("taskbar glass: no navigation buttons found by id (tried "
                         + String.join(", ", NAV_IDS) + ")");
+            }
+            if (news) {
+                // The background changed under us, so everything else on the bar is now the
+                // wrong colour - including the glyphs just painted from the old answer. Posted,
+                // because this runs from a layout pass and the repaint adds and removes views.
+                L.i("taskbar glass: the background changed tone, repainting the bar");
+                dragLayer.post(TaskbarTray::refresh);
             }
         } catch (Throwable t) {
             L.d("taskbar glass: could not tint the navigation buttons (" + t + ")");
