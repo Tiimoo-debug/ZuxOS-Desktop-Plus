@@ -301,26 +301,33 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
 
     @Override
     public boolean onDrag(View v, DragEvent event) {
-        Object local = event.getLocalState();
-        if (!(local instanceof DragPayload)) {
+        // Asked of the description, not of the payload: a drag from another window - the stock
+        // drawer is one - hands over nothing readable until it is dropped, and answering false
+        // here would mean never hearing about the drop at all.
+        if (!DragPayload.isOurs(event)) {
             return false;
         }
-        DragPayload payload = (DragPayload) local;
+        DragPayload payload = DragPayload.of(event);
         switch (event.getAction()) {
             case DragEvent.ACTION_DRAG_STARTED:
                 return true;
             case DragEvent.ACTION_DRAG_LOCATION:
-                updateHint(payload, event.getX(), event.getY());
+                if (payload != null) {
+                    updateHint(payload, event.getX(), event.getY());
+                }
                 return true;
             case DragEvent.ACTION_DRAG_EXITED:
                 clearHint();
                 return true;
             case DragEvent.ACTION_DROP:
                 clearHint();
-                return handleDrop(payload, event.getX(), event.getY());
+                // A drag from another window is only readable now, and unreadable means a drop
+                // that does nothing rather than one that throws in the launcher's face.
+                return payload != null && payload.item != null
+                        && handleDrop(payload, event.getX(), event.getY());
             case DragEvent.ACTION_DRAG_ENDED:
                 clearHint();
-                if (mCallbacks != null) {
+                if (mCallbacks != null && payload != null) {
                     mCallbacks.onDragEnded(payload);
                 }
                 return true;

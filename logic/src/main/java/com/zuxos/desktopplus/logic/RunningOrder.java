@@ -47,6 +47,25 @@ public final class RunningOrder {
     }
 
     /**
+     * Whether an icon stands for anything that is open.
+     *
+     * <p>A list rather than one package, because a taskbar icon is not always one app: a folder is
+     * open when anything inside it is. Reading a folder as "no package at all" is what left an app
+     * launched from inside one looking closed.
+     */
+    public static boolean anyRunning(Collection<String> packages, Collection<String> running) {
+        if (packages == null || running == null) {
+            return false;
+        }
+        for (String pkg : packages) {
+            if (running.contains(pkg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * How many icons fit in the room there is.
      *
      * <p>The gap only falls between icons, so n icons take n sizes and n-1 gaps - which is why the

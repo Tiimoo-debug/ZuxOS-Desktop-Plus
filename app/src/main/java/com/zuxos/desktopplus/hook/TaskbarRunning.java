@@ -16,9 +16,12 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.logic.PinList;
 import com.zuxos.desktopplus.logic.RunningOrder;
+import com.zuxos.desktopplus.model.Item;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +67,15 @@ final class TaskbarRunning {
 
     /** Called whenever a taskbar is (re)attached, and then on its own every few seconds. */
     static void apply(ViewGroup dragLayer) {
-        if (!Cfg.taskbarRunningOnly()) {
+        // Both of these come first, and before any setting is read: the strip is what catches an
+        // app dropped on the bar, and nothing can be pinned until it is there - so a taskbar with
+        // every one of these settings off still has to be able to receive the first pin.
+        watchGeometry(dragLayer, TaskbarTray.rowReference(dragLayer));
+        TaskbarDrop.apply(dragLayer);
+
+        boolean onlyOpen = Cfg.taskbarRunningOnly();
+        List<Item> pins = TaskbarPins.pins(dragLayer.getContext());
+        if (!onlyOpen && pins.isEmpty() && !Cfg.runningMarks()) {
             restore(dragLayer);
             return;
         }
@@ -78,13 +89,18 @@ final class TaskbarRunning {
         }
         Set<String> running = running(dragLayer.getContext(), icons,
                 TaskbarTray.displayIdOf(dragLayer));
-        if (running.isEmpty()) {
+        if (onlyOpen && running.isEmpty()) {
             // Nothing readable: better to leave the launcher's bar alone than to empty it.
             restore(dragLayer);
             return;
         }
-        hideWhatIsNotOpen(icons, running);
-        extras(dragLayer, icons, running);
+        if (onlyOpen) {
+            hideWhatIsNotOpen(icons, running);
+        } else {
+            showEverythingAgain(icons);
+        }
+        extras(dragLayer, icons, running, pins, onlyOpen);
+        TaskbarMarks.apply(dragLayer, icons, running);
     }
 
     /**
@@ -115,10 +131,16 @@ final class TaskbarRunning {
         if (row != null) {
             dragLayer.removeView(row);
         }
+        TaskbarMarks.remove(dragLayer);
         ViewGroup icons = iconRow(dragLayer);
         if (icons == null) {
             return;
         }
+        showEverythingAgain(icons);
+    }
+
+    /** Puts back icons an earlier run hid, without touching anything else in the bar. */
+    private static void showEverythingAgain(ViewGroup icons) {
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
             View child = icons.getChildAt(i);
             if (HIDDEN.remove(child) != null) {
@@ -130,18 +152,21 @@ final class TaskbarRunning {
     private static void hideWhatIsNotOpen(ViewGroup icons, Set<String> running) {
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
             View child = icons.getChildAt(i);
-            String pkg = IconInfo.packageOfView(child);
-            if (pkg == null) {
+            // Everything the icon stands for: a folder in the bar is open when anything inside it
+            // is, which is what stopped a shortcut's app from being counted as closed.
+            List<String> packages = IconInfo.packagesOfView(child);
+            if (packages.isEmpty()) {
                 // The all-apps button and anything else without an app behind it stays.
                 continue;
             }
-            if (running.contains(pkg)) {
+            if (anyOf(packages, running)) {
                 if (HIDDEN.remove(child) != null) {
                     child.setVisibility(View.VISIBLE);
                 }
             } else if (child.getVisibility() == View.VISIBLE) {
                 HIDDEN.put(child, Boolean.TRUE);
                 child.setVisibility(View.GONE);
+                // (kept in HIDDEN so the setting going off puts it back exactly)
             }
         }
     }
@@ -154,19 +179,22 @@ final class TaskbarRunning {
      * {@code Reorderable}, so a plain image view there kills the process the moment the row
      * animates - which adding one is itself what triggers. So nothing of ours is ever its child.
      */
-    private static void extras(ViewGroup dragLayer, ViewGroup icons, Set<String> running) {
-        Set<String> missing = new LinkedHashSet<>(running);
+    private static void extras(ViewGroup dragLayer, ViewGroup icons, Set<String> running,
+            List<Item> pins, boolean onlyOpen) {
+        Set<String> missing = new LinkedHashSet<>(
+                onlyOpen ? running : Collections.<String>emptySet());
         for (int i = 0; i < icons.getChildCount(); i++) {
-            String pkg = IconInfo.packageOfView(icons.getChildAt(i));
-            if (pkg != null) {
+            for (String pkg : IconInfo.packagesOfView(icons.getChildAt(i))) {
                 missing.remove(pkg);
             }
         }
+        // An app that is pinned here already has an icon in this row; it does not need a second.
+        missing.removeAll(PinList.packagesOf(pins));
         // The launcher itself is the desktop, not an app you switch back to.
         missing.remove(dragLayer.getContext().getPackageName());
 
         RunningRow row = rowIn(dragLayer);
-        if (missing.isEmpty()) {
+        if (missing.isEmpty() && pins.isEmpty()) {
             if (row != null) {
                 dragLayer.removeView(row);
             }
@@ -180,27 +208,71 @@ final class TaskbarRunning {
         }
         int size = iconSize(icons);
         int gap = spacing(icons);
+        // The pins have the room first: they were put there on purpose, and what is merely open
+        // comes and goes.
+        int left = room(dragLayer) - pins.size() * (size + gap);
         List<String> wanted = RunningOrder.trimToFit(
-                RunningOrder.inOrder(row.mShowing, missing), room(dragLayer), size, gap);
-        if (wanted.equals(row.mShowing)) {
+                RunningOrder.inOrder(row.mRunning, missing), left, size, gap);
+        List<String> pinKeys = new ArrayList<>();
+        for (Item pin : pins) {
+            pinKeys.add(pin.key());
+        }
+        if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins)) {
             return;
         }
         row.removeAllViews();
+        Context ctx = dragLayer.getContext();
+        int displayId = TaskbarTray.displayIdOf(dragLayer);
+        List<String> shownPins = new ArrayList<>();
+        for (Item pin : pins) {
+            View icon = pinIcon(ctx, pin, size, displayId);
+            if (icon != null) {
+                add(row, icon, size, gap);
+                shownPins.add(pin.key());
+            }
+        }
         List<String> shown = new ArrayList<>();
         for (String pkg : wanted) {
-            View icon = iconFor(dragLayer.getContext(), pkg, size,
-                    TaskbarTray.displayIdOf(dragLayer));
-            if (icon == null) {
-                continue;
+            View icon = iconFor(ctx, pkg, size, displayId);
+            if (icon != null) {
+                add(row, icon, size, gap);
+                shown.add(pkg);
             }
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-            lp.leftMargin = row.getChildCount() == 0 ? 0 : gap;
-            row.addView(icon, lp);
-            shown.add(pkg);
         }
         // What went in, not what was asked for: an app whose icon could not be drawn would
         // otherwise be remembered as shown and never tried again.
-        row.mShowing = shown;
+        row.mRunning = shown;
+        row.mPins = shownPins;
+    }
+
+    private static void add(RunningRow row, View icon, int size, int gap) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        lp.leftMargin = row.getChildCount() == 0 ? 0 : gap;
+        row.addView(icon, lp);
+    }
+
+    /** Our row, for whoever needs to measure a drop against what is already in it. */
+    static ViewGroup rowOf(ViewGroup dragLayer) {
+        return rowIn(dragLayer);
+    }
+
+    /**
+     * Whether the launcher is already showing this app in its own row.
+     *
+     * <p>Pinning it again would put a second copy of the same icon on the same bar, a few pixels
+     * from the first, which looks like a bug whatever the reason for it.
+     */
+    static boolean alreadyInTheBar(ViewGroup dragLayer, String pkg) {
+        ViewGroup icons = iconRow(dragLayer);
+        if (icons == null || pkg == null) {
+            return false;
+        }
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            if (IconInfo.packagesOfView(icons.getChildAt(i)).contains(pkg)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static RunningRow rowIn(ViewGroup dragLayer) {
@@ -255,6 +327,9 @@ final class TaskbarRunning {
             if (current != null) {
                 place(dragLayer, current, reference);
             }
+            // The marks sit under the icons that moved, and the drop strip spans the same bar.
+            TaskbarMarks.refresh(dragLayer);
+            TaskbarDrop.apply(dragLayer);
         };
         if (reference != null) {
             reference.addOnLayoutChangeListener(again);
@@ -389,8 +464,10 @@ final class TaskbarRunning {
 
     /** Ours, and never a child of the launcher's icon row. */
     private static final class RunningRow extends LinearLayout {
-        /** In the order they are on screen, which is the order that has to hold still. */
-        List<String> mShowing = new ArrayList<>();
+        /** Pinned items, by key, in the order they are on screen. */
+        List<String> mPins = new ArrayList<>();
+        /** Open apps that are not pinned anywhere, in the order that has to hold still. */
+        List<String> mRunning = new ArrayList<>();
 
         RunningRow(Context ctx) {
             super(ctx);
@@ -597,6 +674,55 @@ final class TaskbarRunning {
         return Ui.dp(icons.getContext(), 44);
     }
 
+    /** True when any of these packages is in that set. */
+    private static boolean anyOf(List<String> packages, Set<String> running) {
+        for (String pkg : packages) {
+            if (running.contains(pkg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * An icon for something pinned here.
+     *
+     * <p>Pinned by us, in our own row, and so unpinned from the same menu - the launcher knows
+     * nothing about it either way.
+     */
+    private static View pinIcon(Context ctx, Item pin, int size, int displayId) {
+        if (pin.pkg == null) {
+            return null;
+        }
+        View icon = iconFor(ctx, pin.pkg, size, displayId);
+        if (icon == null) {
+            return null;
+        }
+        final String key = pin.key();
+        icon.setOnLongClickListener(v -> {
+            List<TaskbarMenu.Entry> entries = new ArrayList<>(
+                    TaskbarApps.entriesFor(ctx, pin.pkg, android.os.Process.myUserHandle(),
+                            displayId));
+            entries.add(new TaskbarMenu.Entry("Unpin", () -> {
+                TaskbarPins.unpin(ctx, key);
+                refreshAll();
+            }));
+            int[] at = new int[2];
+            v.getLocationOnScreen(at);
+            return TaskbarMenu.showEntries(v, displayId, at[0] + v.getWidth() / 2f, entries);
+        });
+        return icon;
+    }
+
+    /** Re-reads every taskbar, for when what the row should hold has just changed. */
+    private static void refreshAll() {
+        for (View root : Windows.roots()) {
+            if (root instanceof ViewGroup && rowIn((ViewGroup) root) != null) {
+                apply((ViewGroup) root);
+            }
+        }
+    }
+
     private static View iconFor(Context ctx, String pkg, int size, int displayId) {
         try {
             PackageManager pm = ctx.getPackageManager();
@@ -607,6 +733,9 @@ final class TaskbarRunning {
             view.setPadding(inset, inset, inset, inset);
             view.setContentDescription(pm.getApplicationLabel(
                     pm.getApplicationInfo(pkg, 0)).toString());
+            // What this icon stands for, read back by the marks and by anything else that asks an
+            // icon what it is. The launcher's own icons carry an item info here; ours carry this.
+            view.setTag(pkg);
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
             view.setOnClickListener(v -> {
                 try {

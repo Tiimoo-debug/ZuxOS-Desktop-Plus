@@ -281,30 +281,38 @@ final class TaskbarApps {
      */
     static boolean showMenu(View icon, String pkg, UserHandle user, int displayId) {
         try {
-            Context ctx = icon.getContext();
-            List<TaskbarMenu.Entry> entries = new ArrayList<>();
-
-            entries.add(new TaskbarMenu.Entry("Open",
-                    () -> TaskbarMenu.launch(ctx, pkg, displayId)));
-            entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
-            entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, pkg, displayId)));
-            for (ShortcutInfo shortcut : shortcuts(ctx, pkg, user)) {
-                CharSequence label = shortcut.getShortLabel() != null
-                        ? shortcut.getShortLabel() : shortcut.getLongLabel();
-                if (label == null) {
-                    continue;
-                }
-                entries.add(new TaskbarMenu.Entry(label.toString(),
-                        () -> startShortcut(ctx, shortcut, displayId)));
-            }
-
             int[] at = new int[2];
             icon.getLocationOnScreen(at);
-            return TaskbarMenu.showEntries(icon, displayId, at[0] + icon.getWidth() / 2f, entries);
+            return TaskbarMenu.showEntries(icon, displayId, at[0] + icon.getWidth() / 2f,
+                    entriesFor(icon.getContext(), pkg, user, displayId));
         } catch (Throwable t) {
             L.e("taskbar apps: could not show the icon menu", t);
             return false;
         }
+    }
+
+    /**
+     * What a taskbar icon offers: open it, close it, its settings, and its own shortcuts.
+     *
+     * <p>Handed out rather than shown, so that an icon with something extra to offer - a pin, which
+     * can also be unpinned - adds to this list instead of growing a second menu beside it.
+     */
+    static List<TaskbarMenu.Entry> entriesFor(Context ctx, String pkg, UserHandle user,
+            int displayId) {
+        List<TaskbarMenu.Entry> entries = new ArrayList<>();
+        entries.add(new TaskbarMenu.Entry("Open", () -> TaskbarMenu.launch(ctx, pkg, displayId)));
+        entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
+        entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, pkg, displayId)));
+        for (ShortcutInfo shortcut : shortcuts(ctx, pkg, user)) {
+            CharSequence label = shortcut.getShortLabel() != null
+                    ? shortcut.getShortLabel() : shortcut.getLongLabel();
+            if (label == null) {
+                continue;
+            }
+            entries.add(new TaskbarMenu.Entry(label.toString(),
+                    () -> startShortcut(ctx, shortcut, displayId)));
+        }
+        return entries;
     }
 
     /**

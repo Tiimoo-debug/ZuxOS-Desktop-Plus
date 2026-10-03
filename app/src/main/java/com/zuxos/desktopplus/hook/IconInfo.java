@@ -32,6 +32,10 @@ final class IconInfo {
         if (info == null || NativeDrawerHooks.isFolderEntry(info)) {
             return null;
         }
+        if (info instanceof String) {
+            // Our own icons, which carry their package and nothing else.
+            return ((String) info).isEmpty() ? null : (String) info;
+        }
         ComponentName component = NativeDrawerHooks.componentOf(info);
         if (component != null) {
             return component.getPackageName();
@@ -51,6 +55,70 @@ final class IconInfo {
     /** The package behind a view's tag, for a view that is a launcher icon. */
     static String packageOfView(android.view.View icon) {
         return icon == null ? null : packageOf(icon.getTag());
+    }
+
+    /**
+     * Everything an icon stands for - one app, or every app in a folder.
+     *
+     * <p>A folder in the taskbar is not one package, and treating it as none is what made an app
+     * opened from inside one count as closed: its folder stayed dark and the app turned up a second
+     * time in the row beside it. The contents list is found by type, the way everything else about
+     * the launcher's minified classes is found.
+     */
+    static java.util.List<String> packagesOfView(android.view.View icon) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        collect(icon == null ? null : icon.getTag(), out, 0);
+        return out;
+    }
+
+    private static void collect(Object info, java.util.List<String> out, int depth) {
+        if (info == null || depth > 2 || out.size() > 64) {
+            return;
+        }
+        String pkg = packageOf(info);
+        if (pkg != null) {
+            if (!out.contains(pkg)) {
+                out.add(pkg);
+            }
+            return;
+        }
+        for (Object child : childrenOf(info)) {
+            collect(child, out, depth + 1);
+        }
+    }
+
+    /**
+     * What a folder holds, if this is a folder.
+     *
+     * <p>By type and nothing else: {@code FolderInfo.contents} is minified to a single letter on
+     * this firmware, but it is still the only list of item-infos a folder carries.
+     */
+    private static java.util.List<Object> childrenOf(Object info) {
+        java.util.List<Object> out = new java.util.ArrayList<>();
+        if (info == null || NativeDrawerHooks.isFolderEntry(info)) {
+            // One of our own synthetic drawer folders; its children are ours, not the launcher's.
+            return out;
+        }
+        for (java.lang.reflect.Field field : Mirror.fields(info.getClass())) {
+            if (!java.util.List.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            Object value = Mirror.get(field, info);
+            if (!(value instanceof java.util.List) || ((java.util.List<?>) value).isEmpty()) {
+                continue;
+            }
+            for (Object child : (java.util.List<?>) value) {
+                // Only a list of things that are themselves icons - a folder's contents, not a
+                // list of listeners or of strings that happens to be on the same class.
+                if (child != null && NativeDrawerHooks.componentOf(child) != null) {
+                    out.add(child);
+                }
+            }
+            if (!out.isEmpty()) {
+                return out;
+            }
+        }
+        return out;
     }
 
     /** Which user the icon belongs to - a work-profile app is not the personal one. */

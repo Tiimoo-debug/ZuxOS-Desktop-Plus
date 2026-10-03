@@ -160,6 +160,21 @@ public final class Cfg {
         return getInt(Const.KEY_DRAWER_SORT, Const.SORT_CUSTOM);
     }
 
+    /**
+     * Hold an app in the stock drawer to drag it out.
+     *
+     * <p>On by default, but a setting all the same: holding an icon is the launcher's own gesture
+     * for its own popup, and taking it over is the sort of thing somebody will want to undo.
+     */
+    public static boolean drawerDrag() {
+        return getBool(Const.KEY_DRAWER_DRAG, true);
+    }
+
+    /** A mark under the taskbar icons whose apps are open. */
+    public static boolean runningMarks() {
+        return getBool(Const.KEY_RUNNING_MARKS, true);
+    }
+
     public static boolean taskbarTray() {
         return getBool(Const.KEY_TASKBAR_TRAY, true);
     }

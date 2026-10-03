@@ -427,8 +427,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         arrow.setVisibility(View.GONE);
         arrow.setOnClickListener(v -> goToPage(mPage + delta));
         arrow.setOnDragListener((v, event) -> {
-            Object local = event.getLocalState();
-            if (!(local instanceof DragPayload)) {
+            if (!DragPayload.isOurs(event)) {
                 return false;
             }
             switch (event.getAction()) {
@@ -440,9 +439,13 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 case android.view.DragEvent.ACTION_DRAG_EXITED:
                     v.setAlpha(0.8f);
                     return true;
-                case android.view.DragEvent.ACTION_DROP:
-                    moveToPage((DragPayload) local, mPage + delta);
+                case android.view.DragEvent.ACTION_DROP: {
+                    DragPayload payload = DragPayload.of(event);
+                    if (payload != null && payload.item != null) {
+                        moveToPage(payload, mPage + delta);
+                    }
                     return true;
+                }
                 default:
                     return true;
             }
@@ -529,23 +532,28 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         trash.setLayoutParams(lp);
         trash.setVisibility(View.GONE);
         trash.setOnDragListener((v, event) -> {
-            Object local = event.getLocalState();
-            if (!(local instanceof DragPayload)) {
+            if (!DragPayload.isOurs(event)) {
                 return false;
             }
-            DragPayload payload = (DragPayload) local;
             switch (event.getAction()) {
                 case android.view.DragEvent.ACTION_DRAG_STARTED:
-                    return payload.source != DragPayload.SRC_DRAWER;
+                    // Read off the clip's label, so this still answers for a drag that began in
+                    // another window. Nothing dragged out of a drawer is on the desktop yet, so
+                    // there is nothing for the Remove bar to take off it.
+                    return DragPayload.sourceOf(event) != DragPayload.SRC_DRAWER;
                 case android.view.DragEvent.ACTION_DRAG_ENTERED:
                     v.setAlpha(1f);
                     return true;
                 case android.view.DragEvent.ACTION_DRAG_EXITED:
                     v.setAlpha(0.75f);
                     return true;
-                case android.view.DragEvent.ACTION_DROP:
-                    removeItem(payload);
+                case android.view.DragEvent.ACTION_DROP: {
+                    DragPayload payload = DragPayload.of(event);
+                    if (payload != null && payload.item != null) {
+                        removeItem(payload);
+                    }
                     return true;
+                }
                 default:
                     return true;
             }

@@ -71,6 +71,10 @@ public final class Const {
     public static final String KEY_TASKBAR_APP_MENU = "taskbar_app_menu";
     /** Translucent glass behind the launcher's own app drawer. */
     public static final String KEY_DRAWER_GLASS = "native_drawer_glass";
+    /** Hold an app in the stock drawer to drag it onto the desktop or the taskbar. */
+    public static final String KEY_DRAWER_DRAG = "native_drawer_drag";
+    /** A mark under every taskbar icon whose app is open. */
+    public static final String KEY_RUNNING_MARKS = "taskbar_running_marks";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */
@@ -83,6 +87,8 @@ public final class Const {
     /** Files inside {@link #DATA_DIR}. */
     public static final String FILE_DESKTOP = "desktop.json";
     public static final String FILE_DRAWER = "drawer.json";
+    /** Apps pinned to the taskbar by this module - never the launcher's own hotseat. */
+    public static final String FILE_TASKBAR_PINS = "taskbar.json";
     public static final String FILE_PROBE = "probe.txt";
     public static final String FILE_LOG = "module.log";
 

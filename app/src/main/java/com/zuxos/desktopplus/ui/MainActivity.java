@@ -132,6 +132,15 @@ public class MainActivity extends Activity {
                 "Hold an app in the taskbar for open, close, app info and the app's own "
                         + "shortcuts",
                 Const.KEY_TASKBAR_APP_MENU, true);
+        addSwitch("Mark the apps that are open",
+                "A line under every taskbar icon whose app is running - including shortcuts and "
+                        + "folders, which otherwise look the same open or closed",
+                Const.KEY_RUNNING_MARKS, true);
+        addSwitch("Drag apps out of the stock drawer",
+                "Hold an app in the launcher's own drawer to drag it onto the desktop, or onto "
+                        + "the taskbar to pin it there. Pins are this module's own and go away "
+                        + "with it; the launcher's own hotseat is never written to",
+                Const.KEY_DRAWER_DRAG, true);
         addSwitch("Glass app drawer",
                 "Puts the same translucent pane behind the launcher's own app drawer, in whatever "
                         + "tone the drawer already uses so its labels stay readable",
