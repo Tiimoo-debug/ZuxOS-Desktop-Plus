@@ -526,6 +526,93 @@ public final class NativeDrawerHooks {
         return null;
     }
 
+    /**
+     * Hold anything in the stock drawer and it comes out with your finger.
+     *
+     * <p>Claimed at {@code performLongClick}, which is hooked on {@code View} itself and therefore
+     * fires for every view in the launcher - the desktop's own icons and the taskbar's among them,
+     * both of which have gestures of their own. So this is deliberately narrow: an entry we can
+     * read, inside the stock drawer's window and nowhere else.
+     *
+     * <p>The drag is global and carries its payload on the clip, because it has to cross from the
+     * drawer's window into the launcher's activity, where the desktop is - and a local state
+     * object does not survive that trip.
+     */
+    private static boolean dragOut(View view) {
+        if (!Cfg.enabled() || !Cfg.drawerDrag()) {
+            return false;
+        }
+        try {
+            if (view.getClass().getName().startsWith("com.zuxos")) {
+                // One of ours. Our own views arrange their own drags.
+                return false;
+            }
+            if (!inStockDrawer(view)) {
+                return false;
+            }
+            Object tag = view.getTag();
+            // A folder first, because a folder has no package and would otherwise be refused -
+            // which is why folders were the one thing in the drawer that would not come out.
+            Item item = folderBehind(view);
+            if (item == null) {
+                String pkg = IconInfo.packageOf(tag);
+                item = pkg == null ? null : itemFor(view.getContext(), tag, pkg);
+            }
+            if (item == null) {
+                return false;
+            }
+            DragPayload payload = new DragPayload(item, DragPayload.SRC_DRAWER, null);
+            boolean started = view.startDragAndDrop(payload.toClip(),
+                    new View.DragShadowBuilder(view), payload,
+                    View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
+            if (!started) {
+                return false;
+            }
+            // Posted, not called: the drag has to be under way before the window it started in
+            // goes, and until that window goes there is nothing visible to drop onto.
+            view.post(TaskbarBridge::closeStockDrawer);
+            return true;
+        } catch (Throwable t) {
+            L.d("native drawer: could not start a drag (" + t + ")");
+            return false;
+        }
+    }
+
+    /** Whether a view is inside the drawer's own window rather than some other one. */
+    private static boolean inStockDrawer(View view) {
+        View root = TaskbarBridge.stockDrawerRoot();
+        if (root == null) {
+            return false;
+        }
+        for (View v = view; v != null; ) {
+            if (v == root) {
+                return true;
+            }
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return false;
+    }
+
+    /** An entry in the launcher's drawer, as one of our items. */
+    private static Item itemFor(Context ctx, Object entry, String pkg) {
+        ComponentName component = componentOf(entry);
+        if (component == null) {
+            return null;
+        }
+        String label = titleOf(entry);
+        return Item.app(pkg, component.getClassName(), serialOf(ctx, IconInfo.userOf(entry)),
+                label == null || label.isEmpty() ? pkg : label);
+    }
+
+    private static long serialOf(Context ctx, UserHandle user) {
+        try {
+            UserManager users = (UserManager) ctx.getSystemService(Context.USER_SERVICE);
+            return users == null ? 0L : users.getSerialNumberForUser(user);
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
     /** True for one of the synthetic entries this class puts in the drawer for a folder. */
     static boolean isFolderEntry(Object entry) {
         return !sFolderEntries.isEmpty() && folderIdOf(entry) != null;
