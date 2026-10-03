@@ -499,7 +499,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mNextPage.setVisibility(mPage < pages - 1 ? View.VISIBLE : View.GONE);
 
         mDots.removeAllViews();
-        mDots.setVisibility(pages > 1 ? View.VISIBLE : View.GONE);
+        mDots.setVisibility(pages > 1 && Cfg.pageDots() ? View.VISIBLE : View.GONE);
         // Above the taskbar, not under it: the bar covers the bottom of this activity, and dots
         // behind its glass read as part of the bar - blurred, and in the way of nothing useful.
         FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
@@ -705,16 +705,17 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             if (!Cfg.widgetsEnabled()) {
                 return true;
             }
+            int width = mGrid.getCellWidth() * item.spanX;
+            int height = mGrid.getCellHeight() * item.spanY;
+            boolean sized = mGrid.getCellWidth() > 1 && mGrid.getCellHeight() > 1;
             WidgetFrame existing = mReusableWidgets != null ? mReusableWidgets.remove(item.id) : null;
-            if (existing != null) {
+            if (existing != null && existing.builtWidth == width
+                    && existing.builtHeight == height) {
                 place(existing, item);
-                View widget = existing.widgetView();
-                if (widget instanceof AppWidgetHostView) {
-                    mWidgets.updateSize((AppWidgetHostView) widget,
-                            mGrid.getCellWidth() * item.spanX, mGrid.getCellHeight() * item.spanY);
-                }
                 return true;
             }
+            // Otherwise built for another size - or before the grid had one at all, which is
+            // what a launcher restart does - so it gets a fresh view rather than a resize.
             AppWidgetHostView view = mWidgets.createView(item);
             if (view == null) {
                 mWidgets.deleteWidget(item.widgetId);
@@ -724,8 +725,30 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             frame.addView(view, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             place(frame, item);
-            mWidgets.updateSize(view, mGrid.getCellWidth() * item.spanX,
-                    mGrid.getCellHeight() * item.spanY);
+            if (sized) {
+                mWidgets.updateSize(view, width, height);
+                frame.builtWidth = width;
+                frame.builtHeight = height;
+            } else {
+                // The grid has not measured its cells yet. Telling the widget it is 1px would
+                // lay it out for that; it is rebuilt at its real size once the grid knows it.
+                mGrid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                    @Override
+                    public void onLayoutChange(View v, int l, int t, int r, int b,
+                            int ol, int ot, int or, int ob) {
+                        if (mGrid.getCellWidth() <= 1) {
+                            return;
+                        }
+                        mGrid.removeOnLayoutChangeListener(this);
+                        // Posted: rebuilding inside a layout pass would ask for another one.
+                        mGrid.post(() -> {
+                            if (mGrid.viewForItem(item) == frame) {
+                                rebuildWidgetView(item);
+                            }
+                        });
+                    }
+                });
+            }
             return true;
         }
 

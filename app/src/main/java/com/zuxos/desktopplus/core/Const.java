@@ -40,6 +40,7 @@ public final class Const {
     public static final String KEY_DRAWER_BUTTON = "drawer_button";
     public static final String KEY_CATCH_PINS = "catch_pinned_shortcuts";
     public static final String KEY_PAGES = "pages_enabled";
+    public static final String KEY_PAGE_DOTS = "page_dots";
     public static final String KEY_GLASS = "glass_style";
     public static final String KEY_ANIMATIONS = "animations";
     public static final String KEY_LABEL_SHADOW = "label_shadow";

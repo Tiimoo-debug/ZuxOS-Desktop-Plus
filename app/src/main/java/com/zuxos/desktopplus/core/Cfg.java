@@ -144,6 +144,16 @@ public final class Cfg {
         return getBool(Const.KEY_PAGES, true);
     }
 
+    /**
+     * Dots under the desktop for its pages.
+     *
+     * <p>Off by default: the arrows at the sides already say there is another page, and dots at
+     * the bottom of the screen sit just above the taskbar, where they read as part of it.
+     */
+    public static boolean pageDots() {
+        return getBool(Const.KEY_PAGE_DOTS, false);
+    }
+
     public static boolean glass() {
         return getBool(Const.KEY_GLASS, true);
     }

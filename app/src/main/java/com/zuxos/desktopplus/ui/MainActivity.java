@@ -81,8 +81,12 @@ public class MainActivity extends Activity {
                 "Off by default - the stock taskbar covers it. The drawer still opens from the "
                         + "desktop menu or the All-apps key",
                 Const.KEY_DRAWER_BUTTON, false);
-        addSwitch("Desktop pages", "Arrows and dots for more than one page of icons",
+        addSwitch("Desktop pages", "More than one page of icons, with arrows to move between them",
                 Const.KEY_PAGES, true);
+        addSwitch("Page dots",
+                "Dots under the desktop for its pages. The arrows at the sides already show "
+                        + "there is another page",
+                Const.KEY_PAGE_DOTS, false);
         addSwitch("Catch pinned shortcuts",
                 "A web page or file pinned from any app also lands on the desktop",
                 Const.KEY_CATCH_PINS, true);

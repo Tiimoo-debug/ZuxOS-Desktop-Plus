@@ -521,6 +521,10 @@ final class TaskbarRunning {
             super(ctx);
             setHorizontalScrollBarEnabled(false);
             setOverScrollMode(OVER_SCROLL_NEVER);
+            // More icons than room: the ends fade out instead of anything being drawn on top,
+            // which is the whole indication there is more to scroll to - and nothing when not.
+            setHorizontalFadingEdgeEnabled(true);
+            setFadingEdgeLength(Ui.dp(ctx, 28));
             // Nothing here reacts to a touch unless it is a scroll, so a tap goes to the icon.
             setFillViewport(false);
         }

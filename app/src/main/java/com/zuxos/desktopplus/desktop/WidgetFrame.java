@@ -39,6 +39,14 @@ public class WidgetFrame extends FrameLayout {
     private final int mTouchSlop;
     private final Runnable mLongPress = this::hold;
 
+    /**
+     * The size the widget's view was built for, in pixels; 0 when it was built before the desktop
+     * knew its cell size. A widget only told a new size keeps the layout it was inflated with and
+     * draws outside its frame, so a frame built for another size is rebuilt, not resized.
+     */
+    int builtWidth;
+    int builtHeight;
+
     private float mDownX;
     private float mDownY;
     private boolean mHeld;
