@@ -1,14 +1,7 @@
 package com.zuxos.desktopplus.hook;
 
-import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.drawable.BitmapDrawable;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
@@ -19,52 +12,70 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * The drawer button, at the end of the bar where a desktop keeps it.
+ * The launcher's drawer button, moved to the left end of the bar where a desktop keeps it.
  *
- * <p>ZUI puts its all-apps button at the right-hand end of the centred icon cluster, which leaves
- * it floating in the middle of the bar once there are open apps either side of it. Every desktop
- * since Windows 95 puts that button in a corner, so this moves it to the left, beside the
- * navigation keys.
+ * <p>ZUI lays its all-apps button out at the right-hand end of the centred icon cluster, which
+ * leaves it floating in the middle of the bar once open apps sit either side of it. This moves
+ * <em>that</em> button - ZUI's own view, its own icon, its own click and animation - to just right
+ * of the navigation keys. Nothing is hidden and nothing is drawn in its place.
  *
- * <p>Moved, not rebuilt. The launcher's own button is hidden and ours is a <em>picture of it</em> -
- * drawn from the real view, so it looks exactly like whatever the firmware draws - and a tap calls
- * {@code performClick()} on the hidden original. The drawer opens the launcher's own way, with the
- * launcher's own animation, and nothing about how it opens is reimplemented here.
- *
- * <p>If the picture cannot be taken, the launcher's button is left exactly where it is. No setting
- * should be able to leave somebody with no way into their app drawer.
+ * <p>Moved with {@code translationX}, not by re-parenting or re-laying-out: the button stays a
+ * child of {@code TaskbarView} exactly where ZUI put it, so nothing of the launcher's idea of its
+ * own row changes, and taking the translation off puts it back. A translated view is drawn and
+ * touched where it appears, so it works where it is seen.
  */
 final class TaskbarStart {
 
-    private static final Map<View, Boolean> HIDDEN = new WeakHashMap<>();
+    /** ZUI's buttons we have moved, so the setting going off can put them back. */
+    private static final Map<View, Boolean> MOVED = new WeakHashMap<>();
 
     private TaskbarStart() {
     }
 
-    /** Puts our button in, or takes it out and gives the launcher its own back. */
+    /** Moves the launcher's button to the left of the bar, or back where ZUI put it. */
     static void apply(ViewGroup dragLayer, ViewGroup icons) {
         try {
-            View original = allAppsButton(icons);
-            StartButton ours = buttonIn(dragLayer);
-            if (!Cfg.startButtonLeft() || original == null) {
-                if (ours != null) {
-                    dragLayer.removeView(ours);
-                }
-                show(original);
+            View button = allAppsButton(icons);
+            if (button == null) {
                 return;
             }
-            if (ours == null) {
-                ours = add(dragLayer, original);
-                if (ours == null) {
-                    // Nothing was hidden, because nothing replaced it.
-                    return;
+            if (!Cfg.startButtonLeft()) {
+                if (MOVED.remove(button) != null) {
+                    button.setTranslationX(0f);
+                }
+                return;
+            }
+            if (button.getWidth() <= 0 || icons.getWidth() <= 0) {
+                // Not laid out yet; the layout listener in TaskbarRunning brings us back.
+                return;
+            }
+            int target = targetLeft(dragLayer, icons);
+            if (target < 0) {
+                return;
+            }
+            float shift = target - button.getLeft();
+            if (button.getTranslationX() != shift) {
+                boolean first = !MOVED.containsKey(button);
+                MOVED.put(button, Boolean.TRUE);
+                button.setTranslationX(shift);
+                if (first) {
+                    L.i("taskbar start: moved the launcher's drawer button by " + (int) shift
+                            + "px, to x=" + target + " beside the navigation keys");
                 }
             }
-            ours.place(dragLayer);
-            hide(original);
         } catch (Throwable t) {
             L.d("taskbar start: not moved (" + t + ")");
         }
+    }
+
+    /**
+     * Whether this child of the icon row is the button we moved away.
+     *
+     * <p>Its laid-out slot is still at the end of the cluster, empty now, and anything measuring
+     * where the launcher's icons end has to skip it or it measures to a hole.
+     */
+    static boolean isMoved(View child) {
+        return MOVED.containsKey(child) && child.getTranslationX() != 0f;
     }
 
     /** The launcher's own all-apps button, by the name its class carries on every build. */
@@ -73,133 +84,46 @@ final class TaskbarStart {
             return null;
         }
         for (View view : Reflect.findByClassFragments(icons, "AllAppsButton")) {
-            return view;
-        }
-        return null;
-    }
-
-    private static StartButton buttonIn(ViewGroup dragLayer) {
-        for (int i = 0; i < dragLayer.getChildCount(); i++) {
-            if (dragLayer.getChildAt(i) instanceof StartButton) {
-                return (StartButton) dragLayer.getChildAt(i);
+            // The container, not the icon inside it: it is the row's own child, and only a
+            // child of the row has a left edge in the row's coordinates.
+            if (view.getParent() == icons) {
+                return view;
             }
         }
         return null;
-    }
-
-    private static StartButton add(ViewGroup dragLayer, View original) {
-        Bitmap picture = pictureOf(original);
-        if (picture == null) {
-            L.w("taskbar start: the launcher's drawer button could not be copied, so it stays "
-                    + "where it is");
-            return null;
-        }
-        View reference = TaskbarTray.rowReference(dragLayer);
-        ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
-        if (!(lp instanceof FrameLayout.LayoutParams)) {
-            return null;
-        }
-        StartButton button = new StartButton(dragLayer.getContext(), original, picture, reference);
-        dragLayer.addView(button, lp);
-        L.i("taskbar start: the drawer button sits at the left of the bar now");
-        return button;
     }
 
     /**
-     * The button as it is drawn, as a bitmap.
+     * Where the button should start, in the icon row's coordinates.
      *
-     * <p>A copy of the pixels rather than an attempt to find the drawable inside it: the button is
-     * a container with a themed icon inside, and whichever of those a firmware uses, what it draws
-     * is what we want.
+     * <p>Measured against {@code end_nav_buttons} itself and nothing broader. The previous build
+     * also accepted {@code navbuttons_view}, which on this bar is the full 2560px wide - and so
+     * put the button at x=2576, off the edge of the screen.
      */
-    private static Bitmap pictureOf(View view) {
-        try {
-            if (view.getWidth() <= 0 || view.getHeight() <= 0) {
-                return null;
-            }
-            Bitmap bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(),
-                    Bitmap.Config.ARGB_8888);
-            view.draw(new Canvas(bitmap));
-            return bitmap;
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static void hide(View original) {
-        if (original != null && original.getVisibility() == View.VISIBLE) {
-            HIDDEN.put(original, Boolean.TRUE);
-            original.setVisibility(View.GONE);
-            if (original.getParent() instanceof View) {
-                ((View) original.getParent()).requestLayout();
-            }
-        }
-    }
-
-    private static void show(View original) {
-        if (original != null && HIDDEN.remove(original) != null) {
-            original.setVisibility(View.VISIBLE);
-            if (original.getParent() instanceof View) {
-                ((View) original.getParent()).requestLayout();
-            }
-        }
-    }
-
-    /** Ours: a picture of the launcher's button that forwards its taps to the real one. */
-    private static final class StartButton extends ImageView {
-
-        private final View mOriginal;
-        private final View mReference;
-
-        StartButton(Context ctx, View original, Bitmap picture, View reference) {
-            super(ctx);
-            mOriginal = original;
-            mReference = reference;
-            setImageDrawable(new BitmapDrawable(ctx.getResources(), picture));
-            setContentDescription("All apps");
-            setBackground(Ui.ripple(ctx, 0x00000000, picture.getWidth() / 2));
-            // The launcher's own button does the work, hidden or not: a click listener fires
-            // whether or not the view it is on can be seen.
-            setOnClickListener(v -> mOriginal.performClick());
-            setOnLongClickListener(v -> mOriginal.performLongClick());
-        }
-
-        void place(ViewGroup dragLayer) {
-            ViewGroup.LayoutParams raw = getLayoutParams();
-            if (!(raw instanceof FrameLayout.LayoutParams)) {
-                return;
-            }
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-            int size = mOriginal.getWidth() > 0 ? mOriginal.getWidth() : Ui.dp(getContext(), 44);
-            int left = navButtonsEnd(dragLayer) + Ui.dp(getContext(), 12);
-            int top = mReference != null && mReference.getHeight() > 0 ? mReference.getTop() : 0;
-            int height = mReference != null && mReference.getHeight() > 0
-                    ? mReference.getHeight() : size;
-            if (lp.leftMargin == left && lp.topMargin == top && lp.height == height
-                    && lp.width == size) {
-                return;
-            }
-            lp.gravity = Gravity.TOP | Gravity.START;
-            lp.leftMargin = left;
-            lp.topMargin = top;
-            lp.width = size;
-            lp.height = height;
-            setLayoutParams(lp);
-        }
-
-        /** Where the navigation keys end, so the button sits beside them rather than on them. */
-        private int navButtonsEnd(ViewGroup dragLayer) {
-            for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons",
-                    "start_contextual_buttons", "navbuttons_view")) {
-                if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
-                    int[] at = new int[2];
-                    int[] layer = new int[2];
-                    view.getLocationOnScreen(at);
-                    dragLayer.getLocationOnScreen(layer);
-                    return at[0] - layer[0] + view.getWidth();
+    private static int targetLeft(ViewGroup dragLayer, ViewGroup icons) {
+        int gap = Ui.dp(dragLayer.getContext(), 16);
+        int navEnd = -1;
+        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
+            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
+                int right = offsetIn(dragLayer, view) + view.getWidth();
+                // Keys on the right-hand side (the tablet's own bar) say nothing about where the
+                // left end of the bar is.
+                if (right < dragLayer.getWidth() / 2) {
+                    navEnd = right;
                 }
+                break;
             }
-            return Ui.dp(getContext(), 8);
         }
+        int left = (navEnd >= 0 ? navEnd : 0) + gap;
+        return left - offsetIn(dragLayer, icons);
+    }
+
+    private static int offsetIn(ViewGroup dragLayer, View view) {
+        int left = 0;
+        for (View v = view; v != null && v != dragLayer; ) {
+            left += v.getLeft();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return left;
     }
 }

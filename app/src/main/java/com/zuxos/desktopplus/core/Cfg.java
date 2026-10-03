@@ -181,12 +181,13 @@ public final class Cfg {
     }
 
     /**
-     * Keep the launcher's overview down while an app is opening.
+     * Hide the recommended apps ZUI puts back in the taskbar on every launch, straight away.
      *
-     * <p>On by default: it only suppresses a view appearing on its own during a launch, never one
-     * you asked for, and the flash it removes is a plain glitch.
+     * <p>On by default, and only does anything with "Only open apps in the taskbar" on: it hides
+     * the same icons that setting already hides, just in the frame they appear in rather than at
+     * the next refresh. The key keeps its old name so an existing choice carries over.
      */
-    public static boolean hideRecentsFlash() {
+    public static boolean hideRecommendedFlash() {
         return getBool(Const.KEY_HIDE_RECENTS_FLASH, true);
     }
 

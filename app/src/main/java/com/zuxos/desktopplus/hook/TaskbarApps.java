@@ -230,8 +230,8 @@ final class TaskbarApps {
      * listener at all - {@code long press is handled by DoubleShadowBubbleTextView -> none} - so a
      * hold there does nothing whatsoever. One is set here, on each icon as the row is walked.
      *
-     * <p>What was there before is remembered, which on this firmware is nothing, and put back by
-     * {@link #forgetMenus} when the setting goes off - so this is as reversible as the rest.
+     * <p>The icons we touched are remembered and cleared by {@link #forgetMenus} when the setting
+     * goes off. Whatever ZUI had set is not restored, but it is named in the log the first time.
      */
     static void installRowMenu(ViewGroup icons) {
         if (!Cfg.taskbarAppMenu()) {
@@ -240,17 +240,37 @@ final class TaskbarApps {
         }
         for (int i = 0; i < icons.getChildCount(); i++) {
             View icon = icons.getChildAt(i);
-            if (MENUS.containsKey(icon) || IconInfo.packageOf(icon.getTag()) == null) {
+            if (IconInfo.packageOf(icon.getTag()) == null) {
                 continue;
             }
+            // Every walk, not once per view. ZUI rebinds the icon of the app open in front and
+            // hands it a listener of its own in the process; remembering that we had already set
+            // ours is exactly how that one icon was left with no menu.
+            Object current = longClickListenerOf(icon);
+            if (current == ROW_MENU) {
+                continue;
+            }
+            if (current != null && SAID_FOREIGN.add(current.getClass().getName())) {
+                L.i("taskbar apps: replacing the launcher's own hold listener "
+                        + current.getClass().getName() + " on " + IconInfo.packageOf(icon.getTag()));
+            }
             MENUS.put(icon, Boolean.TRUE);
-            icon.setOnLongClickListener(v -> {
-                Object info = v.getTag();
-                String pkg = IconInfo.packageOf(info);
-                return pkg != null && showMenu(v, pkg, IconInfo.userOf(info),
-                        TaskbarTray.displayIdOf(v));
-            });
+            icon.setOnLongClickListener(ROW_MENU);
         }
+    }
+
+    private static final View.OnLongClickListener ROW_MENU = v -> {
+        Object info = v.getTag();
+        String pkg = IconInfo.packageOf(info);
+        return pkg != null && showMenu(v, pkg, IconInfo.userOf(info), TaskbarTray.displayIdOf(v));
+    };
+
+    private static final java.util.Set<String> SAID_FOREIGN = new java.util.HashSet<>();
+
+    /** The view's long-click listener, or null when it has none or it cannot be read. */
+    private static Object longClickListenerOf(View view) {
+        Object info = Reflect.field(view, "mListenerInfo");
+        return info == null ? null : Reflect.field(info, "mOnLongClickListener");
     }
 
     /** Takes our listener back off the launcher's icons. */

@@ -60,7 +60,8 @@ final class TaskbarPins {
             return;
         }
         write(ctx, PinList.add(pins(ctx), item, at));
-        L.i("taskbar pins: pinned " + item.pkg);
+        L.i("taskbar pins: pinned "
+                + (item.pkg != null ? item.pkg : "folder \"" + item.label + "\""));
     }
 
     static synchronized void unpin(Context ctx, String key) {

@@ -132,9 +132,10 @@ public class MainActivity extends Activity {
                 "Hold an app in the taskbar for open, close, app info and the app's own "
                         + "shortcuts",
                 Const.KEY_TASKBAR_APP_MENU, true);
-        addSwitch("No Recents flash when an app opens",
-                "The launcher shows its old overview for a moment during a launch. This keeps it "
-                        + "down for that moment only - pressing Recents yourself is untouched",
+        addSwitch("No recommended-apps flash when an app opens",
+                "With \"Only open apps\" on, the launcher still puts its recommended apps back "
+                        + "in the taskbar for a moment on every launch. This hides them in the "
+                        + "same frame they appear",
                 Const.KEY_HIDE_RECENTS_FLASH, true);
         addSwitch("Drawer button on the left",
                 "Moves the launcher's own all-apps button to the left of the taskbar, beside the "

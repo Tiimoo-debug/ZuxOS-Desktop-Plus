@@ -49,6 +49,9 @@ public final class DrawerFolderWindow {
     public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
             int iconSizePx, DrawerStore store) {
         dismiss();
+        // Opened from the taskbar, ctx is bound to the taskbar's window type and refuses an
+        // overlay outright (type 2024 vs 2038), so every caller goes through a context that may.
+        ctx = Overlays.windowContext(ctx);
         if (!canShow(ctx)) {
             toast(ctx, "Allow \"display over other apps\" for the launcher to open drawer folders");
             return;
@@ -142,7 +145,7 @@ public final class DrawerFolderWindow {
                 return false;
             });
 
-            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            WindowManager wm = Overlays.windowManager(ctx);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,

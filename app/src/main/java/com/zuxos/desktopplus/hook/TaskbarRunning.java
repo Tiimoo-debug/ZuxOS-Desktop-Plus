@@ -63,6 +63,8 @@ final class TaskbarRunning {
     /** The last list we acted on. Written on the UI thread, but published for safety. */
     private static volatile Set<String> sShowing = new LinkedHashSet<>();
     private static int sSource = -1;
+    /** What each taskbar last read as open, for hiding what ZUI adds between two reads. */
+    private static final Map<View, Set<String>> OPEN = new WeakHashMap<>();
     /** Per taskbar: with two displays, one ticking must not stand for the other. */
     private static final Map<View, Boolean> TICKING = new WeakHashMap<>();
 
@@ -98,6 +100,7 @@ final class TaskbarRunning {
             restore(dragLayer);
             return;
         }
+        OPEN.put(dragLayer, running);
         if (onlyOpen) {
             hideWhatIsNotOpen(icons, running);
         } else {
@@ -110,6 +113,58 @@ final class TaskbarRunning {
         extras(dragLayer, icons, running, pins, onlyOpen);
         TaskbarMarks.apply(dragLayer, icons, running);
     }
+
+    /**
+     * Called straight after ZUI has rebuilt its icon row, before that frame is drawn.
+     *
+     * <p>Opening an app makes ZUI's recent-used model rebind the whole row, recommended apps and
+     * all, and the next three-second tick was what took them out again - the second of clutter
+     * you saw beside the open apps on every launch. Hiding them here, in the same frame they were
+     * added in, leaves nothing to see. The app being launched counts as open already, so its own
+     * icon is not hidden for the moment before the task list has caught up with it.
+     *
+     * <p>The rebind also hands ZUI's icons fresh listeners, which is how the app open in front
+     * lost its hold menu; it is put back here for the same reason.
+     */
+    static void rebound(ViewGroup icons) {
+        try {
+            TaskbarApps.installRowMenu(icons);
+            View root = icons.getRootView();
+            if (!(root instanceof ViewGroup) || !Cfg.taskbarRunningOnly()
+                    || !Cfg.hideRecommendedFlash()) {
+                return;
+            }
+            ViewGroup dragLayer = (ViewGroup) root;
+            Set<String> known = OPEN.get(dragLayer);
+            if (known == null || known.isEmpty()) {
+                // Nothing read yet, and hiding against an empty list would empty the bar.
+                return;
+            }
+            Set<String> open = new LinkedHashSet<>(known);
+            String launched = TaskbarRebind.justLaunched();
+            if (launched != null) {
+                open.add(launched);
+            }
+            hideWhatIsNotOpen(icons, open);
+            // And a real read soon, rather than at the next tick, now that something changed.
+            dragLayer.removeCallbacks(REREAD.get(dragLayer));
+            // Weakly, because it is also the value of a weak map keyed by this same view.
+            java.lang.ref.WeakReference<ViewGroup> layer = new java.lang.ref.WeakReference<>(
+                    dragLayer);
+            Runnable again = () -> {
+                ViewGroup current = layer.get();
+                if (current != null && current.isAttachedToWindow()) {
+                    apply(current);
+                }
+            };
+            REREAD.put(dragLayer, again);
+            dragLayer.postDelayed(again, 600L);
+        } catch (Throwable t) {
+            L.d("taskbar running: could not tidy the rebuilt row (" + t + ")");
+        }
+    }
+
+    private static final Map<View, Runnable> REREAD = new WeakHashMap<>();
 
     /**
      * The row of app icons, by name.
@@ -423,6 +478,12 @@ final class TaskbarRunning {
             // The marks sit under the icons that moved, and the drop strip spans the same bar.
             TaskbarMarks.refresh(dragLayer);
             TaskbarDrop.apply(dragLayer);
+            // A relayout puts ZUI's drawer button back in its slot as far as the row is
+            // concerned; the move is re-measured from where it now is.
+            ViewGroup row = iconRow(dragLayer);
+            if (row != null) {
+                TaskbarStart.apply(dragLayer, row);
+            }
         };
         if (reference != null) {
             reference.addOnLayoutChangeListener(again);
@@ -513,7 +574,8 @@ final class TaskbarRunning {
         int edge = -1;
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
-            if (child.getVisibility() == View.VISIBLE && child.getWidth() > 0) {
+            if (child.getVisibility() == View.VISIBLE && child.getWidth() > 0
+                    && !TaskbarStart.isMoved(child)) {
                 edge = Math.max(edge, child.getRight());
             }
         }
