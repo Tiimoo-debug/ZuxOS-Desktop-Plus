@@ -141,6 +141,12 @@ public class MainActivity extends Activity {
                         + "the taskbar to pin it there. Pins are this module's own and go away "
                         + "with it; the launcher's own hotseat is never written to",
                 Const.KEY_DRAWER_DRAG, true);
+        addSwitch("Open apps on the screen you tapped",
+                "The launcher starts its own icons without naming a screen, so an app tapped on "
+                        + "the external desktop can open on the tablet. This gives those launches "
+                        + "the display the tap was on. Off by default - it changes where every app "
+                        + "opens",
+                Const.KEY_LAUNCH_DISPLAY, false);
         addSwitch("Glass app drawer",
                 "Puts the same translucent pane behind the launcher's own app drawer, in whatever "
                         + "tone the drawer already uses so its labels stay readable",

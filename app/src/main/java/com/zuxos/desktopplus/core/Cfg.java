@@ -175,6 +175,17 @@ public final class Cfg {
         return getBool(Const.KEY_RUNNING_MARKS, true);
     }
 
+    /**
+     * Give the launcher's own launches the display they were tapped on.
+     *
+     * <p>Off by default, and deliberately so: it changes where every app in the launcher opens,
+     * which is too much to turn on behind somebody's back. Turn it on if apps keep opening on the
+     * wrong screen.
+     */
+    public static boolean launchOnTappedDisplay() {
+        return getBool(Const.KEY_LAUNCH_DISPLAY, false);
+    }
+
     public static boolean taskbarTray() {
         return getBool(Const.KEY_TASKBAR_TRAY, true);
     }

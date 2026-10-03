@@ -75,6 +75,8 @@ public final class Const {
     public static final String KEY_DRAWER_DRAG = "native_drawer_drag";
     /** A mark under every taskbar icon whose app is open. */
     public static final String KEY_RUNNING_MARKS = "taskbar_running_marks";
+    /** Open an app on the screen its icon was tapped on, where the launcher names no display. */
+    public static final String KEY_LAUNCH_DISPLAY = "launch_on_tapped_display";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */

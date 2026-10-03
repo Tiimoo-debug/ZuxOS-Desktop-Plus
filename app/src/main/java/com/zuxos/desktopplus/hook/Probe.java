@@ -96,6 +96,139 @@ public final class Probe {
         } catch (Throwable t) {
             sb.append("\ntaskbar model\n  (unreadable: ").append(t).append(")\n");
         }
+        try {
+            sb.append(describeTasks(activity));
+        } catch (Throwable t) {
+            sb.append("\nrunning tasks\n  (unreadable: ").append(t).append(")\n");
+        }
+        try {
+            sb.append(describeGates(activity));
+        } catch (Throwable t) {
+            sb.append("\ngate methods\n  (unreadable: ").append(t).append(")\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Every task the launcher can see, and where it is.
+     *
+     * <p>Here because "Recents shows the wrong thing" and "the app opened on the other screen" are
+     * the same question asked twice: which display is the task actually on. The display id, the
+     * windowing mode and the bounds answer it outright, and all three are fields the framework
+     * keeps but does not publish - so each is read by name and skipped where it cannot be read,
+     * the same way {@code TaskbarRunning} reads them.
+     */
+    private static String describeTasks(Activity activity) {
+        StringBuilder sb = new StringBuilder("\nrunning tasks\n");
+        android.app.ActivityManager am = (android.app.ActivityManager)
+                activity.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+        java.util.List<android.app.ActivityManager.RunningTaskInfo> tasks =
+                am == null ? null : am.getRunningTasks(25);
+        if (tasks == null || tasks.isEmpty()) {
+            return sb.append("  (the activity manager will not list them)\n").toString();
+        }
+        int thisDisplay = activity.getDisplay() != null ? activity.getDisplay().getDisplayId() : -1;
+        sb.append("  this activity is on display ").append(thisDisplay).append('\n');
+        for (android.app.ActivityManager.RunningTaskInfo task : tasks) {
+            sb.append("  ")
+                    .append(task.baseActivity == null ? "?" : task.baseActivity.flattenToShortString())
+                    .append("\n    display=").append(Reflect.field(task, "displayId"))
+                    .append(" visible=").append(Reflect.field(task, "isVisible"))
+                    .append(" running=").append(Reflect.field(task, "isRunning"))
+                    .append(" focused=").append(Reflect.field(task, "isFocused"))
+                    .append(" activities=").append(Reflect.field(task, "numActivities"))
+                    .append("\n    mode=").append(windowingMode(task))
+                    .append(" bounds=").append(bounds(task))
+                    .append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** Where the task's window actually is, which is half of "it opened on the wrong screen". */
+    private static String bounds(Object task) {
+        Object window = windowConfig(task);
+        Object rect = window == null ? null : Reflect.call(window, "getBounds");
+        return rect == null ? "?" : String.valueOf(rect);
+    }
+
+    /**
+     * The task's window configuration.
+     *
+     * <p>Reflected rather than called: {@code TaskInfo.getConfiguration} and the
+     * {@code windowConfiguration} inside it are kept by the framework and not published, so naming
+     * them in code would not compile against the public SDK even though they are there at runtime.
+     */
+    private static Object windowConfig(Object task) {
+        try {
+            Object config = Reflect.call(task, "getConfiguration");
+            if (config == null) {
+                config = Reflect.field(task, "configuration");
+            }
+            return config == null ? null : Reflect.field(config, "windowConfiguration");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** The windowing mode a task is in - full screen, split, freeform - by name where we have one. */
+    private static String windowingMode(Object task) {
+        try {
+            Object window = windowConfig(task);
+            Object mode = window == null ? null : Reflect.call(window, "getWindowingMode");
+            if (!(mode instanceof Integer)) {
+                return "?";
+            }
+            switch ((Integer) mode) {
+                case 1: return "fullscreen";
+                case 2: return "pinned";
+                case 3: return "split-primary";
+                case 4: return "split-secondary";
+                case 5: return "freeform";
+                case 6: return "multi-window";
+                default: return String.valueOf(mode);
+            }
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
+    /**
+     * The launcher's own switches for what the stock desktop will and will not allow.
+     *
+     * <p>{@code StockUnlockHooks} patches these, and on this firmware it found exactly one, from a
+     * list of class names guessed out of AOSP. The names it could not guess are here: every
+     * no-argument boolean method on the classes the launcher actually built, which is what a rule
+     * in {@code rules.json} needs to name one.
+     */
+    private static String describeGates(Activity activity) {
+        StringBuilder sb = new StringBuilder("\ngate methods (candidates for rules.json)\n");
+        java.util.LinkedHashSet<Class<?>> classes = new java.util.LinkedHashSet<>();
+        for (Class<?> c = activity.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            classes.add(c);
+        }
+        // The views the desktop is actually made of, which is where the editing gates live.
+        for (View view : Reflect.findByClassFragments(activity.getWindow().getDecorView(),
+                "Workspace", "CellLayout", "DragLayer", "Launcher", "Desktop", "Hotseat")) {
+            if (!view.getClass().getName().startsWith("com.zuxos")) {
+                classes.add(view.getClass());
+            }
+        }
+        for (Class<?> cls : classes) {
+            StringBuilder names = new StringBuilder();
+            try {
+                for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
+                    if (m.getReturnType() != boolean.class || m.getParameterCount() != 0) {
+                        continue;
+                    }
+                    names.append(names.length() == 0 ? "" : ", ").append(m.getName());
+                }
+            } catch (Throwable t) {
+                names.append("<unreadable>");
+            }
+            if (names.length() > 0) {
+                sb.append("  ").append(cls.getName()).append("\n    ").append(names).append('\n');
+            }
+        }
         return sb.toString();
     }
 
