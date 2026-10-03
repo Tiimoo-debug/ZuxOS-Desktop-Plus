@@ -2,7 +2,6 @@ package com.zuxos.desktopplus.hook;
 
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -16,6 +15,8 @@ import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.logic.GlassPick;
+import com.zuxos.desktopplus.logic.ToneMath;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,17 +43,6 @@ import java.util.WeakHashMap;
  * and the glass is built light or dark to match.
  */
 final class DrawerGlass {
-
-    /** Smallest share of the window a view can cover and still be the sheet. */
-    private static final float MIN_SHARE = 0.25f;
-    /**
-     * Largest share. The drawer's window also holds a scrim across the whole of it, and glazing
-     * that would blur the entire screen - the one thing this module has been told repeatedly not
-     * to do.
-     */
-    private static final float MAX_SHARE = 0.95f;
-    /** How opaque a background has to be to be worth replacing. */
-    private static final int MIN_ALPHA = 0x80;
 
     /** How deep into a window the sheet can be. Beyond this are list rows, not panes. */
     private static final int MAX_DEPTH = 8;
@@ -158,26 +148,22 @@ final class DrawerGlass {
 
     // --- choosing the pane --------------------------------------------------
 
-    /** One view and what was measured about it, so a rejection can say why. */
+    /**
+     * One view and what was measured about it, so a rejection can say why.
+     *
+     * <p>The view is all this adds: the decision itself is {@link GlassPick}, which is four numbers
+     * and no Android at all, so it can be tested without a device - which is what this choosing
+     * going quietly wrong three times in a row earned it.
+     */
     private static final class Candidate {
         final View view;
-        final int order;
-        final long area;
+        final GlassPick.Pane pane;
         final int colour;
 
-        Candidate(View view, int order, long area, int colour) {
+        Candidate(View view, int order, int width, int height, int colour) {
             this.view = view;
-            this.order = order;
-            this.area = area;
+            this.pane = new GlassPick.Pane(order, width, height, colour);
             this.colour = colour;
-        }
-
-        boolean big(long window) {
-            return area >= window * MIN_SHARE && area <= window * MAX_SHARE;
-        }
-
-        boolean opaque() {
-            return Color.alpha(colour) >= MIN_ALPHA;
         }
 
         @Override
@@ -208,18 +194,8 @@ final class DrawerGlass {
             }
             List<Candidate> candidates = new ArrayList<>();
             collect(window, 0, candidates);
-            Candidate best = null;
-            for (Candidate c : candidates) {
-                if (!c.big(area) || !c.opaque()) {
-                    continue;
-                }
-                // The biggest of them, and on a tie the one drawn last - that is the one you can
-                // see. A fixed proportion was a guess about a layout nobody here has seen.
-                if (best == null || c.area > best.area
-                        || (c.area == best.area && c.order > best.order)) {
-                    best = c;
-                }
-            }
+            // A pane's order is its place in this list, so the choice comes back as an index.
+            Candidate best = candidateFor(candidates, GlassPick.sheet(panesOf(candidates), area));
             describe(window, candidates, best, area);
             if (best == null || !apply(best.view, window, candidates, best)) {
                 // Not there yet, or it would not take. Either way this window stays watched:
@@ -247,7 +223,7 @@ final class DrawerGlass {
             return;
         }
         if (view.getBackground() != null && view.getWidth() > 0 && view.getHeight() > 0) {
-            out.add(new Candidate(view, out.size(), (long) view.getWidth() * view.getHeight(),
+            out.add(new Candidate(view, out.size(), view.getWidth(), view.getHeight(),
                     sample(view.getBackground())));
         }
         if (!(view instanceof ViewGroup) || isAList(view)) {
@@ -257,6 +233,23 @@ final class DrawerGlass {
         for (int i = 0; i < group.getChildCount(); i++) {
             collect(group.getChildAt(i), depth + 1, out);
         }
+    }
+
+    /** The numbers the decision is made on, in the order they were collected. */
+    private static List<GlassPick.Pane> panesOf(List<Candidate> candidates) {
+        List<GlassPick.Pane> panes = new ArrayList<>(candidates.size());
+        for (Candidate c : candidates) {
+            panes.add(c.pane);
+        }
+        return panes;
+    }
+
+    /** Back from a chosen pane to the view it came from; its order is its index. */
+    private static Candidate candidateFor(List<Candidate> candidates, GlassPick.Pane pane) {
+        if (pane == null || pane.order < 0 || pane.order >= candidates.size()) {
+            return null;
+        }
+        return candidates.get(pane.order);
     }
 
     private static boolean isAList(View view) {
@@ -286,9 +279,9 @@ final class DrawerGlass {
             sb.append(c);
             if (c == best) {
                 sb.append(" <- the sheet");
-            } else if (!c.big(area)) {
+            } else if (!c.pane.bigEnough(area)) {
                 sb.append(" (wrong size)");
-            } else if (!c.opaque()) {
+            } else if (!c.pane.opaque()) {
                 sb.append(" (see-through already)");
             }
         }
@@ -348,12 +341,9 @@ final class DrawerGlass {
      */
     private static void clearWhatIsDrawnOver(List<Candidate> candidates, Candidate best,
             long window) {
-        for (Candidate c : candidates) {
-            if (c == best || c.order <= best.order || !c.opaque()) {
-                continue;
-            }
-            if (c.area < window * MIN_SHARE) {
-                // A search box or a tab strip. Those are meant to be solid.
+        for (GlassPick.Pane pane : GlassPick.drawnOver(panesOf(candidates), best.pane, window)) {
+            Candidate c = candidateFor(candidates, pane);
+            if (c == null) {
                 continue;
             }
             ORIGINALS.put(c.view, c.view.getBackground());
@@ -420,10 +410,8 @@ final class DrawerGlass {
             // Nothing to sample. Dark is the safer guess under a taskbar that is itself dark.
             return 0x59202024;
         }
-        double luminance = (0.299 * Color.red(base) + 0.587 * Color.green(base)
-                + 0.114 * Color.blue(base)) / 255.0;
         // Enough to keep the drawer's own labels readable, little enough to see through.
-        return luminance > 0.5 ? 0x73F2F3F7 : 0x59202024;
+        return ToneMath.isLight(base) ? 0x73F2F3F7 : 0x59202024;
     }
 
     /** The drawable's colour, by drawing it into one pixel - works for any kind of drawable. */

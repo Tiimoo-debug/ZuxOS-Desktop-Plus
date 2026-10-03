@@ -98,10 +98,23 @@ frequently-offline Xposed maven repo).
 
 ```bash
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+./gradlew :logic:test         # the unit tests - seconds, and no Android SDK needed
 ```
 
 Or open the project in Android Studio, or grab the APK from the **Build module APK** GitHub
 Actions run for any pushed commit.
+
+### Tests
+
+Everything that can be decided without a device lives in `logic/` — a plain Java module with no
+Android dependency at all. That is what makes `./gradlew :logic:test` run anywhere, including on a
+machine that cannot reach Google's maven repo (add `--configure-on-demand` there, so Gradle does
+not configure `:app` and reach for the Android plugin). CI runs the same tests before it builds
+the APK, so a regression in the layout format, the taskbar's ordering or the glass tone fails in
+seconds instead of on your tablet.
+
+The hook and view code is not covered — that needs a device — so the tests are a net under the
+logic, not a guarantee about the UI.
 
 Both the release and debug APKs are signed with the key committed in `keystore/`, and the version
 code climbs with the commit count. That means **every build installs over the previous one** - no
@@ -186,5 +199,6 @@ app/src/main/java/com/zuxos/desktopplus/
   desktop/   the desktop surface: grid, icons, folders, widgets, menus, dialogs
   drawer/    the app drawer
   ui/        the settings app
+logic/       plain Java, no Android: the layout format and the decisions worth unit-testing
 xposed-api/  compile-only Xposed API stubs (never packaged)
 ```

@@ -1,4 +1,10 @@
 pluginManagement {
+    // The Android plugin's version lives here rather than in the root build file, so that the
+    // root project does not have to resolve it. Only :app applies it, and :logic can then be
+    // built and tested on a machine that cannot reach Google's repository at all.
+    plugins {
+        id 'com.android.application' version '8.11.1'
+    }
     repositories {
         google {
             content {
@@ -14,11 +20,22 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
+        google {
+            // The same filter pluginManagement already has. Without it every dependency is asked
+            // of Google's repository first, and a network that cannot reach it fails the whole
+            // resolution rather than falling through to Maven Central - which is what decides
+            // whether :logic's tests can be run anywhere but in CI.
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
         mavenCentral()
     }
 }
 
 rootProject.name = "ZuxOS Desktop Plus"
 include ':app'
+include ':logic'
 include ':xposed-api'

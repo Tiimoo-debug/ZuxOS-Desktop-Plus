@@ -1,4 +1,6 @@
-plugins {
-    id 'com.android.application' version '8.11.1' apply false
-    id 'com.android.library' version '8.11.1' apply false
-}
+// Deliberately empty of plugins.
+//
+// The Android plugin's version is declared in settings.gradle instead, under pluginManagement.
+// Declaring it here - even with `apply false` - makes the root project resolve it on every
+// invocation, including `:logic:test`, which puts the unit tests out of reach of any machine that
+// cannot download the Android plugin. The tests are the one thing that must always run.

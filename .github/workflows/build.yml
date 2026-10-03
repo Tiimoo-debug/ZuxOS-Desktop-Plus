@@ -32,10 +32,23 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Build
+      # Before the APK, and on purpose: these need no Android at all and finish in seconds, so a
+      # logic regression fails here rather than on a tablet.
+      - name: Unit tests
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease assembleDebug
+          ./gradlew --no-daemon :logic:test
+
+      - name: Test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-test-report
+          path: logic/build/reports/tests/test
+          if-no-files-found: ignore
+
+      - name: Build
+        run: ./gradlew --no-daemon assembleRelease assembleDebug
 
       - name: Report version and signer
         run: |

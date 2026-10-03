@@ -6,6 +6,8 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
 
+import com.zuxos.desktopplus.logic.ToneMath;
+
 /**
  * Whether the taskbar should be drawing in black or in white.
  *
@@ -127,9 +129,7 @@ public final class Tone {
     }
 
     private static boolean isLight(int color) {
-        double luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color)
-                + 0.114 * Color.blue(color)) / 255.0;
-        return luminance > 0.5;
+        return ToneMath.isLight(color);
     }
 
     /**
@@ -206,10 +206,10 @@ public final class Tone {
             if (primary == null) {
                 return false;
             }
-            int argb = primary.toArgb();
-            double luminance = (0.299 * Color.red(argb) + 0.587 * Color.green(argb)
-                    + 0.114 * Color.blue(argb)) / 255.0;
-            return luminance > 0.55;
+            // A wallpaper is judged on a stricter threshold than a glyph: it is a photograph
+            // averaged down to one colour, and guessing "light" over a busy picture is the
+            // expensive mistake.
+            return ToneMath.isLight(primary.toArgb(), ToneMath.WALLPAPER_THRESHOLD);
         } catch (Throwable t) {
             L.d("tone: the wallpaper will not say what colour it is (" + t + ")");
             return false;

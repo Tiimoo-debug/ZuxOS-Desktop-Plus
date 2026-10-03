@@ -16,6 +16,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.logic.RunningOrder;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -177,10 +178,10 @@ final class TaskbarRunning {
                 return;
             }
         }
-        List<String> wanted = inOrder(row.mShowing, missing);
         int size = iconSize(icons);
         int gap = spacing(icons);
-        trimToFit(dragLayer, wanted, size, gap);
+        List<String> wanted = RunningOrder.trimToFit(
+                RunningOrder.inOrder(row.mShowing, missing), room(dragLayer), size, gap);
         if (wanted.equals(row.mShowing)) {
             return;
         }
@@ -200,43 +201,6 @@ final class TaskbarRunning {
         // What went in, not what was asked for: an app whose icon could not be drawn would
         // otherwise be remembered as shown and never tried again.
         row.mShowing = shown;
-    }
-
-    /**
-     * The same apps, in an order that holds still.
-     *
-     * <p>The task list is most-recent-first, so following it would move every icon in the row
-     * every few seconds. The ones already up keep their places and new ones join at the end,
-     * which is what a taskbar does.
-     */
-    private static List<String> inOrder(List<String> shown, Set<String> missing) {
-        List<String> out = new ArrayList<>();
-        for (String pkg : shown) {
-            if (missing.contains(pkg)) {
-                out.add(pkg);
-            }
-        }
-        for (String pkg : missing) {
-            if (!out.contains(pkg)) {
-                out.add(pkg);
-            }
-        }
-        return out;
-    }
-
-    /** Drops the icons that would not fit between the launcher's row and the tray. */
-    private static void trimToFit(ViewGroup dragLayer, List<String> wanted, int size, int gap) {
-        int room = room(dragLayer);
-        int step = size + gap;
-        if (room <= 0 || step <= 0) {
-            // Nothing measured yet; the next layout places the row and asks again.
-            return;
-        }
-        int fits = Math.max(1, (room + gap) / step);
-        while (wanted.size() > fits) {
-            // Better to leave the last few out than to run underneath the clock.
-            wanted.remove(wanted.size() - 1);
-        }
     }
 
     private static RunningRow rowIn(ViewGroup dragLayer) {

@@ -1,4 +1,5 @@
 plugins {
+    // Version comes from pluginManagement in settings.gradle.
     id 'com.android.application'
 }
 
@@ -70,4 +71,7 @@ android {
 dependencies {
     // Provided by LSPosed at runtime - never packaged into the APK.
     compileOnly project(':xposed-api')
+
+    // The logic that needs no Android, so that it can be tested without one.
+    implementation project(':logic')
 }

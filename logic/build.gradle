@@ -1,0 +1,27 @@
+// Plain Java, no Android. That is the whole point of this module: it builds and its tests run
+// with nothing but a JDK, so the logic that has actually broken in this project can be checked in
+// seconds instead of by flashing an APK and reading a log.
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+dependencies {
+    // Compile-only on purpose. Android supplies org.json at runtime, and packaging this copy into
+    // the APK would ship a second one of every class in it.
+    compileOnly 'org.json:json:20240303'
+
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(Test).configureEach {
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+    }
+}
