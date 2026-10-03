@@ -546,8 +546,17 @@ public final class TaskbarTray {
             }
             // These are windows of their own and would outlive the tray that opened them,
             // leaving the next tray with a stale "already open" and no way to show anything.
-            QuickPanel.dismiss();
-            NotifyPanel.dismiss();
+            //
+            // Posted, never called from here. Closing them calls removeViewImmediate, which tears
+            // a window down synchronously - and doing that while the framework is part way through
+            // detaching this one re-enters the window manager mid-walk. That is the
+            // dispatchDetachedFromWindow NPE the dropbox has collected fifty of: a ViewGroup
+            // reading a child index that the re-entrant teardown had already shifted out from
+            // under it. A frame later the same work is harmless.
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                QuickPanel.dismiss();
+                NotifyPanel.dismiss();
+            });
         }
 
         private void render() {

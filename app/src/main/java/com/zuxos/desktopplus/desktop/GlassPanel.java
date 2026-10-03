@@ -89,14 +89,47 @@ public class GlassPanel extends FrameLayout {
         }
     }
 
-    /** Captures what is behind the panel and points the lens at it. */
+    /**
+     * Captures what is behind the panel and points the lens at it.
+     *
+     * <p>Where the capture cannot work - see {@link #sCaptureWorks} - the panel asks the
+     * compositor for a real blur of what is behind its own window instead, which is both better
+     * looking and free. Only if that is unavailable too does it fall back to a flat pane.
+     */
     public void refresh() {
-        if (!LiquidGlass.isSupported() || getWidth() <= 0 || getHeight() <= 0) {
+        if (getWidth() <= 0 || getHeight() <= 0) {
+            return;
+        }
+        if (!LiquidGlass.isSupported() || !sCaptureWorks) {
+            useRealBlur();
             return;
         }
         applyEffect();
         mBackdrop.capture();
     }
+
+    /**
+     * Whether drawing another window's views into a bitmap works on this device.
+     *
+     * <p>It does not here: the launcher's own trees are hardware-rendered, and drawing one into a
+     * software canvas throws {@code Software rendering doesn't support drawRenderNode}. That threw
+     * on every refresh - twenty times in one session - allocating a bitmap and hiding the panel
+     * each time before failing. Once is enough to learn it.
+     */
+    private static boolean sCaptureWorks = true;
+
+    private void useRealBlur() {
+        if (mRealBlur) {
+            return;
+        }
+        mRealBlur = true;
+        android.graphics.drawable.Drawable backdrop = com.zuxos.desktopplus.core.Blur.backdrop(
+                this, Ui.dp(getContext(), BLUR_DP), mRadiusPx, mTint);
+        setBackground(backdrop != null ? backdrop
+                : Glass.panel(getContext(), (int) mRadiusPx));
+    }
+
+    private boolean mRealBlur;
 
     private void applyEffect() {
         if (mEffectWidth == getWidth() && mEffectHeight == getHeight()) {
@@ -244,8 +277,15 @@ public class GlassPanel extends FrameLayout {
                     canvas.restoreToCount(saved);
                 }
             } catch (Throwable t) {
-                L.d("backdrop capture failed: " + t);
+                // Said once, and not attempted again: this is a property of the device, not of
+                // this moment, and retrying it costs a bitmap and a frame every time.
+                if (sCaptureWorks) {
+                    sCaptureWorks = false;
+                    L.i("glass: this device will not draw other windows into a bitmap (" + t
+                            + "), so panels use a real blur instead");
+                }
                 bitmap.recycle();
+                GlassPanel.this.post(GlassPanel.this::useRealBlur);
                 return;
             } finally {
                 setPanelVisibility(previous);
