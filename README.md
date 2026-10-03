@@ -99,6 +99,7 @@ frequently-offline Xposed maven repo).
 ```bash
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
 ./gradlew :logic:test         # the unit tests - seconds, and no Android SDK needed
+tools/check.py                # a real compile check without the Android SDK
 ```
 
 Or open the project in Android Studio, or grab the APK from the **Build module APK** GitHub
@@ -115,6 +116,12 @@ seconds instead of on your tablet.
 
 The hook and view code is not covered — that needs a device — so the tests are a net under the
 logic, not a guarantee about the UI.
+
+`tools/check.py` is the other half of that net: it compiles everything against Robolectric's
+`android-all` jar (fetched once from Maven Central, cached outside the repo), which is the only way
+to type-check this code without the SDK. Plain `javac` cannot — it gives up inside every class that
+touches a framework type, so a deleted method with its call left behind compiles clean and fails in
+CI. Run it before pushing; it says what CI will say.
 
 Both the release and debug APKs are signed with the key committed in `keystore/`, and the version
 code climbs with the commit count. That means **every build installs over the previous one** - no
