@@ -66,6 +66,30 @@ public final class RunningOrder {
     }
 
     /**
+     * The gap between icons, from the gaps measured between the ones on screen.
+     *
+     * <p>The smallest, not the first. Icons we hide leave their slots empty until the row is laid
+     * out again, and a gap measured across an empty slot is a whole icon too wide - which is how
+     * a four-pixel gap was read as sixty-six and our row ended up looking nothing like the
+     * launcher's.
+     *
+     * @param gaps     every gap measured between neighbouring visible icons, in pixels
+     * @param tooWide  a gap at or above this is a hole rather than a gap
+     * @param fallback what to use when nothing could be measured
+     */
+    public static int spacing(Collection<Integer> gaps, int tooWide, int fallback) {
+        int smallest = Integer.MAX_VALUE;
+        if (gaps != null) {
+            for (Integer gap : gaps) {
+                if (gap != null && gap > 0 && gap < smallest) {
+                    smallest = gap;
+                }
+            }
+        }
+        return smallest == Integer.MAX_VALUE || smallest > tooWide ? fallback : smallest;
+    }
+
+    /**
      * How many icons fit in the room there is.
      *
      * <p>The gap only falls between icons, so n icons take n sizes and n-1 gaps - which is why the

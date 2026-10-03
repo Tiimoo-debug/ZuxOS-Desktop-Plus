@@ -156,19 +156,29 @@ final class TaskbarMarks {
             float height = Ui.dp(getContext(), HEIGHT_DP);
             float width = Ui.dp(getContext(), WIDTH_DP);
             float below = Ui.dp(getContext(), BELOW_DP);
-            // The launcher's own icons, then ours. Both rows are children of the drag layer, and
-            // so is this, so their coordinates need only the rows' own offsets.
-            mark(canvas, mIcons.get(), height, width, below);
-            for (int i = 0; i < dragLayer.getChildCount(); i++) {
-                View child = dragLayer.getChildAt(i);
-                if (child != this && child instanceof ViewGroup
-                        && child.getClass().getName().startsWith("com.zuxos")) {
-                    mark(canvas, (ViewGroup) child, height, width, below);
-                }
+            // The launcher's own row is a child of the drag layer, so its own left is where it
+            // is. Ours is inside a scroller, so it has to be asked where it has ended up.
+            ViewGroup icons = mIcons.get();
+            if (icons != null) {
+                mark(canvas, icons, icons.getLeft(), icons.getTop(), height, width, below);
             }
+            ViewGroup ours = TaskbarRunning.rowOf(dragLayer);
+            if (ours == null) {
+                return;
+            }
+            int[] bounds = TaskbarRunning.rowBounds(dragLayer);
+            int saved = canvas.save();
+            if (bounds != null) {
+                // Nothing drawn for an icon the scroller is hiding.
+                canvas.clipRect(bounds[0] - getLeft(), 0, bounds[1] - getLeft(), getHeight());
+            }
+            mark(canvas, ours, TaskbarRunning.rowLeft(dragLayer), TaskbarRunning.rowTop(dragLayer),
+                    height, width, below);
+            canvas.restoreToCount(saved);
         }
 
-        private void mark(Canvas canvas, ViewGroup row, float height, float width, float below) {
+        private void mark(Canvas canvas, ViewGroup row, int rowLeft, int rowTop,
+                float height, float width, float below) {
             if (row == null || row.getVisibility() != VISIBLE) {
                 return;
             }
@@ -182,8 +192,8 @@ final class TaskbarMarks {
                 if (!RunningOrder.anyRunning(IconInfo.packagesOfView(icon), mRunning)) {
                     continue;
                 }
-                float centre = row.getLeft() + icon.getLeft() + icon.getWidth() / 2f - getLeft();
-                float bottom = row.getTop() + icon.getBottom() - getTop() + below;
+                float centre = rowLeft + icon.getLeft() + icon.getWidth() / 2f - getLeft();
+                float bottom = rowTop + icon.getBottom() - getTop() + below;
                 if (bottom > getHeight()) {
                     bottom = getHeight();
                 }

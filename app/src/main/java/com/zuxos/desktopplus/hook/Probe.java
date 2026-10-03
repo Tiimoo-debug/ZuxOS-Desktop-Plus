@@ -35,9 +35,9 @@ public final class Probe {
                 }
             }
             String text = describe(activity, content);
-            File out = Storage.exportCopy(activity, Const.FILE_PROBE, text);
+            String out = Storage.export(activity, Const.FILE_PROBE, text);
             Storage.write(Storage.file(activity, Const.FILE_PROBE), text);
-            L.i("probe dump" + (out != null ? " written to " + out.getAbsolutePath() : "") + ":\n" + text);
+            L.i("probe dump" + (out != null ? " written to " + out : "") + ":\n" + text);
         } catch (Throwable t) {
             L.e("probe failed", t);
         }
@@ -460,7 +460,10 @@ public final class Probe {
         String id = Reflect.idName(v);
         sb.append(v.getClass().getName())
                 .append(id != null ? " #" + id : "")
-                .append(" [").append(v.getWidth()).append('x').append(v.getHeight()).append(']')
+                .append(" [").append(v.getWidth()).append('x').append(v.getHeight())
+                // Where it is, not just how big. A row with a hole in it, or two icons spread a
+                // whole icon apart, is invisible in sizes alone and obvious in positions.
+                .append(" @").append(v.getLeft()).append(',').append(v.getTop()).append(']')
                 .append(v.getVisibility() == View.VISIBLE ? "" : " (hidden)")
                 .append('\n');
         if (v instanceof ViewGroup && depth < 12) {

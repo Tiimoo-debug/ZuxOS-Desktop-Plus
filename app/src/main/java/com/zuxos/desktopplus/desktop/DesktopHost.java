@@ -744,7 +744,14 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             DragPayload payload = new DragPayload(item, dragSource, folder, batch);
             View.DragShadowBuilder shadow = source instanceof ItemView
                     ? ((ItemView) source).shadow() : new View.DragShadowBuilder(source);
-            source.startDragAndDrop(null, shadow, payload, View.DRAG_FLAG_OPAQUE);
+            // Global, and carrying its payload on the clip as well as in local state. The desktop
+            // is in the launcher's activity window and the taskbar is a window of the taskbar's
+            // own, so without this an icon dragged from here cannot reach the bar at all - which
+            // is exactly what "I can drag from the drawer but not from the home screen" was.
+            // Drags that stay in this window still find the local state first and keep every
+            // reference it holds, the folder and the multiple selection included.
+            source.startDragAndDrop(payload.toClip(), shadow, payload,
+                    View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
             if (dragSource == DragPayload.SRC_DESKTOP) {
                 mDragView = source;
                 source.setVisibility(View.INVISIBLE);
@@ -1163,10 +1170,10 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         sb.append(Probe.describe(mActivity, content));
         sb.append(Probe.describeAllWindows());
         sb.append("\n\n--- desktop layout ---\n").append(mStore.exportJson());
-        java.io.File out = Storage.exportCopy(mActivity, Const.FILE_PROBE, sb.toString());
+        String out = Storage.export(mActivity, Const.FILE_PROBE, sb.toString());
         Dialogs.message(mActivity, "Exported", out != null
-                ? "Written to:\n" + out.getAbsolutePath()
-                : "Could not write to external storage - the same dump is in the LSPosed log.");
+                ? "Written to:\n" + out
+                : "Could not write to storage - the same dump is in the LSPosed log.");
         L.i(sb.toString());
     }
 

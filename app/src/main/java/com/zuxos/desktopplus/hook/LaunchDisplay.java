@@ -71,6 +71,7 @@ final class LaunchDisplay {
             hooked += XposedBridge.hookAllMethods(instrumentation, "execStartActivity",
                     OPTIONS).size();
             L.i("launch display: watching " + hooked + " launch path(s)");
+            RecentsFlash.install(loader);
         } catch (Throwable t) {
             L.e("launch display: could not watch the launch paths", t);
         }
@@ -92,6 +93,9 @@ final class LaunchDisplay {
     private static final XC_MethodHook OPTIONS = new XC_MethodHook() {
         @Override
         protected void beforeHookedMethod(MethodHookParam param) {
+            // Said first and unconditionally: something else wants to know that an app is coming
+            // up, whether or not we are giving this launch a display.
+            RecentsFlash.launching();
             if (!Cfg.launchOnTappedDisplay()) {
                 return;
             }

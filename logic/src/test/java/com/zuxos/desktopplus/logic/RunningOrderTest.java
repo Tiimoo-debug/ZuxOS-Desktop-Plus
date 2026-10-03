@@ -84,6 +84,37 @@ public class RunningOrderTest {
         assertEquals(open("com.a"), running);
     }
 
+    // --- the gap between icons -------------------------------------------
+
+    /**
+     * The fault this exists for: our row was built with 66px between icons because the gap was
+     * measured across the slot of an icon we had hidden - 4px of real gap plus a 60px icon.
+     */
+    @Test
+    public void aGapMeasuredAcrossAHiddenIconIsNotTheGap() {
+        assertEquals(4, RunningOrder.spacing(Arrays.asList(4, 66, 4), 200, 8));
+        assertEquals(4, RunningOrder.spacing(Arrays.asList(66, 4), 200, 8));
+    }
+
+    @Test
+    public void oneGapIsTheGap() {
+        assertEquals(12, RunningOrder.spacing(Collections.singletonList(12), 200, 8));
+    }
+
+    @Test
+    public void nothingMeasurableFallsBack() {
+        assertEquals(8, RunningOrder.spacing(null, 200, 8));
+        assertEquals(8, RunningOrder.spacing(Collections.<Integer>emptyList(), 200, 8));
+        assertEquals(8, RunningOrder.spacing(Arrays.asList(0, -4), 200, 8));
+    }
+
+    @Test
+    public void everyGapBeingAHoleFallsBackRatherThanCopyingOne() {
+        // A row where every visible icon has a hidden one beside it: better the default than a
+        // row of icons spread a whole icon apart.
+        assertEquals(8, RunningOrder.spacing(Arrays.asList(220, 300), 200, 8));
+    }
+
     // --- how many fit ---------------------------------------------------
 
     @Test

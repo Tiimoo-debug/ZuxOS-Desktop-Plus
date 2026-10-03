@@ -1,6 +1,9 @@
 package com.zuxos.desktopplus.core;
 
+import android.content.ContentValues;
 import android.content.Context;
+import android.os.Build;
+import android.provider.MediaStore;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -120,6 +123,68 @@ public final class Storage {
     }
 
     /** Best-effort copy into {@code /sdcard/Android/data/<launcher>/files/} for easy pulling. */
+    /**
+     * Writes a copy somewhere you can actually find it.
+     *
+     * <p>Downloads, through the media store, which needs no permission and no root and lands in
+     * the folder every file manager opens on. The old destination - the launcher's own external
+     * files directory - is still there as the fallback, because it always works; it is just buried
+     * four levels deep in Android/data where nothing but a file manager with its own permissions
+     * can reach it.
+     *
+     * @return where it went, in words, or null if nowhere
+     */
+    public static String export(Context ctx, String name, String content) {
+        String downloads = toDownloads(ctx, name, content);
+        if (downloads != null) {
+            return downloads;
+        }
+        File copy = exportCopy(ctx, name, content);
+        return copy == null ? null : copy.getAbsolutePath();
+    }
+
+    private static String toDownloads(Context ctx, String name, String content) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return null;
+        }
+        try {
+            android.content.ContentResolver files = ctx.getContentResolver();
+            android.net.Uri folder = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+            // Ours from a previous export. Without this the store keeps every one of them as
+            // "probe (1).txt", "probe (2).txt", and the newest is never the obvious one.
+            try {
+                files.delete(folder, MediaStore.Downloads.DISPLAY_NAME + "=?", new String[]{name});
+            } catch (Throwable keepGoing) {
+                // Not ours to delete, or nothing there. The insert below still works.
+            }
+            ContentValues row = new ContentValues();
+            row.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            row.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+            row.put(MediaStore.Downloads.IS_PENDING, 1);
+            android.net.Uri uri = files.insert(folder, row);
+            if (uri == null) {
+                return null;
+            }
+            OutputStream out = files.openOutputStream(uri);
+            if (out == null) {
+                files.delete(uri, null, null);
+                return null;
+            }
+            try {
+                out.write(content.getBytes(StandardCharsets.UTF_8));
+            } finally {
+                out.close();
+            }
+            row.clear();
+            row.put(MediaStore.Downloads.IS_PENDING, 0);
+            files.update(uri, row, null, null);
+            return "Download/" + name;
+        } catch (Throwable t) {
+            L.d("export to Downloads failed, falling back (" + t + ")");
+            return null;
+        }
+    }
+
     public static File exportCopy(Context ctx, String name, String content) {
         try {
             File ext = ctx.getExternalFilesDir(null);

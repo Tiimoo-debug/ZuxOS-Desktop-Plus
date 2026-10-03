@@ -141,12 +141,13 @@ final class TaskbarDrop {
                 return false;
             }
             Item item = payload.item;
-            if (item.pkg == null) {
-                // A widget, or a shortcut with nothing but an intent. The bar launches packages.
-                TaskbarMenu.toast(getContext(), "Only apps can be pinned to the taskbar");
+            if (item.pkg == null && item.type != Item.TYPE_FOLDER) {
+                // A widget, or a shortcut with nothing but an intent. A folder is fine - it opens
+                // rather than launches, and the bar knows how to do that.
+                TaskbarMenu.toast(getContext(), "Only apps and folders can be pinned here");
                 return false;
             }
-            if (TaskbarRunning.alreadyInTheBar(mDragLayer, item.pkg)) {
+            if (item.pkg != null && TaskbarRunning.alreadyInTheBar(mDragLayer, item.pkg)) {
                 // Said rather than done: pinning it would leave two of the same icon side by
                 // side, and a drop that quietly does nothing looks like a drop that missed.
                 TaskbarMenu.toast(getContext(), "That app is already in the taskbar");
@@ -163,10 +164,13 @@ final class TaskbarDrop {
             if (row == null) {
                 return PinList.AT_THE_END;
             }
+            // Asked for, not read off the row: it lives in a scroller now, so its own left says
+            // nothing about where its icons are on screen.
+            int rowLeft = TaskbarRunning.rowLeft(mDragLayer);
             int index = 0;
             for (int i = 0; i < row.getChildCount(); i++) {
                 View child = row.getChildAt(i);
-                if (x > row.getLeft() + child.getLeft() + child.getWidth() / 2f) {
+                if (x > rowLeft + child.getLeft() + child.getWidth() / 2f) {
                     index = i + 1;
                 }
             }

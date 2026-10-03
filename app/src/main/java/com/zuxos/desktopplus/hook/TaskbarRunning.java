@@ -16,6 +16,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.logic.PinList;
 import com.zuxos.desktopplus.logic.RunningOrder;
 import com.zuxos.desktopplus.model.Item;
@@ -52,6 +53,9 @@ final class TaskbarRunning {
 
     /** How often the list is re-read while the taskbar is up. */
     private static final long REFRESH_MS = 3000L;
+
+    /** As many open apps as the row will ever draw at once, however many are running. */
+    private static final int MOST_ICONS = 24;
 
     /** Icons the launcher put there which we have hidden, so they can be shown again. */
     private static final Map<View, Boolean> HIDDEN = new WeakHashMap<>();
@@ -99,6 +103,10 @@ final class TaskbarRunning {
         } else {
             showEverythingAgain(icons);
         }
+        // The launcher's own icons have no hold menu on this bar; ours is put on them here,
+        // where the row is already being walked.
+        TaskbarApps.installRowMenu(icons);
+        TaskbarStart.apply(dragLayer, icons);
         extras(dragLayer, icons, running, pins, onlyOpen);
         TaskbarMarks.apply(dragLayer, icons, running);
     }
@@ -127,9 +135,9 @@ final class TaskbarRunning {
      * a worse state than either.
      */
     static void restore(ViewGroup dragLayer) {
-        RunningRow row = rowIn(dragLayer);
-        if (row != null) {
-            dragLayer.removeView(row);
+        ScrollRow scroller = scrollerIn(dragLayer);
+        if (scroller != null) {
+            dragLayer.removeView(scroller);
         }
         TaskbarMarks.remove(dragLayer);
         ViewGroup icons = iconRow(dragLayer);
@@ -137,6 +145,8 @@ final class TaskbarRunning {
             return;
         }
         showEverythingAgain(icons);
+        TaskbarApps.installRowMenu(icons);
+        TaskbarStart.apply(dragLayer, icons);
     }
 
     /** Puts back icons an earlier run hid, without touching anything else in the bar. */
@@ -150,6 +160,7 @@ final class TaskbarRunning {
     }
 
     private static void hideWhatIsNotOpen(ViewGroup icons, Set<String> running) {
+        boolean changed = false;
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
             View child = icons.getChildAt(i);
             // Everything the icon stands for: a folder in the bar is open when anything inside it
@@ -162,12 +173,20 @@ final class TaskbarRunning {
             if (anyOf(packages, running)) {
                 if (HIDDEN.remove(child) != null) {
                     child.setVisibility(View.VISIBLE);
+                    changed = true;
                 }
             } else if (child.getVisibility() == View.VISIBLE) {
                 HIDDEN.put(child, Boolean.TRUE);
                 child.setVisibility(View.GONE);
                 // (kept in HIDDEN so the setting going off puts it back exactly)
+                changed = true;
             }
+        }
+        if (changed) {
+            // A gone child takes no space only if its parent lays out again. Without this the row
+            // keeps the empty slot, which reads as a hole in the middle of the bar - and makes the
+            // gap between two icons measure a whole icon too wide.
+            icons.requestLayout();
         }
     }
 
@@ -195,8 +214,9 @@ final class TaskbarRunning {
 
         RunningRow row = rowIn(dragLayer);
         if (missing.isEmpty() && pins.isEmpty()) {
-            if (row != null) {
-                dragLayer.removeView(row);
+            ScrollRow scroller = scrollerIn(dragLayer);
+            if (scroller != null) {
+                dragLayer.removeView(scroller);
             }
             return;
         }
@@ -208,11 +228,10 @@ final class TaskbarRunning {
         }
         int size = iconSize(icons);
         int gap = spacing(icons);
-        // The pins have the room first: they were put there on purpose, and what is merely open
-        // comes and goes.
-        int left = room(dragLayer) - pins.size() * (size + gap);
+        // Not trimmed to the room any more - the row scrolls now. The cap is only so that a
+        // machine with eighty things open does not build eighty views every three seconds.
         List<String> wanted = RunningOrder.trimToFit(
-                RunningOrder.inOrder(row.mRunning, missing), left, size, gap);
+                RunningOrder.inOrder(row.mRunning, missing), MOST_ICONS * (size + gap), size, gap);
         List<String> pinKeys = new ArrayList<>();
         for (Item pin : pins) {
             pinKeys.add(pin.key());
@@ -257,6 +276,50 @@ final class TaskbarRunning {
     }
 
     /**
+     * Where the row's first icon starts, in the drag layer's own coordinates.
+     *
+     * <p>The row sits inside a scroller now, so its own {@code getLeft()} is relative to that and
+     * says nothing about where it is on screen - and what has been scrolled out of sight has to
+     * come off as well, or the marks under the icons drift away from them.
+     */
+    static int rowLeft(ViewGroup dragLayer) {
+        RunningRow row = rowIn(dragLayer);
+        if (row == null) {
+            return 0;
+        }
+        int left = offsetIn(dragLayer, row);
+        if (row.getParent() instanceof ScrollRow) {
+            left -= ((ScrollRow) row.getParent()).getScrollX();
+        }
+        return left;
+    }
+
+    /** Where the row's icons sit vertically, in the drag layer's own coordinates. */
+    static int rowTop(ViewGroup dragLayer) {
+        RunningRow row = rowIn(dragLayer);
+        if (row == null) {
+            return 0;
+        }
+        int top = row.getTop();
+        for (View v = row.getParent() instanceof View ? (View) row.getParent() : null;
+                v != null && v != dragLayer; ) {
+            top += v.getTop();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return top;
+    }
+
+    /** The scroller's bounds in the drag layer, so what it hides is not drawn over. */
+    static int[] rowBounds(ViewGroup dragLayer) {
+        ScrollRow scroller = scrollerIn(dragLayer);
+        if (scroller == null) {
+            return null;
+        }
+        int left = offsetIn(dragLayer, scroller);
+        return new int[]{left, left + scroller.getWidth()};
+    }
+
+    /**
      * Whether the launcher is already showing this app in its own row.
      *
      * <p>Pinning it again would put a second copy of the same icon on the same bar, a few pixels
@@ -277,11 +340,38 @@ final class TaskbarRunning {
 
     private static RunningRow rowIn(ViewGroup dragLayer) {
         for (int i = 0; i < dragLayer.getChildCount(); i++) {
-            if (dragLayer.getChildAt(i) instanceof RunningRow) {
-                return (RunningRow) dragLayer.getChildAt(i);
+            View child = dragLayer.getChildAt(i);
+            if (child instanceof ScrollRow && ((ScrollRow) child).getChildCount() > 0) {
+                return (RunningRow) ((ScrollRow) child).getChildAt(0);
             }
         }
         return null;
+    }
+
+    /** What is actually placed in the drag layer: the scroller the row sits in. */
+    private static ScrollRow scrollerIn(ViewGroup dragLayer) {
+        for (int i = 0; i < dragLayer.getChildCount(); i++) {
+            if (dragLayer.getChildAt(i) instanceof ScrollRow) {
+                return (ScrollRow) dragLayer.getChildAt(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The row, and the scroller around it.
+     *
+     * <p>Open enough apps and the row runs out of bar. It used to drop the ones that would not
+     * fit; now it scrolls, which is what a taskbar does when it is full.
+     */
+    static final class ScrollRow extends android.widget.HorizontalScrollView {
+        ScrollRow(Context ctx) {
+            super(ctx);
+            setHorizontalScrollBarEnabled(false);
+            setOverScrollMode(OVER_SCROLL_NEVER);
+            // Nothing here reacts to a touch unless it is a scroll, so a tap goes to the icon.
+            setFillViewport(false);
+        }
     }
 
     /** Puts our row in the drag layer, lined up with the bar the way the tray is. */
@@ -297,7 +387,10 @@ final class TaskbarRunning {
             RunningRow row = new RunningRow(dragLayer.getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            dragLayer.addView(row, lp);
+            ScrollRow scroller = new ScrollRow(dragLayer.getContext());
+            scroller.addView(row, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            dragLayer.addView(scroller, lp);
             place(dragLayer, row, reference);
             watchGeometry(dragLayer, reference);
             L.i("taskbar running: a row of our own, beside the launcher's, for open apps that "
@@ -353,7 +446,8 @@ final class TaskbarRunning {
      */
     private static void place(ViewGroup dragLayer, RunningRow row, View reference) {
         try {
-            ViewGroup.LayoutParams raw = row.getLayoutParams();
+            View placed = row.getParent() instanceof ScrollRow ? (View) row.getParent() : row;
+            ViewGroup.LayoutParams raw = placed.getLayoutParams();
             if (!(raw instanceof FrameLayout.LayoutParams)) {
                 return;
             }
@@ -386,8 +480,12 @@ final class TaskbarRunning {
                 left = 0;
                 right = TaskbarTray.trayWidth(dragLayer) + Ui.dp(dragLayer.getContext(), 8);
             }
+            // As wide as the room between the launcher's icons and the tray, so that a row too
+            // long for the bar scrolls inside it rather than running under the clock.
+            int room = edge >= 0 ? room(dragLayer) : 0;
+            int width = room > 0 ? room : ViewGroup.LayoutParams.WRAP_CONTENT;
             if (lp.gravity == gravity && lp.height == height && lp.topMargin == top
-                    && lp.leftMargin == left && lp.rightMargin == right) {
+                    && lp.leftMargin == left && lp.rightMargin == right && lp.width == width) {
                 // Nothing moved. This runs from a layout listener, and setting layout params
                 // asks for another layout whether or not they changed - which would be a pass
                 // per frame, for ever, over a row that was already in the right place.
@@ -398,7 +496,8 @@ final class TaskbarRunning {
             lp.topMargin = top;
             lp.leftMargin = left;
             lp.rightMargin = right;
-            row.setLayoutParams(lp);
+            lp.width = width;
+            placed.setLayoutParams(lp);
         } catch (Throwable t) {
             L.d("taskbar running: could not place our row (" + t + ")");
         }
@@ -443,8 +542,16 @@ final class TaskbarRunning {
         return left;
     }
 
-    /** The gap the launcher leaves between two of its own icons, so ours matches it. */
+    /**
+     * The gap the launcher leaves between two of its own icons, so ours matches it.
+     *
+     * <p>The smallest of them, not the first. An icon we have hidden leaves its slot empty - the
+     * launcher lays the rest out where they always were - so the gap measured across that hole is
+     * a whole icon wider than the real one. Taking the first gap found is how our row ended up
+     * with 66px between icons that should have had four.
+     */
     private static int spacing(ViewGroup icons) {
+        List<Integer> gaps = new ArrayList<>();
         View previous = null;
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
@@ -452,14 +559,12 @@ final class TaskbarRunning {
                 continue;
             }
             if (previous != null) {
-                int gap = child.getLeft() - previous.getRight();
-                if (gap > 0 && gap <= Ui.dp(icons.getContext(), 64)) {
-                    return gap;
-                }
+                gaps.add(child.getLeft() - previous.getRight());
             }
             previous = child;
         }
-        return Ui.dp(icons.getContext(), 12);
+        return RunningOrder.spacing(gaps, Ui.dp(icons.getContext(), 64),
+                Ui.dp(icons.getContext(), 8));
     }
 
     /** Ours, and never a child of the launcher's icon row. */
@@ -691,18 +796,21 @@ final class TaskbarRunning {
      * nothing about it either way.
      */
     private static View pinIcon(Context ctx, Item pin, int size, int displayId) {
-        if (pin.pkg == null) {
-            return null;
-        }
-        View icon = iconFor(ctx, pin.pkg, size, displayId);
+        View icon = pin.type == Item.TYPE_FOLDER
+                ? folderIcon(ctx, pin, size, displayId) : iconFor(ctx, pin.pkg, size, displayId);
         if (icon == null) {
             return null;
         }
         final String key = pin.key();
         icon.setOnLongClickListener(v -> {
-            List<TaskbarMenu.Entry> entries = new ArrayList<>(
-                    TaskbarApps.entriesFor(ctx, pin.pkg, android.os.Process.myUserHandle(),
-                            displayId));
+            List<TaskbarMenu.Entry> entries = new ArrayList<>();
+            if (pin.pkg != null) {
+                entries.addAll(TaskbarApps.entriesFor(ctx, pin.pkg,
+                        android.os.Process.myUserHandle(), displayId));
+            } else {
+                entries.add(new TaskbarMenu.Entry("Open folder",
+                        () -> openFolder(ctx, pin, displayId)));
+            }
             entries.add(new TaskbarMenu.Entry("Unpin", () -> {
                 TaskbarPins.unpin(ctx, key);
                 refreshAll();
@@ -712,6 +820,47 @@ final class TaskbarRunning {
             return TaskbarMenu.showEntries(v, displayId, at[0] + v.getWidth() / 2f, entries);
         });
         return icon;
+    }
+
+    /**
+     * A folder pinned to the bar, drawn the way folders are drawn everywhere else here.
+     *
+     * <p>Opening it is the window the stock drawer's folders already use, so a folder behaves the
+     * same whether it is in the drawer or on the taskbar.
+     */
+    private static View folderIcon(Context ctx, Item folder, int size, int displayId) {
+        try {
+            List<Drawable> previews = new ArrayList<>();
+            for (Item child : folder.children) {
+                if (child.pkg == null || previews.size() >= 4) {
+                    continue;
+                }
+                try {
+                    previews.add(ctx.getPackageManager().getApplicationIcon(child.pkg));
+                } catch (Throwable missing) {
+                    // An app that has been uninstalled since. The folder still opens.
+                }
+            }
+            ImageView view = new ImageView(ctx);
+            view.setImageDrawable(new FolderIconDrawable(previews, size));
+            view.setContentDescription(folder.label != null ? folder.label : "Folder");
+            view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
+            view.setOnClickListener(v -> openFolder(ctx, folder, displayId));
+            return view;
+        } catch (Throwable t) {
+            L.d("taskbar running: could not draw the pinned folder (" + t + ")");
+            return null;
+        }
+    }
+
+    private static void openFolder(Context ctx, Item folder, int displayId) {
+        try {
+            // The same repository the drawer's own folders open with, rather than a second one.
+            DrawerFolderWindow.show(ctx, folder, NativeDrawerHooks.repo(ctx), displayId,
+                    Ui.dp(ctx, Cfg.iconSizeDp()), null);
+        } catch (Throwable t) {
+            L.e("taskbar running: could not open the pinned folder", t);
+        }
     }
 
     /** Re-reads every taskbar, for when what the row should hold has just changed. */

@@ -77,6 +77,10 @@ public final class Const {
     public static final String KEY_RUNNING_MARKS = "taskbar_running_marks";
     /** Open an app on the screen its icon was tapped on, where the launcher names no display. */
     public static final String KEY_LAUNCH_DISPLAY = "launch_on_tapped_display";
+    /** Move the launcher's drawer button to the left of the bar, beside the navigation keys. */
+    public static final String KEY_START_LEFT = "start_button_left";
+    /** Keep ZUI's overview down during the moment an app is opening. */
+    public static final String KEY_HIDE_RECENTS_FLASH = "hide_recents_flash";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */

@@ -170,6 +170,26 @@ public final class Cfg {
         return getBool(Const.KEY_DRAWER_DRAG, true);
     }
 
+    /**
+     * Put the launcher's drawer button at the left of the bar.
+     *
+     * <p>On by default: ZUI leaves it in the middle of the icon cluster, where open apps end up on
+     * both sides of it, and no desktop has kept that button anywhere but a corner in thirty years.
+     */
+    public static boolean startButtonLeft() {
+        return getBool(Const.KEY_START_LEFT, true);
+    }
+
+    /**
+     * Keep the launcher's overview down while an app is opening.
+     *
+     * <p>On by default: it only suppresses a view appearing on its own during a launch, never one
+     * you asked for, and the flash it removes is a plain glitch.
+     */
+    public static boolean hideRecentsFlash() {
+        return getBool(Const.KEY_HIDE_RECENTS_FLASH, true);
+    }
+
     /** A mark under the taskbar icons whose apps are open. */
     public static boolean runningMarks() {
         return getBool(Const.KEY_RUNNING_MARKS, true);

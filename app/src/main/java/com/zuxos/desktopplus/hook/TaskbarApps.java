@@ -54,10 +54,26 @@ final class TaskbarApps {
     // --- only the apps that are open ---------------------------------------
 
     /**
-     * Turns the taskbar's predictions off and its running apps on.
+     * Keeps hold of the launcher's recent-apps controller, and sets nothing on it.
      *
-     * <p>Hooked after {@code init}, because these are set once when the controller is built and
-     * the launcher sets them from its own flags - so the last word has to be after that.
+     * <p>It used to set {@code setCanShowRunningApps(true)} and {@code setCanShowRecentApps(false)}.
+     * Both took, both read back true, and the bar never changed - the probe said so every round:
+     * {@code shown=0, tasks=0}. ZUI fills its own bar and that controller is not what does it.
+     *
+     * <p>Worse than useless, as it turned out. The log caught the launcher crashing nine times in
+     * one session, six of them here:
+     *
+     * <pre>
+     * IllegalStateException: The specified child already has a parent
+     *   at TaskbarView.updateHotseatItems
+     *   at TaskbarModelCallbacks.bindRecentUsedApps
+     *   at com.zui.launcher.uiextend.RecentUsedModel.J
+     * </pre>
+     *
+     * <p>ZUI's own model, re-adding an icon that still has a parent - its bug, but one those two
+     * switches walk it into, and a crash in the middle of {@code updateHotseatItems} is what left
+     * the row looking half-built. So nothing is set. The controller itself is still worth keeping:
+     * {@code getRunningAppState} answers which icons are running, which is a question we do use.
      */
     private static void installRunningOnly(ClassLoader loader) {
         Class<?> cls = Reflect.findClass(RECENT_APPS, loader);
@@ -69,14 +85,11 @@ final class TaskbarApps {
             int hooked = XposedBridge.hookAllMethods(cls, "init", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    apply(param.thisObject);
+                    remember(param.thisObject);
                 }
             }).size();
-            L.i("taskbar apps: running-apps switch installed x" + hooked);
-            if (hooked == 0) {
-                L.w("taskbar apps: nothing named init on the recent-apps controller - the "
-                        + "\"only open apps\" setting will do nothing on this build");
-            }
+            L.i("taskbar apps: holding the recent-apps controller x" + hooked
+                    + " (its switches are left alone - they crash this firmware)");
         } catch (Throwable t) {
             L.e("taskbar apps: could not reach the recent-apps controller", t);
         }
@@ -90,71 +103,10 @@ final class TaskbarApps {
 
     private static java.lang.ref.WeakReference<Object> sRecentApps;
 
-    private static void apply(Object controller) {
+    private static void remember(Object controller) {
         if (controller != null) {
-            // Kept whether or not the setting is on: it is the only thing that will say which
-            // icons are running, and that question outlives this one switch.
             sRecentApps = new java.lang.ref.WeakReference<>(controller);
         }
-        if (controller == null || !Cfg.taskbarRunningOnly()) {
-            // Nothing to say when the setting is off. Setting the flags the other way round
-            // would not be leaving the launcher alone - it would be overriding it in the
-            // opposite direction, on a build that may well default to something else.
-            return;
-        }
-        boolean running = invoke(controller, "setCanShowRunningApps", true);
-        // The recommendations are the other half: leaving them on would mean running apps
-        // alongside a row of guesses, which is not what "only what is open" means.
-        boolean recents = invoke(controller, "setCanShowRecentApps", false);
-        if (running && recents) {
-            // Both setters took last time and the bar did not change, so the interesting part is
-            // what the controller says afterwards: if it reads back true and still shows the
-            // same pinned items, then this controller is not what fills this firmware's bar.
-            L.i("taskbar apps: running apps on, predictions off"
-                    + " - reads back " + read(controller, "getCanShowRunningApps")
-                    + ", shown=" + size(controller, "getShownHotseatItems")
-                    + ", tasks=" + size(controller, "getShownTasks")
-                    + ", running=" + size(controller, "getRunningTaskIds"));
-        } else {
-            L.w("taskbar apps: this controller has no setCanShowRunningApps/RecentApps - the "
-                    + "taskbar will keep showing whatever it chose");
-        }
-    }
-
-    /** Calls a one-boolean setter, and says whether it was actually there to call. */
-    private static boolean invoke(Object target, String name, boolean value) {
-        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
-            try {
-                java.lang.reflect.Method m = c.getDeclaredMethod(name, boolean.class);
-                m.setAccessible(true);
-                m.invoke(target, value);
-                return true;
-            } catch (NoSuchMethodException keepLooking) {
-                continue;
-            } catch (Throwable t) {
-                L.d("taskbar apps: " + name + " refused (" + t + ")");
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private static String read(Object target, String getter) {
-        Object value = Reflect.call(target, getter);
-        return value == null ? "?" : String.valueOf(value);
-    }
-
-    /** How many things a getter handed back, for a getter that hands back a collection. */
-    private static String size(Object target, String getter) {
-        Object value = Reflect.call(target, getter);
-        if (value instanceof java.util.Collection) {
-            return String.valueOf(((java.util.Collection<?>) value).size());
-        }
-        if (value != null && value.getClass().isArray()) {
-            // Including int[], which getRunningTaskIds hands back and which is not an Object[].
-            return String.valueOf(java.lang.reflect.Array.getLength(value));
-        }
-        return value == null ? "?" : String.valueOf(value);
     }
 
     // --- the menu on a long press ------------------------------------------
@@ -269,6 +221,51 @@ final class TaskbarApps {
         }
         return showMenu(icon, pkg, IconInfo.userOf(info), TaskbarTray.displayIdOf(icon));
     }
+
+    /**
+     * Gives the launcher's own icons a hold menu, because on this bar nothing else does.
+     *
+     * <p>The popup controller we hook serves the tablet's taskbar, and holding an icon there opens
+     * a menu. The desktop's bar never calls it: the probe says its icons carry no long-click
+     * listener at all - {@code long press is handled by DoubleShadowBubbleTextView -> none} - so a
+     * hold there does nothing whatsoever. One is set here, on each icon as the row is walked.
+     *
+     * <p>What was there before is remembered, which on this firmware is nothing, and put back by
+     * {@link #forgetMenus} when the setting goes off - so this is as reversible as the rest.
+     */
+    static void installRowMenu(ViewGroup icons) {
+        if (!Cfg.taskbarAppMenu()) {
+            forgetMenus(icons);
+            return;
+        }
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            View icon = icons.getChildAt(i);
+            if (MENUS.containsKey(icon) || IconInfo.packageOf(icon.getTag()) == null) {
+                continue;
+            }
+            MENUS.put(icon, Boolean.TRUE);
+            icon.setOnLongClickListener(v -> {
+                Object info = v.getTag();
+                String pkg = IconInfo.packageOf(info);
+                return pkg != null && showMenu(v, pkg, IconInfo.userOf(info),
+                        TaskbarTray.displayIdOf(v));
+            });
+        }
+    }
+
+    /** Takes our listener back off the launcher's icons. */
+    static void forgetMenus(ViewGroup icons) {
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            View icon = icons.getChildAt(i);
+            if (MENUS.remove(icon) != null) {
+                icon.setOnLongClickListener(null);
+                icon.setLongClickable(false);
+            }
+        }
+    }
+
+    /** The launcher's icons we have given a menu to, so they can be given it back. */
+    private static final java.util.Map<View, Boolean> MENUS = new java.util.WeakHashMap<>();
 
     /**
      * The hold menu for an app, wherever its icon lives.

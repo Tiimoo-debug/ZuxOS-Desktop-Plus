@@ -148,7 +148,7 @@ public final class NativeDrawerHooks {
                                 return;
                             }
                             View view = (View) param.thisObject;
-                            if (showFolderMenu(view) || dragOut(view)) {
+                            if (dragOut(view)) {
                                 param.setResult(Boolean.TRUE);
                             }
                         }
@@ -502,155 +502,28 @@ public final class NativeDrawerHooks {
     }
 
     /**
-     * The hold menu for one of our folders in the stock drawer.
+     * The folder behind one of our synthetic entries, with everything in it.
      *
-     * <p>Renaming is not offered here: it needs a text field, and this window belongs to the
-     * launcher - the module's own drawer and the desktop both have somewhere to put one, and this
-     * does not. Everything offered here works from where it is.
-     *
-     * @return true when a menu went up, which is what stops the launcher opening its own
+     * <p>Holding a folder used to open a menu, which is why folders were the one thing in the
+     * drawer that could not be dragged out of it. It drags now, like everything else there: one
+     * gesture, one meaning. Breaking a folder up stays in the module's own drawer, where the
+     * folder was made - what the stock drawer was missing was a way to get the folder out.
      */
-    private static boolean showFolderMenu(View view) {
+    private static Item folderBehind(View view) {
         if (sFolderEntries.isEmpty()) {
-            return false;
-        }
-        try {
-            final String folderId = folderIdOf(view.getTag());
-            if (folderId == null) {
-                return false;
-            }
-            final Context ctx = view.getContext();
-            final DrawerStore drawerStore = store(AppCtx.get() != null ? AppCtx.get() : ctx);
-            Item found = null;
-            for (Item folder : drawerStore.folders()) {
-                if (folder.id.equals(folderId)) {
-                    found = folder;
-                    break;
-                }
-            }
-            if (found == null) {
-                return false;
-            }
-            final Item folder = found;
-            int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
-            List<TaskbarMenu.Entry> entries = new ArrayList<>();
-            entries.add(new TaskbarMenu.Entry("Open folder", () -> openFolderFor(view)));
-            entries.add(new TaskbarMenu.Entry("Break up folder",
-                    () -> breakUp(drawerStore, folder)));
-            int[] at = new int[2];
-            view.getLocationOnScreen(at);
-            return TaskbarMenu.showEntries(view, displayId, at[0] + view.getWidth() / 2f,
-                    at[1] + view.getHeight(), entries);
-        } catch (Throwable t) {
-            L.e("native drawer: could not show the folder menu", t);
-            return false;
-        }
-    }
-
-    /**
-     * Empties a folder back into the drawer.
-     *
-     * <p>The drawer is closed afterwards rather than rebuilt in place: the list the launcher is
-     * showing was built before this, and closing it is what makes the next open read the store
-     * again. Nothing is lost either way - the apps were only ever hidden by being filed.
-     */
-    private static void breakUp(DrawerStore drawerStore, Item folder) {
-        try {
-            for (Item child : new ArrayList<>(folder.children)) {
-                drawerStore.order().add(child.key());
-            }
-            folder.children.clear();
-            drawerStore.folders().remove(folder);
-            drawerStore.order().remove(folder.key());
-            drawerStore.save();
-            sFolderEntries.remove(folder.id);
-            TaskbarBridge.closeStockDrawer();
-        } catch (Throwable t) {
-            L.e("native drawer: could not break up that folder", t);
-        }
-    }
-
-    /**
-     * Hold an app in the stock drawer and it comes out of the drawer with your finger.
-     *
-     * <p>Claimed at {@code performLongClick}, which is hooked on {@code View} itself and therefore
-     * fires for every view in the launcher - the desktop's own icons and the taskbar's among them,
-     * both of which have gestures of their own. So this is deliberately narrow: an app icon (not a
-     * folder, which the menu above has already taken), carrying an entry we can read, inside the
-     * stock drawer's window and nowhere else.
-     *
-     * <p>The drag is global and carries its payload on the clip, because it has to cross from the
-     * drawer's window into the launcher's activity, where the desktop is - and a local state
-     * object does not survive that trip.
-     */
-    private static boolean dragOut(View view) {
-        if (!Cfg.enabled() || !Cfg.drawerDrag()) {
-            return false;
-        }
-        try {
-            if (view.getClass().getName().startsWith("com.zuxos")) {
-                // One of ours. Our own views arrange their own drags.
-                return false;
-            }
-            Object tag = view.getTag();
-            String pkg = IconInfo.packageOf(tag);
-            if (pkg == null || !inStockDrawer(view)) {
-                return false;
-            }
-            Item item = itemFor(view.getContext(), tag, pkg);
-            if (item == null) {
-                return false;
-            }
-            DragPayload payload = new DragPayload(item, DragPayload.SRC_DRAWER, null);
-            boolean started = view.startDragAndDrop(payload.toClip(),
-                    new View.DragShadowBuilder(view), payload,
-                    View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
-            if (!started) {
-                return false;
-            }
-            // Posted, not called: the drag has to be under way before the window it started in
-            // goes, and until that window goes there is nothing visible to drop onto.
-            view.post(TaskbarBridge::closeStockDrawer);
-            return true;
-        } catch (Throwable t) {
-            L.d("native drawer: could not start a drag (" + t + ")");
-            return false;
-        }
-    }
-
-    /** Whether a view is inside the drawer's own window rather than some other one. */
-    private static boolean inStockDrawer(View view) {
-        View root = TaskbarBridge.stockDrawerRoot();
-        if (root == null) {
-            return false;
-        }
-        for (View v = view; v != null; ) {
-            if (v == root) {
-                return true;
-            }
-            v = v.getParent() instanceof View ? (View) v.getParent() : null;
-        }
-        return false;
-    }
-
-    /** An entry in the launcher's drawer, as one of our items. */
-    private static Item itemFor(Context ctx, Object entry, String pkg) {
-        ComponentName component = componentOf(entry);
-        if (component == null) {
             return null;
         }
-        String label = titleOf(entry);
-        return Item.app(pkg, component.getClassName(), serialOf(ctx, IconInfo.userOf(entry)),
-                label == null || label.isEmpty() ? pkg : label);
-    }
-
-    private static long serialOf(Context ctx, UserHandle user) {
-        try {
-            UserManager users = (UserManager) ctx.getSystemService(Context.USER_SERVICE);
-            return users == null ? 0L : users.getSerialNumberForUser(user);
-        } catch (Throwable t) {
-            return 0L;
+        String folderId = folderIdOf(view.getTag());
+        if (folderId == null) {
+            return null;
         }
+        Context ctx = AppCtx.get() != null ? AppCtx.get() : view.getContext();
+        for (Item folder : store(ctx).folders()) {
+            if (folder.id.equals(folderId)) {
+                return folder;
+            }
+        }
+        return null;
     }
 
     /** True for one of the synthetic entries this class puts in the drawer for a folder. */
@@ -772,7 +645,8 @@ public final class NativeDrawerHooks {
         return sStore;
     }
 
-    private static synchronized AppsRepo repo(Context ctx) {
+    /** The app repository, built once. Shared with the taskbar, which opens folders too. */
+    static synchronized AppsRepo repo(Context ctx) {
         if (sRepo == null) {
             sRepo = new AppsRepo(ctx);
             sRepo.reload();
