@@ -75,6 +75,33 @@ final class TaskbarRebind {
         return args.length > 0 && args[0] instanceof String ? (String) args[0] : null;
     }
 
+    private static int sSwallowed;
+
+    /**
+     * ZUI's own taskbar crash, caught before it takes the launcher down.
+     *
+     * <p>{@code RecentUsedModel} rebinds the row with an icon view that is still attached to it,
+     * {@code addView} throws {@code IllegalStateException: The specified child already has a
+     * parent}, and the launcher restarts - twice in the last log, with none of our switches
+     * involved any more. The rebuild it interrupted is only half done, but the next bind redoes
+     * it from scratch, so losing one is far cheaper than losing the launcher. Only that exact
+     * failure is caught; anything else still throws.
+     */
+    private static void swallowDoubleAdd(XC_MethodHook.MethodHookParam param) {
+        Throwable thrown = param.getThrowable();
+        if (!(thrown instanceof IllegalStateException) || thrown.getMessage() == null
+                || !thrown.getMessage().contains("already has a parent")) {
+            return;
+        }
+        param.setResult(null);
+        sSwallowed++;
+        if (sSwallowed == 1 || sSwallowed % 20 == 0) {
+            L.w("taskbar rebind: swallowed ZUI's own 'child already has a parent' in "
+                    + param.method.getName() + " (" + sSwallowed + " so far) - the launcher "
+                    + "would have restarted");
+        }
+    }
+
     static void install(ClassLoader loader) {
         if (sInstalled) {
             return;
@@ -88,6 +115,7 @@ final class TaskbarRebind {
         XC_MethodHook after = new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
+                swallowDoubleAdd(param);
                 if (param.thisObject instanceof ViewGroup) {
                     TaskbarRunning.rebound((ViewGroup) param.thisObject);
                 }

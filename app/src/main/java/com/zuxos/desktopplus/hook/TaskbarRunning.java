@@ -78,6 +78,7 @@ final class TaskbarRunning {
         // every one of these settings off still has to be able to receive the first pin.
         watchGeometry(dragLayer, TaskbarTray.rowReference(dragLayer));
         TaskbarDrop.apply(dragLayer);
+        TaskbarNav.apply(dragLayer);
 
         boolean onlyOpen = Cfg.taskbarRunningOnly();
         List<Item> pins = TaskbarPins.pins(dragLayer.getContext());
@@ -112,6 +113,41 @@ final class TaskbarRunning {
         TaskbarStart.apply(dragLayer, icons);
         extras(dragLayer, icons, running, pins, onlyOpen);
         TaskbarMarks.apply(dragLayer, icons, running);
+        describe(dragLayer, icons, running);
+    }
+
+    /** The last description logged per taskbar, so only a change is logged. */
+    private static final Map<View, String> DESCRIBED = new WeakHashMap<>();
+
+    /**
+     * One line per taskbar whenever what it shows changes: what is open on its display, which of
+     * the launcher's own icons are showing, and what is in our row. Enough to answer "why is that
+     * app not on the bar" from a log alone.
+     */
+    private static void describe(ViewGroup dragLayer, ViewGroup icons, Set<String> running) {
+        try {
+            List<String> zui = new ArrayList<>();
+            for (int i = 0; i < icons.getChildCount(); i++) {
+                View child = icons.getChildAt(i);
+                if (child.getVisibility() != View.VISIBLE) {
+                    continue;
+                }
+                String pkg = IconInfo.packageOfView(child);
+                List<String> inside = IconInfo.packagesOfView(child);
+                zui.add(pkg != null ? pkg : inside.isEmpty()
+                        ? child.getClass().getSimpleName() : "folder" + inside);
+            }
+            RunningRow row = rowIn(dragLayer);
+            String line = "display " + TaskbarTray.displayIdOf(dragLayer) + " open=" + running
+                    + " zui=" + zui + " ours=" + (row == null ? "[]"
+                    : "pins" + row.mPins + " open" + row.mRunning);
+            if (!line.equals(DESCRIBED.get(dragLayer))) {
+                DESCRIBED.put(dragLayer, line);
+                L.i("taskbar running: " + line);
+            }
+        } catch (Throwable t) {
+            L.d("taskbar running: could not describe the bar (" + t + ")");
+        }
     }
 
     /**
@@ -257,13 +293,17 @@ final class TaskbarRunning {
             List<Item> pins, boolean onlyOpen) {
         Set<String> missing = new LinkedHashSet<>(
                 onlyOpen ? running : Collections.<String>emptySet());
+        // Only an icon of the app itself counts as already showing it. An app inside a folder -
+        // the launcher's or one pinned here - still gets its own: the folder only says that
+        // something in it is open, and with ZUI as the main launcher every hotseat folder sits on
+        // this bar, which hid every open app that lived in one.
         for (int i = 0; i < icons.getChildCount(); i++) {
-            for (String pkg : IconInfo.packagesOfView(icons.getChildAt(i))) {
-                missing.remove(pkg);
+            View child = icons.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE) {
+                missing.remove(IconInfo.packageOfView(child));
             }
         }
-        // An app that is pinned here already has an icon in this row; it does not need a second.
-        missing.removeAll(PinList.packagesOf(pins));
+        missing.removeAll(PinList.directPackagesOf(pins));
         // The launcher itself is the desktop, not an app you switch back to.
         missing.remove(dragLayer.getContext().getPackageName());
 
@@ -446,6 +486,13 @@ final class TaskbarRunning {
             scroller.addView(row, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
             dragLayer.addView(scroller, lp);
+            // Centred on the bar when nothing of the launcher's is showing, so a change in what
+            // the row holds moves where it starts.
+            row.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (r - l != or - ol) {
+                    place(dragLayer, row, reference);
+                }
+            });
             place(dragLayer, row, reference);
             watchGeometry(dragLayer, reference);
             L.i("taskbar running: a row of our own, beside the launcher's, for open apps that "
@@ -580,7 +627,12 @@ final class TaskbarRunning {
             }
         }
         if (edge < 0) {
-            return -1;
+            // Nothing of the launcher's showing - no app open, and the drawer button moved to the
+            // corner. The row goes where the launcher's cluster would be, centred on the bar,
+            // rather than off beside the clock where it used to land.
+            RunningRow row = rowIn(dragLayer);
+            int width = row != null ? row.getWidth() : 0;
+            return Math.max(0, offsetIn(dragLayer, icons) + (icons.getWidth() - width) / 2);
         }
         return edge + offsetIn(dragLayer, icons) + spacing(icons);
     }
@@ -864,23 +916,26 @@ final class TaskbarRunning {
             return null;
         }
         final String key = pin.key();
-        icon.setOnLongClickListener(v -> {
+        Runnable menu = () -> {
             List<TaskbarMenu.Entry> entries = new ArrayList<>();
             if (pin.pkg != null) {
                 entries.addAll(TaskbarApps.entriesFor(ctx, pin.pkg,
                         android.os.Process.myUserHandle(), displayId));
             } else {
                 entries.add(new TaskbarMenu.Entry("Open folder",
-                        () -> openFolder(ctx, pin, displayId)));
+                        () -> openFolder(ctx, icon, pin, displayId)));
             }
             entries.add(new TaskbarMenu.Entry("Unpin", () -> {
                 TaskbarPins.unpin(ctx, key);
                 refreshAll();
             }));
             int[] at = new int[2];
-            v.getLocationOnScreen(at);
-            return TaskbarMenu.showEntries(v, displayId, at[0] + v.getWidth() / 2f, entries);
-        });
+            icon.getLocationOnScreen(at);
+            TaskbarMenu.showEntries(icon, displayId, at[0] + icon.getWidth() / 2f, entries);
+        };
+        icon.setOnLongClickListener(null);
+        icon.setLongClickable(false);
+        icon.setOnTouchListener(new PinGesture(pin, menu));
         return icon;
     }
 
@@ -907,7 +962,7 @@ final class TaskbarRunning {
             view.setImageDrawable(new FolderIconDrawable(previews, size));
             view.setContentDescription(folder.label != null ? folder.label : "Folder");
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
-            view.setOnClickListener(v -> openFolder(ctx, folder, displayId));
+            view.setOnClickListener(v -> openFolder(ctx, v, folder, displayId));
             return view;
         } catch (Throwable t) {
             L.d("taskbar running: could not draw the pinned folder (" + t + ")");
@@ -915,13 +970,126 @@ final class TaskbarRunning {
         }
     }
 
-    private static void openFolder(Context ctx, Item folder, int displayId) {
+    private static void openFolder(Context ctx, View icon, Item folder, int displayId) {
         try {
             // The same repository the drawer's own folders open with, rather than a second one.
             DrawerFolderWindow.show(ctx, folder, NativeDrawerHooks.repo(ctx), displayId,
-                    Ui.dp(ctx, Cfg.iconSizeDp()), null);
+                    Ui.dp(ctx, Cfg.iconSizeDp()), null, icon);
         } catch (Throwable t) {
             L.e("taskbar running: could not open the pinned folder", t);
+        }
+    }
+
+    /**
+     * What a pinned icon does under a finger or a mouse.
+     *
+     * <p>Tap opens it. Hold and let go without moving: its menu. Hold and then move: it comes off
+     * the bar and can be dropped somewhere else along it. Right-click: the menu straight away.
+     * One gesture, three outcomes, the way a taskbar behaves - and a quick swipe before the hold
+     * is still a scroll of the row, because nothing is armed until the hold has happened.
+     */
+    private static final class PinGesture implements View.OnTouchListener {
+
+        private final Item mPin;
+        private final Runnable mMenu;
+        private float mDownX;
+        private float mDownY;
+        private boolean mArmed;
+        private Runnable mArm;
+
+        PinGesture(Item pin, Runnable menu) {
+            mPin = pin;
+            mMenu = menu;
+        }
+
+        @Override
+        public boolean onTouch(View v, android.view.MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN: {
+                    if (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
+                            && (e.getButtonState()
+                            & android.view.MotionEvent.BUTTON_SECONDARY) != 0) {
+                        mMenu.run();
+                        return true;
+                    }
+                    mDownX = e.getRawX();
+                    mDownY = e.getRawY();
+                    mArmed = false;
+                    mArm = () -> {
+                        mArmed = true;
+                        // From here the row must not take the gesture for a scroll.
+                        if (v.getParent() != null) {
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                        v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(120).start();
+                    };
+                    v.postDelayed(mArm, android.view.ViewConfiguration.getLongPressTimeout());
+                    return false;
+                }
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float slop = android.view.ViewConfiguration.get(v.getContext())
+                            .getScaledTouchSlop();
+                    boolean moved = Math.abs(e.getRawX() - mDownX) > slop
+                            || Math.abs(e.getRawY() - mDownY) > slop;
+                    if (!moved) {
+                        return mArmed;
+                    }
+                    if (!mArmed) {
+                        v.removeCallbacks(mArm);
+                        return false;
+                    }
+                    mArmed = false;
+                    settle(v, e);
+                    startDrag(v);
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_UP: {
+                    v.removeCallbacks(mArm);
+                    if (!mArmed) {
+                        return false;
+                    }
+                    mArmed = false;
+                    settle(v, e);
+                    mMenu.run();
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    v.removeCallbacks(mArm);
+                    if (mArmed) {
+                        mArmed = false;
+                        v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                    }
+                    return false;
+                default:
+                    return mArmed;
+            }
+        }
+
+        /**
+         * Back to rest, and the view told the touch is over.
+         *
+         * <p>It saw the press go down and will not see it come up - this listener takes the up -
+         * so without the cancel it stays pressed and its ripple never fades.
+         */
+        private void settle(View v, android.view.MotionEvent e) {
+            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(e);
+            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+            v.onTouchEvent(cancel);
+            cancel.recycle();
+        }
+
+        private void startDrag(View v) {
+            try {
+                com.zuxos.desktopplus.desktop.DragPayload payload =
+                        new com.zuxos.desktopplus.desktop.DragPayload(mPin,
+                                com.zuxos.desktopplus.desktop.DragPayload.SRC_TASKBAR, null);
+                // Local: a pin moves along the bar and nowhere else, so the desktop never sees it.
+                v.startDragAndDrop(payload.toClip(), new View.DragShadowBuilder(v), payload, 0);
+            } catch (Throwable t) {
+                L.d("taskbar running: could not pick the pin up (" + t + ")");
+            }
         }
     }
 

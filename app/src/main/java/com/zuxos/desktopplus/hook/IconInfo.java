@@ -60,10 +60,11 @@ final class IconInfo {
     /**
      * Everything an icon stands for - one app, or every app in a folder.
      *
-     * <p>A folder in the taskbar is not one package, and treating it as none is what made an app
-     * opened from inside one count as closed: its folder stayed dark and the app turned up a second
-     * time in the row beside it. The contents list is found by type, the way everything else about
-     * the launcher's minified classes is found.
+     * <p>A folder in the taskbar is not one package, and treating it as none is what made a folder
+     * holding an open app count as closed and get hidden. This decides whether a folder stays and
+     * carries a mark; whether the open app also gets an icon of its own is decided from the
+     * folder-free {@link #packageOfView}. The contents list is found by type, the way everything
+     * else about the launcher's minified classes is found.
      */
     static java.util.List<String> packagesOfView(android.view.View icon) {
         java.util.List<String> out = new java.util.ArrayList<>();

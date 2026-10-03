@@ -230,6 +230,32 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         return host != null && ACTIVE.containsValue(host) ? host : null;
     }
 
+    /**
+     * Whether our desktop is on this display.
+     *
+     * <p>What separates the external desktop from the tablet's own home, which runs in the same
+     * process and shares the launcher's drawer - and where the launcher's own gestures must stay
+     * exactly as they were.
+     */
+    public static synchronized boolean isOnDisplay(int displayId) {
+        for (DesktopHost host : ACTIVE.values()) {
+            if (host.mDisplayId == displayId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The activity our desktop lives in on this display, or null. */
+    public static synchronized Activity activityOn(int displayId) {
+        for (DesktopHost host : ACTIVE.values()) {
+            if (host.mDisplayId == displayId) {
+                return host.mActivity;
+            }
+        }
+        return null;
+    }
+
     /** Puts a shortcut the system just pinned onto the desktop. */
     public void addPinnedItem(Item item) {
         mRoot.post(() -> {
@@ -414,10 +440,12 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private TextView buildArrow(String glyph, int gravity, final int delta) {
         TextView arrow = new TextView(mActivity);
         arrow.setText(glyph);
-        arrow.setTextSize(26);
+        arrow.setTextSize(40);
         arrow.setTextColor(Ui.COLOR_TEXT);
         arrow.setGravity(Gravity.CENTER);
-        arrow.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 20), 0x66202024));
+        // Just the arrow. A soft shadow instead of a pill behind it keeps it readable on a light
+        // wallpaper without putting a shape on the desktop.
+        arrow.setShadowLayer(Ui.dp(mActivity, 4), 0, Ui.dp(mActivity, 1), 0x99000000);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 Ui.dp(mActivity, 40), Ui.dp(mActivity, 64));
         lp.gravity = gravity | Gravity.CENTER_VERTICAL;
@@ -724,7 +752,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     private void openItem(Item item, View source) {
         if (item.type == Item.TYPE_FOLDER) {
-            mFolders.open(item, iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
+            mFolders.open(item, iconSizePx(), Cfg.showLabels(), Cfg.labelShadow(), source);
             updateWallpaperBlur();
             return;
         }
@@ -987,6 +1015,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         } else {
             entries.add(new Menus.Entry("Open", () -> openItem(item, null)));
             if (item.type == Item.TYPE_APP) {
+                com.zuxos.desktopplus.hook.AppMenu.addTo(entries, mActivity, item.pkg,
+                        mRepo.userFor(item.userSerial), mDisplayId, null);
                 entries.add(new Menus.Entry("Pin a shortcut from this app",
                         () -> Dialogs.pickShortcut(mActivity, mRepo, item.pkg,
                                 mRepo.userFor(item.userSerial), this::pinShortcut)));
@@ -1555,6 +1585,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                     mRepo.showAppInfo(item, mDisplayId);
                     closeOverlays();
                 }));
+                com.zuxos.desktopplus.hook.AppMenu.addTo(entries, mActivity, item.pkg,
+                        mRepo.userFor(item.userSerial), mDisplayId, this::closeOverlays);
             }
         }
         Menus.showAt(mActivity, mRoot, local[0], local[1], entries);

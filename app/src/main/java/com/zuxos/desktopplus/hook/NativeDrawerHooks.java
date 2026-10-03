@@ -17,6 +17,7 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Storage;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.model.AppsRepo;
@@ -491,7 +492,7 @@ public final class NativeDrawerHooks {
                 if (folder.id.equals(folderId)) {
                     int displayId = view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
                     DrawerFolderWindow.show(ctx, folder, repo(ctx), displayId,
-                            Ui.dp(ctx, Cfg.iconSizeDp()), drawerStore);
+                            Ui.dp(ctx, Cfg.iconSizeDp()), drawerStore, view);
                     return true;
                 }
             }
@@ -548,6 +549,12 @@ public final class NativeDrawerHooks {
                 return false;
             }
             if (!inStockDrawer(view)) {
+                return false;
+            }
+            // Only where our desktop is. On the tablet the drawer drops onto ZUI's own home,
+            // which knows nothing of our drag, so taking the long press there broke ZUI's.
+            if (view.getDisplay() == null
+                    || !DesktopHost.isOnDisplay(view.getDisplay().getDisplayId())) {
                 return false;
             }
             Object tag = view.getTag();

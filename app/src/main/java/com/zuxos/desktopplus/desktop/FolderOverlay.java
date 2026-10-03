@@ -41,27 +41,27 @@ public class FolderOverlay extends FrameLayout {
     private final TextView mEmpty;
     private GlassPanel mPanel;
     private Item mFolder;
+    /** The icon it was opened from, which it closes back into. */
+    private View mSource;
 
     public FolderOverlay(Context ctx, AppsRepo repo, Listener listener) {
         super(ctx);
         mRepo = repo;
         mListener = listener;
-        setBackgroundColor(Ui.COLOR_SCRIM);
+        setBackgroundColor(FolderStyle.SCRIM);
         setClickable(true);
         setVisibility(GONE);
         setOnClickListener(v -> close());
 
         final LinearLayout panel = new LinearLayout(ctx);
         panel.setOrientation(LinearLayout.VERTICAL);
-        int pad = Ui.dp(ctx, 20);
-        panel.setPadding(pad, pad, pad, pad);
+        int pad = Ui.dp(ctx, FolderStyle.PADDING_DP);
+        panel.setPadding(pad, Ui.dp(ctx, 12), pad, pad);
         // Swallow clicks so tapping the panel itself does not close the folder.
         panel.setClickable(true);
 
         mName = new EditText(ctx);
-        mName.setSingleLine(true);
-        mName.setTextColor(Ui.COLOR_TEXT);
-        mName.setTextSize(18);
+        FolderStyle.styleTitle(mName);
         mName.setBackground(null);
         mName.addTextChangedListener(new TextWatcher() {
             @Override
@@ -108,7 +108,7 @@ public class FolderOverlay extends FrameLayout {
         });
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        glp.topMargin = Ui.dp(ctx, 12);
+        glp.topMargin = Ui.dp(ctx, 8);
         panel.addView(mGrid, glp);
 
         mEmpty = new TextView(ctx);
@@ -117,7 +117,7 @@ public class FolderOverlay extends FrameLayout {
         mEmpty.setVisibility(GONE);
         panel.addView(mEmpty);
 
-        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x4D1C1C22);
+        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP), 0x4D1C1C22);
         glass.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
@@ -141,11 +141,19 @@ public class FolderOverlay extends FrameLayout {
     }
 
     public void open(Item folder, int iconSizePx, boolean showLabels, boolean labelShadow) {
+        open(folder, iconSizePx, showLabels, labelShadow, null);
+    }
+
+    /** Opens it out of {@code source}, the icon that was tapped, when there is one. */
+    public void open(Item folder, int iconSizePx, boolean showLabels, boolean labelShadow,
+            View source) {
         mFolder = folder;
+        mSource = source;
         mName.setText(folder.label != null ? folder.label : "Folder");
         rebuild(iconSizePx, showLabels, labelShadow);
         bringToFront();
-        Anim.popIn(this, mPanel);
+        Anim.fadeIn(this);
+        FolderStyle.zoomIn(mPanel, source);
         post(mPanel::refresh);
     }
 
@@ -154,11 +162,11 @@ public class FolderOverlay extends FrameLayout {
         if (mFolder == null) {
             return;
         }
-        int columns = Math.max(1, Math.min(4, mFolder.children.size()));
-        mGrid.setColumnCount(columns);
+        mGrid.setColumnCount(FolderStyle.columns(mFolder.children.size()));
         mEmpty.setVisibility(mFolder.children.isEmpty() ? VISIBLE : GONE);
 
-        int cell = iconSizePx + Ui.dp(getContext(), showLabels ? 44 : 16);
+        int cell = showLabels ? FolderStyle.cellWidth(getContext(), iconSizePx)
+                : iconSizePx + Ui.dp(getContext(), 16);
         for (final Item child : mFolder.children) {
             ItemView iv = new ItemView(getContext(), iconSizePx, showLabels, labelShadow);
             iv.bind(child, mRepo);
@@ -227,7 +235,10 @@ public class FolderOverlay extends FrameLayout {
             return;
         }
         final Item folder = mFolder;
+        final View source = mSource;
         mFolder = null;
+        mSource = null;
+        FolderStyle.zoomOut(mPanel, source, null);
         Anim.fadeOut(this, () -> {
             if (folder != null) {
                 mListener.onClosed(folder);

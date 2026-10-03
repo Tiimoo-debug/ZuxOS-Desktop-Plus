@@ -141,4 +141,52 @@ public class PinListTest {
         assertEquals(Collections.singletonList("com.a"),
                 PinList.packagesOf(Arrays.asList(app("com.a"), folder)));
     }
+
+    private static List<Item> abcd() {
+        return Arrays.asList(app("com.a"), app("com.b"), app("com.c"), app("com.d"));
+    }
+
+    /** Slots count the bar as it is on screen, with the dragged pin still standing in it. */
+    @Test
+    public void aPinMovedRightLandsInTheSlotItWasDroppedOn() {
+        // b dropped into the gap between c and d: slot 3 on screen.
+        assertEquals(Arrays.asList("com.a", "com.c", "com.b", "com.d"),
+                packages(PinList.move(abcd(), app("com.b").key(), 3)));
+    }
+
+    @Test
+    public void aPinMovedLeftLandsInTheSlotItWasDroppedOn() {
+        assertEquals(Arrays.asList("com.d", "com.a", "com.b", "com.c"),
+                packages(PinList.move(abcd(), app("com.d").key(), 0)));
+    }
+
+    @Test
+    public void aPinDroppedOnEitherSideOfItselfStaysWhereItIs() {
+        assertEquals(packages(abcd()), packages(PinList.move(abcd(), app("com.b").key(), 1)));
+        assertEquals(packages(abcd()), packages(PinList.move(abcd(), app("com.b").key(), 2)));
+    }
+
+    @Test
+    public void aPinMovedPastTheEndGoesLast() {
+        assertEquals(Arrays.asList("com.b", "com.c", "com.d", "com.a"),
+                packages(PinList.move(abcd(), app("com.a").key(), 4)));
+        assertEquals(Arrays.asList("com.b", "com.c", "com.d", "com.a"),
+                packages(PinList.move(abcd(), app("com.a").key(), PinList.AT_THE_END)));
+    }
+
+    @Test
+    public void movingSomethingThatIsNotPinnedChangesNothing() {
+        assertEquals(packages(abcd()), packages(PinList.move(abcd(), "nothing", 0)));
+    }
+
+    /** An open app inside a pinned folder still needs an icon of its own to switch to. */
+    @Test
+    public void appsInsideAFolderAreNotDirectPins() {
+        Item folder = Item.folder("Web");
+        folder.children.add(app("com.browser"));
+        List<Item> pins = Arrays.asList(app("com.a"), folder);
+
+        assertEquals(Collections.singletonList("com.a"), PinList.directPackagesOf(pins));
+        assertTrue(PinList.packagesOf(pins).contains("com.browser"));
+    }
 }

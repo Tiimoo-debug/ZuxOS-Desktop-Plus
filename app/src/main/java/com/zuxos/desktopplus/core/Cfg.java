@@ -191,6 +191,17 @@ public final class Cfg {
         return getBool(Const.KEY_HIDE_RECENTS_FLASH, true);
     }
 
+    /**
+     * The external taskbar's back, home and recents act on the external screen.
+     *
+     * <p>On by default: ZUI hands those keys to the system, which acts on whichever screen it
+     * last thought was in front - so back on the monitor closed an app on the tablet. Fixing a
+     * plain bug is not something to make anybody opt into.
+     */
+    public static boolean navKeysOwnScreen() {
+        return getBool(Const.KEY_NAV_OWN_SCREEN, true);
+    }
+
     /** A mark under the taskbar icons whose apps are open. */
     public static boolean runningMarks() {
         return getBool(Const.KEY_RUNNING_MARKS, true);

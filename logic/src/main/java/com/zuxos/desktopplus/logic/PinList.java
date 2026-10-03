@@ -51,6 +51,33 @@ public final class PinList {
         return add(pins, item, AT_THE_END);
     }
 
+    /**
+     * The list with a pin moved to a slot, where the slot is counted in the list as it is on
+     * screen - with the moved pin still in it.
+     *
+     * <p>That is the only index a drop can give: the bar is measured while the dragged icon is
+     * still standing in its old place. So a pin moved to the right lands one slot earlier than the
+     * raw index once it has left its own slot, or every move right would overshoot by one.
+     */
+    public static List<Item> move(List<Item> pins, String key, int at) {
+        List<Item> out = pins == null ? new ArrayList<>() : new ArrayList<>(pins);
+        int from = indexOf(out, key);
+        if (from < 0) {
+            return out;
+        }
+        Item moving = out.remove(from);
+        if (at == AT_THE_END || at > out.size()) {
+            out.add(moving);
+            return out;
+        }
+        int to = Math.max(0, at);
+        if (to > from) {
+            to--;
+        }
+        out.add(to, moving);
+        return out;
+    }
+
     /** The list without whatever was pinned under this key. */
     public static List<Item> remove(List<Item> pins, String key) {
         List<Item> out = new ArrayList<>();
@@ -94,6 +121,27 @@ public final class PinList {
         }
         for (Item pin : pins) {
             collect(pin, out);
+        }
+        return out;
+    }
+
+    /**
+     * The packages pinned as apps in their own right, folders left out.
+     *
+     * <p>What decides whether an open app needs an icon of its own: an app inside a pinned folder
+     * still does, because the folder says "something in here is open", not which app or that
+     * you can switch to it.
+     */
+    public static List<String> directPackagesOf(List<Item> pins) {
+        List<String> out = new ArrayList<>();
+        if (pins == null) {
+            return out;
+        }
+        for (Item pin : pins) {
+            if (pin != null && pin.pkg != null && pin.children.isEmpty()
+                    && !out.contains(pin.pkg)) {
+                out.add(pin.pkg);
+            }
         }
         return out;
     }

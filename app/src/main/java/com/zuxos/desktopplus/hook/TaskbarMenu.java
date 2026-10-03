@@ -14,16 +14,15 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
-import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.GlassSurface;
+import com.zuxos.desktopplus.core.MenuRows;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -333,16 +332,16 @@ public final class TaskbarMenu {
         final Context ctx = Overlays.windowContext(source.getContext());
         try {
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 16), Tone.panelTint(ctx));
-            LinearLayout body = new LinearLayout(ctx);
-            body.setOrientation(LinearLayout.VERTICAL);
-            int padV = Ui.dp(ctx, 8);
-            body.setPadding(0, padV, 0, padV);
-            glass.addView(body, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT));
+            GlassSurface glass = MenuRows.pane(ctx);
+            LinearLayout body = MenuRows.body(glass);
+            boolean anyIcon = false;
             for (Entry entry : entries) {
-                body.addView(rowFor(ctx, entry));
+                anyIcon |= entry.icon() != null;
+            }
+            for (Entry entry : entries) {
+                body.addView(rowFor(ctx, entry, anyIcon), new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
             }
 
             final boolean onTheBar = rawY < 0;
@@ -360,6 +359,7 @@ public final class TaskbarMenu {
                 glp.topMargin = (int) Math.max(0, rawY);
             }
             root.addView(glass, glp);
+            MenuRows.popIn(glass, onTheBar);
             glass.post(() -> {
                 // Held near the right-hand edge - where the tray is - the menu would run off the
                 // display. Its size is only known once it has been measured.
@@ -430,23 +430,8 @@ public final class TaskbarMenu {
         }
     }
 
-    private static View rowFor(Context ctx, Entry entry) {
-        TextView tv = new TextView(ctx);
-        tv.setText(entry.title);
-        tv.setTextColor(Ui.COLOR_TEXT);
-        tv.setTextSize(14);
-        tv.setSingleLine(true);
-        // An app's own shortcut titles come through here and some of them are sentences. Left to
-        // wrap the pane wider than the display, the clamp that keeps it on screen has nothing
-        // left to work with and the right-hand end simply falls off.
-        tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        tv.setMaxWidth(Ui.dp(ctx, 300));
-        int padH = Ui.dp(ctx, 18);
-        int padV = Ui.dp(ctx, 11);
-        tv.setPadding(padH, padV, padH, padV);
-        tv.setMinimumWidth(Ui.dp(ctx, 180));
-        tv.setBackground(Ui.ripple(ctx, 0x00000000, 0));
-        tv.setOnClickListener(v -> {
+    private static View rowFor(Context ctx, Entry entry, boolean indent) {
+        return MenuRows.row(ctx, entry.title, entry.icon(), indent, true, v -> {
             dismiss();
             try {
                 entry.action.run();
@@ -454,7 +439,6 @@ public final class TaskbarMenu {
                 L.e("taskbar menu action failed: " + entry.title, t);
             }
         });
-        return tv;
     }
 
     static void launch(Context ctx, String pkg, int displayId) {
@@ -515,10 +499,21 @@ public final class TaskbarMenu {
     static final class Entry {
         final String title;
         final Runnable action;
+        final android.graphics.drawable.Drawable icon;
 
         Entry(String title, Runnable action) {
+            this(title, null, action);
+        }
+
+        /** With an icon of its own - an app shortcut's - rather than the one its title suggests. */
+        Entry(String title, android.graphics.drawable.Drawable icon, Runnable action) {
             this.title = title;
+            this.icon = icon;
             this.action = action;
+        }
+
+        android.graphics.drawable.Drawable icon() {
+            return icon != null ? icon : com.zuxos.desktopplus.core.Glyphs.forTitle(title);
         }
     }
 }

@@ -17,6 +17,7 @@ import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.DragPayload;
+import com.zuxos.desktopplus.desktop.FolderStyle;
 import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
 import com.zuxos.desktopplus.desktop.Menus;
@@ -42,12 +43,20 @@ public final class DrawerFolderWindow {
     private static DrawerStore sStore;
     private static int sDisplayId;
     private static int sIconSize;
+    private static View sPanel;
+    private static View sSource;
 
     private DrawerFolderWindow() {
     }
 
     public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
             int iconSizePx, DrawerStore store) {
+        show(ctx, folder, repo, displayId, iconSizePx, store, null);
+    }
+
+    /** Opens the folder out of {@code source}, the icon that was tapped, when there is one. */
+    public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
+            int iconSizePx, DrawerStore store, View source) {
         dismiss();
         // Opened from the taskbar, ctx is bound to the taskbar's window type and refuses an
         // overlay outright (type 2024 vs 2038), so every caller goes through a context that may.
@@ -58,20 +67,20 @@ public final class DrawerFolderWindow {
         }
         try {
             FrameLayout root = new FrameLayout(ctx);
-            root.setBackgroundColor(Ui.COLOR_SCRIM);
+            root.setBackgroundColor(FolderStyle.SCRIM);
 
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
-            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 26), 0x4D1C1C22);
+            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP),
+                    0x4D1C1C22);
             glass.addView(panel, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-            int pad = Ui.dp(ctx, 20);
-            panel.setPadding(pad, pad, pad, pad);
+            int pad = Ui.dp(ctx, FolderStyle.PADDING_DP);
+            panel.setPadding(pad, Ui.dp(ctx, 14), pad, pad);
 
             TextView title = new TextView(ctx);
             title.setText(folder.label != null ? folder.label : "Folder");
-            title.setTextColor(Ui.COLOR_TEXT);
-            title.setTextSize(18);
+            FolderStyle.styleTitle(title);
             panel.addView(title);
 
             GridLayout grid = new GridLayout(ctx);
@@ -81,7 +90,7 @@ public final class DrawerFolderWindow {
             sStore = store;
             sDisplayId = displayId;
             sIconSize = iconSizePx;
-            grid.setColumnCount(Math.max(1, Math.min(5, folder.children.size())));
+            grid.setColumnCount(FolderStyle.columns(folder.children.size()));
             grid.setOnDragListener((v, event) -> {
                 Object local = event.getLocalState();
                 if (!(local instanceof DragPayload)) {
@@ -104,7 +113,7 @@ public final class DrawerFolderWindow {
             });
             LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            glp.topMargin = Ui.dp(ctx, 12);
+            glp.topMargin = Ui.dp(ctx, 10);
             panel.addView(grid, glp);
 
             populate(ctx);
@@ -124,7 +133,7 @@ public final class DrawerFolderWindow {
                 if (event.getAction() == android.view.KeyEvent.ACTION_UP
                         && (keyCode == android.view.KeyEvent.KEYCODE_BACK
                         || keyCode == android.view.KeyEvent.KEYCODE_ESCAPE)) {
-                    dismiss();
+                    close();
                     return true;
                 }
                 return false;
@@ -138,7 +147,7 @@ public final class DrawerFolderWindow {
                     boolean insidePanel = x >= glass.getLeft() && x <= glass.getRight()
                             && y >= glass.getTop() && y <= glass.getBottom();
                     if (!insidePanel) {
-                        dismiss();
+                        close();
                         return true;
                     }
                 }
@@ -157,7 +166,10 @@ public final class DrawerFolderWindow {
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            sPanel = glass;
+            sSource = source;
             root.requestFocus();
+            FolderStyle.zoomIn(glass, source);
         } catch (Throwable t) {
             L.e("could not open drawer folder", t);
         }
@@ -171,7 +183,7 @@ public final class DrawerFolderWindow {
             return;
         }
         grid.removeAllViews();
-        grid.setColumnCount(Math.max(1, Math.min(5, folder.children.size())));
+        grid.setColumnCount(FolderStyle.columns(folder.children.size()));
         for (Item child : folder.children) {
             ItemView iv = new ItemView(ctx, sIconSize, true, false);
             iv.bind(child, sRepo);
@@ -197,7 +209,7 @@ public final class DrawerFolderWindow {
                 }
             });
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-            lp.width = sIconSize + Ui.dp(ctx, 44);
+            lp.width = FolderStyle.cellWidth(ctx, sIconSize);
             lp.setMargins(Ui.dp(ctx, 6), Ui.dp(ctx, 6), Ui.dp(ctx, 6), Ui.dp(ctx, 6));
             grid.addView(iv, lp);
         }
@@ -336,7 +348,29 @@ public final class DrawerFolderWindow {
         }
     }
 
+    /**
+     * Closes it back into the icon it came from.
+     *
+     * <p>For leaving it alone - a tap outside, back. Launching an app goes through {@link #dismiss}
+     * instead: the app is on its way and a folder still shrinking over it would be in the way.
+     */
+    public static void close() {
+        View panel = sPanel;
+        View current = sCurrent;
+        if (panel == null || current == null) {
+            dismiss();
+            return;
+        }
+        FolderStyle.zoomOut(panel, sSource, () -> {
+            if (sCurrent == current) {
+                dismiss();
+            }
+        });
+    }
+
     public static void dismiss() {
+        sPanel = null;
+        sSource = null;
         View current = sCurrent;
         WindowManager wm = sWm;
         sCurrent = null;

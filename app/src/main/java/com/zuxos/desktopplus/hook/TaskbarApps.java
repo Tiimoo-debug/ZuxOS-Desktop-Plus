@@ -326,10 +326,32 @@ final class TaskbarApps {
             if (label == null) {
                 continue;
             }
-            entries.add(new TaskbarMenu.Entry(label.toString(),
+            entries.add(new TaskbarMenu.Entry(label.toString(), shortcutIcon(ctx, shortcut),
                     () -> startShortcut(ctx, shortcut, displayId)));
         }
         return entries;
+    }
+
+    /**
+     * The shortcut's own icon, the one the app drew for it.
+     *
+     * <p>Falls back to a plain shortcut glyph rather than to one guessed from the title: a
+     * shortcut called "New chat" is not an "add" button, whatever the word suggests.
+     */
+    static android.graphics.drawable.Drawable shortcutIcon(Context ctx,
+            ShortcutInfo shortcut) {
+        try {
+            LauncherApps apps = (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            android.graphics.drawable.Drawable icon = apps == null ? null
+                    : apps.getShortcutIconDrawable(shortcut,
+                            ctx.getResources().getDisplayMetrics().densityDpi);
+            if (icon != null) {
+                return icon;
+            }
+        } catch (Throwable t) {
+            L.d("taskbar apps: no icon for shortcut " + shortcut.getId() + " (" + t + ")");
+        }
+        return com.zuxos.desktopplus.core.Glyphs.of(com.zuxos.desktopplus.core.Glyphs.SHORTCUT);
     }
 
     /**
@@ -338,7 +360,7 @@ final class TaskbarApps {
      * <p>Only the launcher may ask for these, and the probe said this one may - which is what
      * makes the menu worth having rather than three buttons.
      */
-    private static List<ShortcutInfo> shortcuts(Context ctx, String pkg, UserHandle user) {
+    static List<ShortcutInfo> shortcuts(Context ctx, String pkg, UserHandle user) {
         List<ShortcutInfo> out = new ArrayList<>();
         try {
             LauncherApps apps = (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
@@ -368,7 +390,7 @@ final class TaskbarApps {
         return out;
     }
 
-    private static void startShortcut(Context ctx, ShortcutInfo shortcut, int displayId) {
+    static void startShortcut(Context ctx, ShortcutInfo shortcut, int displayId) {
         try {
             LauncherApps apps = (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
             if (apps == null) {
@@ -388,7 +410,7 @@ final class TaskbarApps {
      * which is precisely not the one you are looking at in the taskbar. Force-stopping is a
      * privileged thing to do, so it goes the same way as the other privileged things here.
      */
-    private static void close(Context ctx, String pkg) {
+    static void close(Context ctx, String pkg) {
         Su.run(outcome -> {
             if (outcome.ok()) {
                 L.i("taskbar apps: stopped " + pkg);

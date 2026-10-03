@@ -64,6 +64,15 @@ final class TaskbarPins {
                 + (item.pkg != null ? item.pkg : "folder \"" + item.label + "\""));
     }
 
+    /** Moves a pin to a slot counted the way the bar shows it - see {@link PinList#move}. */
+    static synchronized void move(Context ctx, String key, int at) {
+        if (ctx == null || key == null) {
+            return;
+        }
+        write(ctx, PinList.move(pins(ctx), key, at));
+        L.i("taskbar pins: moved " + key + " to slot " + at);
+    }
+
     static synchronized void unpin(Context ctx, String key) {
         if (ctx == null || key == null) {
             return;

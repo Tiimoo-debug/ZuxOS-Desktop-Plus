@@ -141,6 +141,13 @@ final class TaskbarDrop {
                 return false;
             }
             Item item = payload.item;
+            if (PinList.holds(TaskbarPins.pins(getContext()), item.key())) {
+                // Already here: a pin dragged along the bar, or the same app dropped again.
+                // Either way it moves to where it was let go.
+                TaskbarPins.move(getContext(), item.key(), where(x));
+                TaskbarRunning.apply(mDragLayer);
+                return true;
+            }
             if (item.pkg == null && item.type != Item.TYPE_FOLDER) {
                 // A widget, or a shortcut with nothing but an intent. A folder is fine - it opens
                 // rather than launches, and the bar knows how to do that.

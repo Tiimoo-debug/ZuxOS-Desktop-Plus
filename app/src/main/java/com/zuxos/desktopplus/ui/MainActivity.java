@@ -137,6 +137,10 @@ public class MainActivity extends Activity {
                         + "in the taskbar for a moment on every launch. This hides them in the "
                         + "same frame they appear",
                 Const.KEY_HIDE_RECENTS_FLASH, true);
+        addSwitch("Navigation keys act on their own screen",
+                "Back, home and recents on the monitor's taskbar act on the monitor - not on "
+                        + "the tablet, which is where the launcher sends them on its own",
+                Const.KEY_NAV_OWN_SCREEN, true);
         addSwitch("Drawer button on the left",
                 "Moves the launcher's own all-apps button to the left of the taskbar, beside the "
                         + "navigation keys, instead of leaving it in the middle of the icons",
