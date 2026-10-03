@@ -58,6 +58,9 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
     private int mCellW = 1;
     private int mCellH = 1;
 
+    /** Which cell of a multi-cell item the finger holds; see {@link #setGrabCells}. */
+    private int mGrabX;
+    private int mGrabY;
     private int mHintX = -1;
     private int mHintY = -1;
     private boolean mHintIsMerge;
@@ -327,6 +330,8 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
                         && handleDrop(payload, event.getX(), event.getY());
             case DragEvent.ACTION_DRAG_ENDED:
                 clearHint();
+                mGrabX = 0;
+                mGrabY = 0;
                 if (mCallbacks != null && payload != null) {
                     mCallbacks.onDragEnded(payload);
                 }
@@ -336,9 +341,26 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         }
     }
 
+    /**
+     * For a widget picked up by one of its inner cells: the drop puts the item's top-left that
+     * many cells up and left of the cell under the finger. Cleared when the drag ends.
+     */
+    public void setGrabCells(int dx, int dy) {
+        mGrabX = Math.max(0, dx);
+        mGrabY = Math.max(0, dy);
+    }
+
+    private int dropCellX(float x) {
+        return Math.max(0, cellXForPixel(x) - mGrabX);
+    }
+
+    private int dropCellY(float y) {
+        return Math.max(0, cellYForPixel(y) - mGrabY);
+    }
+
     private void updateHint(DragPayload payload, float x, float y) {
-        int cx = cellXForPixel(x);
-        int cy = cellYForPixel(y);
+        int cx = dropCellX(x);
+        int cy = dropCellY(y);
         View at = childAtCell(cx, cy);
         boolean merge = false;
         if (at instanceof ItemView && ((ItemView) at).getItem() != payload.item) {
@@ -377,8 +399,8 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         if (mCallbacks == null) {
             return false;
         }
-        int cx = cellXForPixel(x);
-        int cy = cellYForPixel(y);
+        int cx = dropCellX(x);
+        int cy = dropCellY(y);
         View at = childAtCell(cx, cy);
         try {
             if (at instanceof ItemView) {
@@ -408,12 +430,44 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
                 cx = free[0];
                 cy = free[1];
             }
+            final int grabX = mGrabX;
+            final int grabY = mGrabY;
             mCallbacks.onDropOnCell(payload, cx, cy);
+            // After the callback has put the item in its cell - and maybe rebuilt the view - the
+            // view starts where the finger let go and glides into place, rather than appearing.
+            post(() -> glide(payload.item, x, y, grabX, grabY));
             return true;
         } catch (Throwable t) {
             L.e("drop handling failed", t);
             return false;
         }
+    }
+
+    /**
+     * Slides an item's view from the drop point into its cell.
+     *
+     * <p>The finger held the item at some point inside it - the middle of an icon, wherever on a
+     * widget it was picked up - so the view starts with that point under the finger and travels
+     * from there, settling from a slightly lifted size to its own.
+     */
+    private void glide(Item item, float dropX, float dropY, int grabCellX, int grabCellY) {
+        View view = viewForItem(item);
+        if (view == null || view.getWidth() == 0 || !com.zuxos.desktopplus.core.Cfg.animations()) {
+            return;
+        }
+        float heldX = item.spanX > 1 || item.spanY > 1
+                ? (grabCellX + 0.5f) * mCellW : view.getWidth() / 2f;
+        float heldY = item.spanX > 1 || item.spanY > 1
+                ? (grabCellY + 0.5f) * mCellH : view.getHeight() / 2f;
+        view.animate().cancel();
+        view.setTranslationX(dropX - (view.getLeft() + heldX));
+        view.setTranslationY(dropY - (view.getTop() + heldY));
+        view.setScaleX(1.08f);
+        view.setScaleY(1.08f);
+        view.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f))
+                .start();
     }
 
     public View viewForItem(Item item) {

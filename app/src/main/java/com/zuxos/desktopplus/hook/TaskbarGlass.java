@@ -544,6 +544,10 @@ public final class TaskbarGlass {
     private static final class BarView extends View {
 
         private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        /** Keeps the glyphs legible over whatever app is behind the glass; see onDraw. */
+        private final Paint mContrast = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int mContrastFor;
+        private int mContrastColor;
         private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float mRadius;
@@ -597,6 +601,19 @@ public final class TaskbarGlass {
                     0x2BFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
         }
 
+        private Paint contrastPaint(boolean lightGlyphs) {
+            int glyph = Tone.text(getContext());
+            if (glyph != mContrastFor || mContrastColor == 0) {
+                int scrim = lightGlyphs ? 0xFF000000 : 0xFFFFFFFF;
+                int alpha = com.zuxos.desktopplus.logic.ToneMath.scrimAlphaFor(
+                        0xFF000000 | glyph, scrim, 3.0);
+                mContrastFor = glyph;
+                mContrastColor = (alpha << 24) | (scrim & 0xFFFFFF);
+                mContrast.setColor(mContrastColor);
+            }
+            return mContrast;
+        }
+
         @Override
         protected void onDraw(Canvas canvas) {
             float w = getWidth();
@@ -607,11 +624,18 @@ public final class TaskbarGlass {
             // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
             // rectangle is extended past it and the bottom corners fall off the view.
             RectF r = new RectF(0, 0, w, h + mRadius);
-            if (!mBlurred) {
+            boolean lightGlyphs = Tone.lightOnDark(getContext());
+            if (!mBlurred && lightGlyphs) {
                 // Only when there is nothing behind it: painted over a real blur, this tint is
-                // exactly the colour cast that stops it reading as glass.
+                // exactly the colour cast that stops it reading as glass. And only under light
+                // glyphs - it is dark, and under dark ones it is what made them disappear.
                 canvas.drawRoundRect(r, mRadius, mRadius, mFill);
             }
+            // The floor under every glyph. Glass shows the app behind it, and a white app behind
+            // white glyphs - or a black one behind black - left nothing to see. This is the
+            // lightest veil, in the colour opposite the glyphs, that keeps them at 3:1 against
+            // anything behind; most of the time it is barely there.
+            canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(lightGlyphs));
             canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
             canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
         }

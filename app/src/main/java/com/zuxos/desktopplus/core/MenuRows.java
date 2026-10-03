@@ -98,7 +98,18 @@ public final class MenuRows {
 
     /** The menu coming up: a short grow and fade from where it was asked for. */
     public static void popIn(View pane, boolean fromBelow) {
+        popIn(pane, fromBelow, null);
+    }
+
+    /**
+     * The same, then {@code settled} once the pane is at rest - which is when a pane of liquid
+     * glass can capture what is behind it.
+     */
+    public static void popIn(View pane, boolean fromBelow, Runnable settled) {
         if (!Cfg.animations()) {
+            if (settled != null) {
+                pane.post(settled);
+            }
             return;
         }
         pane.setAlpha(0f);
@@ -107,8 +118,12 @@ public final class MenuRows {
         pane.post(() -> {
             pane.setPivotX(pane.getWidth() / 2f);
             pane.setPivotY(fromBelow ? pane.getHeight() : 0f);
-            pane.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(140)
-                    .setInterpolator(new DecelerateInterpolator()).start();
+            android.view.ViewPropertyAnimator anim = pane.animate().alpha(1f).scaleX(1f)
+                    .scaleY(1f).setDuration(140).setInterpolator(new DecelerateInterpolator());
+            if (settled != null) {
+                anim.withEndAction(settled);
+            }
+            anim.start();
         });
     }
 }

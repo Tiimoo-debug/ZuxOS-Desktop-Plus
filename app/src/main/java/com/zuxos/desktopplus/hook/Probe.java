@@ -90,6 +90,18 @@ public final class Probe {
                         .append(m.getParameterCount()).append(" args)\n");
             }
         }
+        // Every method the desktop activity declares - recents, home and overview handling live
+        // here on this firmware, under names R8 left alone or did not.
+        sb.append("\nall methods declared on the activity class\n");
+        for (java.lang.reflect.Method m : activity.getClass().getDeclaredMethods()) {
+            sb.append("  ").append(m.getReturnType().getSimpleName()).append(' ')
+                    .append(m.getName()).append('(');
+            Class<?>[] types = m.getParameterTypes();
+            for (int i = 0; i < types.length; i++) {
+                sb.append(i == 0 ? "" : ", ").append(types[i].getSimpleName());
+            }
+            sb.append(")\n");
+        }
         // Harmless when the taskbar is not up yet - it says so and costs a line.
         try {
             sb.append(describeTaskbarModel());

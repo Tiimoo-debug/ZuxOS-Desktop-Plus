@@ -471,7 +471,7 @@ public final class NativeDrawerHooks {
         return null;
     }
 
-    private static boolean openFolderFor(View view) {
+    static boolean openFolderFor(View view) {
         if (sFolderEntries.isEmpty()) {
             // No synthetic entries exist, so no view can be carrying one.
             return false;
@@ -569,16 +569,12 @@ public final class NativeDrawerHooks {
                 return false;
             }
             DragPayload payload = new DragPayload(item, DragPayload.SRC_DRAWER, null);
-            boolean started = view.startDragAndDrop(payload.toClip(),
+            // Watched before it starts, so its first move is heard: the watcher decides between
+            // a drag (closes the drawer once it moves) and a hold (menu when it is let go).
+            DrawerHold.watch(view, item);
+            return view.startDragAndDrop(payload.toClip(),
                     new View.DragShadowBuilder(view), payload,
                     View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
-            if (!started) {
-                return false;
-            }
-            // Posted, not called: the drag has to be under way before the window it started in
-            // goes, and until that window goes there is nothing visible to drop onto.
-            view.post(TaskbarBridge::closeStockDrawer);
-            return true;
         } catch (Throwable t) {
             L.d("native drawer: could not start a drag (" + t + ")");
             return false;

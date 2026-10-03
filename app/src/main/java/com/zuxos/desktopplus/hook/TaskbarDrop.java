@@ -118,14 +118,26 @@ final class TaskbarDrop {
             switch (event.getAction()) {
                 case DragEvent.ACTION_DRAG_STARTED:
                     return true;
-                case DragEvent.ACTION_DRAG_LOCATION:
+                case DragEvent.ACTION_DRAG_LOCATION: {
+                    DragPayload moving = movingPin(event);
+                    if (moving != null) {
+                        // A pin along the bar: the row opens a gap, so no line is needed.
+                        TaskbarRunning.previewMove(mDragLayer, moving.item.key(),
+                                where(event.getX()));
+                        return true;
+                    }
                     mWhere = event.getX();
                     invalidate();
                     return true;
+                }
                 case DragEvent.ACTION_DRAG_EXITED:
                 case DragEvent.ACTION_DRAG_ENDED:
                     mWhere = -1f;
                     invalidate();
+                    if (movingPin(event) != null && (event.getAction()
+                            == DragEvent.ACTION_DRAG_EXITED || !event.getResult())) {
+                        TaskbarRunning.clearPreview(mDragLayer);
+                    }
                     return true;
                 case DragEvent.ACTION_DROP:
                     mWhere = -1f;
@@ -146,6 +158,9 @@ final class TaskbarDrop {
                 // Either way it moves to where it was let go.
                 TaskbarPins.move(getContext(), item.key(), where(x));
                 TaskbarRunning.apply(mDragLayer);
+                // Dropped back where it was, the row is not rebuilt and the preview is still on
+                // it - the pin itself faded out. Either way the row ends at rest.
+                TaskbarRunning.clearPreview(mDragLayer);
                 return true;
             }
             if (item.pkg == null && item.type != Item.TYPE_FOLDER) {
@@ -163,6 +178,17 @@ final class TaskbarDrop {
             TaskbarPins.pin(getContext(), item, where(x));
             TaskbarRunning.apply(mDragLayer);
             return true;
+        }
+
+        /** The payload when this drag is a pin being moved along the bar, else null. */
+        private DragPayload movingPin(DragEvent event) {
+            Object local = event.getLocalState();
+            if (local instanceof DragPayload
+                    && ((DragPayload) local).source == DragPayload.SRC_TASKBAR
+                    && ((DragPayload) local).item != null) {
+                return (DragPayload) local;
+            }
+            return null;
         }
 
         /** Which place in the row a drop at this x belongs to. */

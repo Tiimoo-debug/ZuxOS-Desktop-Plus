@@ -61,4 +61,27 @@ public final class Windows {
             return Collections.emptyList();
         }
     }
+
+    /**
+     * How much of the bottom of a display the taskbar covers, in pixels; 0 when there is none.
+     *
+     * <p>Measured off the taskbar itself: its window is taller than the bar (it reserves room
+     * above for the stashed handle and popups), so the window's height would overstate it. On this
+     * firmware it is 80 of the window's 162.
+     */
+    public static int taskbarHeight(int displayId) {
+        for (View root : roots()) {
+            if (!(root instanceof android.view.ViewGroup)
+                    || !root.getClass().getName().endsWith("TaskbarDragLayer")
+                    || TaskbarTray.displayIdOf(root) != displayId
+                    || root.getVisibility() != View.VISIBLE) {
+                continue;
+            }
+            View row = TaskbarTray.rowReference((android.view.ViewGroup) root);
+            if (row != null && row.getHeight() > 0) {
+                return Math.max(0, root.getHeight() - row.getTop());
+            }
+        }
+        return 0;
+    }
 }

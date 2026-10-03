@@ -63,4 +63,35 @@ public class ToneMathTest {
         // Strictly greater, so a colour sitting on the line falls to the darker, safer side.
         assertFalse(ToneMath.isLight(0xFF000000, 0.0));
     }
+
+    @Test
+    public void contrastRunsFromOneToTwentyOne() {
+        assertEquals(21.0, ToneMath.contrast(0xFF000000, 0xFFFFFFFF), 0.01);
+        assertEquals(1.0, ToneMath.contrast(0xFF777777, 0xFF777777), 0.0001);
+    }
+
+    /** White glyphs need a dark scrim strong enough to hold up over a white app. */
+    @Test
+    public void whiteGlyphsGetJustEnoughDarkScrim() {
+        int alpha = ToneMath.scrimAlphaFor(0xFFFFFFFF, 0xFF000000, 3.0);
+        assertTrue(alpha > 80 && alpha < 140);
+        assertTrue(ToneMath.contrast(0xFFFFFFFF,
+                ToneMath.over(0xFF000000, alpha, 0xFFFFFFFF)) >= 3.0);
+        // One step lighter is not enough - it is the smallest that works.
+        assertTrue(ToneMath.contrast(0xFFFFFFFF,
+                ToneMath.over(0xFF000000, alpha - 1, 0xFFFFFFFF)) < 3.0);
+    }
+
+    @Test
+    public void darkGlyphsGetALightScrim() {
+        int alpha = ToneMath.scrimAlphaFor(0xFF000000, 0xFFFFFFFF, 3.0);
+        assertTrue(alpha > 0 && alpha < 255);
+        assertTrue(ToneMath.contrast(0xFF000000,
+                ToneMath.over(0xFFFFFFFF, alpha, 0xFF000000)) >= 3.0);
+    }
+
+    @Test
+    public void aScrimTheColourOfTheGlyphCannotHelpAndIsOpaque() {
+        assertEquals(255, ToneMath.scrimAlphaFor(0xFFFFFFFF, 0xFFFFFFFF, 3.0));
+    }
 }

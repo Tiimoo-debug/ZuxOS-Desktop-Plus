@@ -1,9 +1,6 @@
 package com.zuxos.desktopplus.hook;
 
-import android.app.Activity;
-import android.app.ActivityOptions;
 import android.content.Context;
-import android.content.Intent;
 import android.hardware.input.InputManager;
 import android.os.SystemClock;
 import android.view.Display;
@@ -18,7 +15,6 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Su;
-import com.zuxos.desktopplus.desktop.DesktopHost;
 
 import java.lang.reflect.Method;
 
@@ -31,14 +27,10 @@ import java.lang.reflect.Method;
  * three keys ({@code #back #home #recent_apps}, plain image views with click listeners); this
  * wraps those clicks on every taskbar that is not the tablet's own:
  *
- * <ul>
- *   <li><b>Back</b> is sent as a key event addressed to this display, so it reaches the window in
- *   front <em>here</em>. In-process if the launcher may inject keys, through root if it may not.
- *   <li><b>Home</b> brings our desktop on this display to the front.
- *   <li><b>Recents</b> first brings the desktop on this display to the front, then runs ZUI's own
- *   handler - so the overview opens over the desktop it belongs to rather than behind other
- *   windows.
- * </ul>
+ * <p>Each is sent as that key, addressed to this display - so back reaches the window in front
+ * <em>here</em>, home goes home on this screen, and recents opens this screen's overview.
+ * In-process if the launcher may inject keys, through root if it may not (this firmware refuses
+ * the launcher {@code INJECT_EVENTS}, so it is root).
  *
  * <p>Long presses are not touched, and with the setting off every key does exactly what ZUI does.
  */
@@ -105,17 +97,14 @@ final class TaskbarNav {
             try {
                 switch (mId) {
                     case "back":
-                        back(v.getContext(), mDisplay);
+                        key(v.getContext(), KeyEvent.KEYCODE_BACK, mDisplay);
                         return;
                     case "home":
-                        if (!home(v.getContext(), mDisplay)) {
-                            mOriginal.onClick(v);
-                        }
+                        key(v.getContext(), KeyEvent.KEYCODE_HOME, mDisplay);
+                        closeDrawer();
                         return;
                     default:
-                        // Recents: in front first, then the launcher's own overview over it.
-                        home(v.getContext(), mDisplay);
-                        v.postDelayed(() -> mOriginal.onClick(v), 250L);
+                        key(v.getContext(), KeyEvent.KEYCODE_APP_SWITCH, mDisplay);
                 }
             } catch (Throwable t) {
                 L.d("taskbar nav: " + mId + " fell back to the launcher's own (" + t + ")");
@@ -124,20 +113,27 @@ final class TaskbarNav {
         }
     }
 
-    /** Back, delivered to the window in front on this display. */
-    private static void back(Context ctx, int display) {
-        if (!sInjectRefused && inject(ctx, KeyEvent.KEYCODE_BACK, display)) {
+    /**
+     * A navigation key, pressed on this display.
+     *
+     * <p>Sent as the key itself rather than acted out: the system already knows what back, home
+     * and recents mean on a second screen, and only needs to be told which screen they were
+     * pressed on. Home used to bring our desktop forward by starting its activity directly, and
+     * the system quietly ignores that for a home activity - which is why it did nothing.
+     */
+    private static void key(Context ctx, int keyCode, int display) {
+        if (!sInjectRefused && inject(ctx, keyCode, display)) {
             return;
         }
         if (!sSaidRoot) {
             sSaidRoot = true;
-            L.i("taskbar nav: the launcher may not send keys itself, so back goes through root");
+            L.i("taskbar nav: the launcher may not send keys itself, so the keys go through root");
         }
         Su.run(outcome -> {
             if (outcome != Su.Outcome.OK) {
-                L.w("taskbar nav: back through root failed (" + outcome + ")");
+                L.w("taskbar nav: key " + keyCode + " through root failed (" + outcome + ")");
             }
-        }, "input -d " + display + " keyevent " + KeyEvent.KEYCODE_BACK);
+        }, "input -d " + display + " keyevent " + keyCode);
     }
 
     /**
@@ -176,24 +172,15 @@ final class TaskbarNav {
         }
     }
 
-    /** Our desktop on this display, brought to the front. False when there is none. */
-    private static boolean home(Context ctx, int display) {
-        Activity desktop = DesktopHost.activityOn(display);
-        if (desktop == null) {
-            return false;
-        }
-        Intent intent = new Intent(Intent.ACTION_MAIN)
-                .setComponent(desktop.getComponentName())
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        ActivityOptions options = ActivityOptions.makeBasic().setLaunchDisplayId(display);
-        desktop.startActivity(intent, options.toBundle());
-        // The launcher's drawer is a window of the taskbar's, not of the desktop, so bringing the
-        // desktop forward leaves it open on top unless it is closed too.
+    /**
+     * The launcher's drawer is a window of the taskbar's, not of the desktop, so going home
+     * leaves it open on top unless it is closed too.
+     */
+    private static void closeDrawer() {
         try {
             TaskbarBridge.closeStockDrawer();
         } catch (Throwable ignored) {
             // No drawer open, or none to reach. Either way home has happened.
         }
-        return true;
     }
 }

@@ -78,7 +78,14 @@ public final class FolderStyle {
             panel.setScaleX(FROM_SCALE);
             panel.setScaleY(FROM_SCALE);
             panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
-                    .setInterpolator(new DecelerateInterpolator(1.8f)).start();
+                    .setInterpolator(new DecelerateInterpolator(1.8f))
+                    .withEndAction(() -> {
+                        // The glass waits for this: captured mid-zoom it is sized and placed for
+                        // a panel a quarter of its size.
+                        if (panel instanceof GlassPanel) {
+                            ((GlassPanel) panel).refresh();
+                        }
+                    }).start();
         });
     }
 

@@ -100,7 +100,12 @@ public class GlassPanel extends FrameLayout {
         if (getWidth() <= 0 || getHeight() <= 0) {
             return;
         }
-        if (!LiquidGlass.isSupported() || !sCaptureWorks) {
+        if (getScaleX() != 1f || getScaleY() != 1f) {
+            // Mid-animation: a capture now is sized and placed for a panel that is about to be
+            // somewhere else. Whoever is animating it refreshes it when it settles.
+            return;
+        }
+        if (!LiquidGlass.isSupported() || mCaptureFailed) {
             useRealBlur();
             return;
         }
@@ -109,14 +114,17 @@ public class GlassPanel extends FrameLayout {
     }
 
     /**
-     * Whether drawing another window's views into a bitmap works on this device.
+     * Whether capturing has failed for this panel.
      *
-     * <p>It does not here: the launcher's own trees are hardware-rendered, and drawing one into a
-     * software canvas throws {@code Software rendering doesn't support drawRenderNode}. That threw
-     * on every refresh - twenty times in one session - allocating a bitmap and hiding the panel
-     * each time before failing. Once is enough to learn it.
+     * <p>This panel's, not the process's. It used to be one flag for every panel, so a single
+     * panel whose sources could not be drawn - the stock drawer's, say - turned the lens off on
+     * every other panel too, until the launcher restarted. Capturing goes through the GPU now,
+     * which takes what the software path could not, so this should rarely be set at all.
      */
-    private static boolean sCaptureWorks = true;
+    private boolean mCaptureFailed;
+
+    /** Whether the log has heard which capture path this device takes. */
+    private static boolean sSaidGpu;
 
     private void useRealBlur() {
         if (mRealBlur) {
@@ -247,6 +255,25 @@ public class GlassPanel extends FrameLayout {
             }
             int width = Math.max(1, (int) (GlassPanel.this.getWidth() * CAPTURE_SCALE));
             int height = Math.max(1, (int) (GlassPanel.this.getHeight() * CAPTURE_SCALE));
+            int[] origin = new int[2];
+            GlassPanel.this.getLocationOnScreen(origin);
+            try {
+                Bitmap gpu = com.zuxos.desktopplus.core.Snapshot.capture(mSources,
+                        GlassPanel.this, origin, width, height, CAPTURE_SCALE);
+                if (gpu != null) {
+                    if (!sSaidGpu) {
+                        sSaidGpu = true;
+                        L.i("glass: backdrops are captured through the GPU");
+                    }
+                    keep(gpu);
+                    return;
+                }
+            } catch (Throwable t) {
+                if (!sSaidGpu) {
+                    sSaidGpu = true;
+                    L.i("glass: the GPU capture failed, trying the software one (" + t + ")");
+                }
+            }
             Bitmap bitmap;
             try {
                 bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -277,13 +304,11 @@ public class GlassPanel extends FrameLayout {
                     canvas.restoreToCount(saved);
                 }
             } catch (Throwable t) {
-                // Said once, and not attempted again: this is a property of the device, not of
-                // this moment, and retrying it costs a bitmap and a frame every time.
-                if (sCaptureWorks) {
-                    sCaptureWorks = false;
-                    L.i("glass: this device will not draw other windows into a bitmap (" + t
-                            + "), so panels use a real blur instead");
-                }
+                // Not attempted again for this panel: retrying costs a bitmap and a frame every
+                // time, for the same answer.
+                mCaptureFailed = true;
+                L.i("glass: this panel's backdrop cannot be captured (" + t
+                        + "), so it uses a real blur instead");
                 bitmap.recycle();
                 GlassPanel.this.post(GlassPanel.this::useRealBlur);
                 return;
@@ -291,6 +316,10 @@ public class GlassPanel extends FrameLayout {
                 setPanelVisibility(previous);
             }
 
+            keep(bitmap);
+        }
+
+        private void keep(Bitmap bitmap) {
             Bitmap old = mCapture;
             mCapture = bitmap;
             if (old != null) {

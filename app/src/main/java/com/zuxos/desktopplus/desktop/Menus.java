@@ -8,7 +8,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-import com.zuxos.desktopplus.core.GlassSurface;
+import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.Glyphs;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.MenuRows;
@@ -88,8 +88,15 @@ public final class Menus {
             return false;
         });
 
-        GlassSurface pane = MenuRows.pane(ctx);
-        LinearLayout body = MenuRows.body(pane);
+        // Liquid glass: the desktop behind the menu is ours to capture, so it is bent through the
+        // lens rather than only blurred.
+        GlassPanel pane = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x591C1C22);
+        LinearLayout body = new LinearLayout(ctx);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(0, Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6));
+        pane.addView(body, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        pane.setSource(root);
         List<Drawable> icons = new ArrayList<>();
         boolean anyIcon = false;
         for (Entry entry : entries) {
@@ -129,14 +136,39 @@ public final class Menus {
         pane.post(() -> {
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) pane.getLayoutParams();
             lp.leftMargin = clamp(lp.leftMargin, shade.getWidth() - pane.getWidth());
+            // The usable height stops at the taskbar: the activity runs on underneath it, which
+            // is how a menu held near the bottom ended up half behind the bar.
+            int usable = shade.getHeight() - taskbarOver(shade);
             int top = lp.topMargin;
-            if (top + pane.getHeight() > shade.getHeight()) {
+            if (top + pane.getHeight() > usable) {
                 top = top - pane.getHeight();
             }
-            lp.topMargin = clamp(top, shade.getHeight() - pane.getHeight());
+            lp.topMargin = clamp(top, usable - pane.getHeight());
             pane.setLayoutParams(lp);
         });
-        MenuRows.popIn(pane, false);
+        MenuRows.popIn(pane, false, pane::refresh);
+    }
+
+    /** How much of the bottom of this view the taskbar covers. */
+    private static int taskbarOver(View view) {
+        try {
+            if (view.getDisplay() == null) {
+                return 0;
+            }
+            int bar = com.zuxos.desktopplus.hook.Windows.taskbarHeight(
+                    view.getDisplay().getDisplayId());
+            int[] at = new int[2];
+            view.getLocationOnScreen(at);
+            int screen = view.getResources().getDisplayMetrics().heightPixels;
+            android.graphics.Point size = new android.graphics.Point();
+            view.getDisplay().getRealSize(size);
+            screen = Math.max(screen, size.y);
+            // Only the part of the bar that actually overlaps this view.
+            int viewBottom = at[1] + view.getHeight();
+            return Math.max(0, Math.min(bar, viewBottom - (screen - bar)));
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     private static int clamp(int value, int max) {

@@ -365,6 +365,63 @@ final class TaskbarRunning {
         row.addView(icon, lp);
     }
 
+    /**
+     * While a pin is dragged along the bar: its own slot empties and the pins between where it
+     * was and where it would land slide over by one, opening the gap it will drop into. The drop
+     * then rebuilds the row with every icon already standing where the preview put it, so
+     * nothing jumps.
+     *
+     * @param slot where it would land, counted with the dragged pin still in the row
+     */
+    static void previewMove(ViewGroup dragLayer, String key, int slot) {
+        RunningRow row = rowIn(dragLayer);
+        if (row == null) {
+            return;
+        }
+        int from = row.mPins.indexOf(key);
+        if (from < 0 || from >= row.getChildCount()) {
+            return;
+        }
+        int to = Math.min(slot > from ? slot - 1 : slot, row.mPins.size() - 1);
+        View dragged = row.getChildAt(from);
+        int step = dragged.getWidth() + ((LinearLayout.LayoutParams) dragged.getLayoutParams())
+                .leftMargin;
+        if (row.getChildCount() > 1) {
+            step = Math.abs(row.getChildAt(1).getLeft() - row.getChildAt(0).getLeft());
+        }
+        for (int i = 0; i < row.mPins.size() && i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            float shift;
+            if (i == from) {
+                child.setAlpha(0f);
+                shift = (to - from) * step;
+            } else if (from < to && i > from && i <= to) {
+                shift = -step;
+            } else if (to < from && i >= to && i < from) {
+                shift = step;
+            } else {
+                shift = 0f;
+            }
+            if (child.getTranslationX() != shift) {
+                child.animate().translationX(shift).setDuration(150)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+            }
+        }
+    }
+
+    /** Puts every icon back where it stands, for a drag that left the bar or ended. */
+    static void clearPreview(ViewGroup dragLayer) {
+        RunningRow row = rowIn(dragLayer);
+        if (row == null) {
+            return;
+        }
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            child.animate().translationX(0f).alpha(1f).setDuration(150).start();
+        }
+    }
+
     /** Our row, for whoever needs to measure a drop against what is already in it. */
     static ViewGroup rowOf(ViewGroup dragLayer) {
         return rowIn(dragLayer);
@@ -1094,7 +1151,7 @@ final class TaskbarRunning {
     }
 
     /** Re-reads every taskbar, for when what the row should hold has just changed. */
-    private static void refreshAll() {
+    static void refreshAll() {
         for (View root : Windows.roots()) {
             if (root instanceof ViewGroup && rowIn((ViewGroup) root) != null) {
                 apply((ViewGroup) root);

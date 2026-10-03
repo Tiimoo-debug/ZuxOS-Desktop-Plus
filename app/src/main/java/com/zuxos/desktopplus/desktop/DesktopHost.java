@@ -500,6 +500,15 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
         mDots.removeAllViews();
         mDots.setVisibility(pages > 1 ? View.VISIBLE : View.GONE);
+        // Above the taskbar, not under it: the bar covers the bottom of this activity, and dots
+        // behind its glass read as part of the bar - blurred, and in the way of nothing useful.
+        FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
+        int bottom = com.zuxos.desktopplus.hook.Windows.taskbarHeight(mDisplayId)
+                + Ui.dp(mActivity, 10);
+        if (dlp.bottomMargin != bottom) {
+            dlp.bottomMargin = bottom;
+            mDots.setLayoutParams(dlp);
+        }
         for (int i = 0; i < pages; i++) {
             View dot = new View(mActivity);
             int size = Ui.dp(mActivity, 7);
@@ -770,8 +779,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void startDrag(Item item, View source, int dragSource, Item folder, List<Item> batch) {
         try {
             DragPayload payload = new DragPayload(item, dragSource, folder, batch);
+            final android.graphics.Point grab = mGrabPoint;
+            mGrabPoint = null;
             View.DragShadowBuilder shadow = source instanceof ItemView
-                    ? ((ItemView) source).shadow() : new View.DragShadowBuilder(source);
+                    ? ((ItemView) source).shadow()
+                    : grab == null ? new View.DragShadowBuilder(source)
+                    : new View.DragShadowBuilder(source) {
+                        @Override
+                        public void onProvideShadowMetrics(android.graphics.Point size,
+                                android.graphics.Point touch) {
+                            super.onProvideShadowMetrics(size, touch);
+                            // Held where it was grabbed, not by its middle.
+                            touch.set(Math.min(grab.x, size.x), Math.min(grab.y, size.y));
+                        }
+                    };
             // Global, and carrying its payload on the clip as well as in local state. The desktop
             // is in the launcher's activity window and the taskbar is a window of the taskbar's
             // own, so without this an icon dragged from here cannot reach the bar at all - which
@@ -1270,6 +1291,21 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onWidgetLongPress(WidgetFrame frame) {
         beginResize(frame.getItem());
     }
+
+    @Override
+    public void onWidgetPickUp(WidgetFrame frame, float grabX, float grabY) {
+        Item item = frame.getItem();
+        // Which of the widget's cells is under the finger, so it lands with that cell where the
+        // finger lets go - not with its corner there, which shifts every drop by the grab.
+        mGrid.setGrabCells(
+                mGrid.cellXForPixel(frame.getLeft() + grabX) - item.x,
+                mGrid.cellYForPixel(frame.getTop() + grabY) - item.y);
+        mGrabPoint = new android.graphics.Point((int) grabX, (int) grabY);
+        startDrag(item, frame, DragPayload.SRC_DESKTOP, null);
+    }
+
+    /** Where in a widget it was picked up, for its drag shadow. Null for icons. */
+    private android.graphics.Point mGrabPoint;
 
     /**
      * Shows the resize frame around a widget: drag an edge to resize, the middle to move, and
