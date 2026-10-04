@@ -129,32 +129,8 @@ public final class FolderStyle {
      */
     private static void morph(View panel, View source, float from, float to, long ms,
             android.animation.TimeInterpolator curve, Runnable onEnd) {
-        float[] geometry = geometry(panel, source);
-        panel.setPivotX(panel.getWidth() / 2f);
-        panel.setPivotY(panel.getHeight() / 2f);
-        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(from, to);
-        anim.setDuration(Math.max(1L, (long) (ms * Math.abs(to - from))));
-        anim.setInterpolator(curve);
-        final boolean closing = to < from;
-        anim.addUpdateListener(a -> {
-            float f = (float) a.getAnimatedValue();
-            panel.setTag(R_PROGRESS, f);
-            float scale = geometry[2] + (1f - geometry[2]) * f;
-            panel.setScaleX(scale);
-            panel.setScaleY(scale);
-            panel.setTranslationX(geometry[0] * (1f - f));
-            panel.setTranslationY(geometry[1] * (1f - f));
-            if (closing) {
-                // The icon comes back as the panel, now its size, fades over it.
-                float hand = Math.max(0f, Math.min(1f, f / 0.2f));
-                panel.setAlpha(hand);
-                sourceAlpha(panel, 1f - hand);
-            } else {
-                // Not quite the icon's own look at the very start, so in over the first moment.
-                panel.setAlpha(Math.max(0f, Math.min(1f, 0.35f + f * 2.5f)));
-            }
-            setScrim(panel, Math.max(0f, Math.min(1f, f)));
-        });
+        android.animation.ValueAnimator anim = morphAnimator(panel, source, from, to, ms, curve,
+                true);
         anim.addListener(new android.animation.AnimatorListenerAdapter() {
             private boolean mCancelled;
 
@@ -178,6 +154,66 @@ public final class FolderStyle {
     }
 
     /**
+     * The launcher's own folder animation, replaced by this one: the same morph out of the icon
+     * and back, for the folders ZUI opens on the tablet's home screen. The launcher hides and
+     * shows its icon itself, so that part is left to it; whoever runs this attaches its own
+     * listeners and starts it.
+     */
+    public static android.animation.ValueAnimator nativeMorph(View folder, View icon,
+            boolean opening) {
+        return opening
+                ? morphAnimator(folder, icon, 0f, 1f, Motion.SPRING_MS, OPEN, false)
+                : morphAnimator(folder, icon, 1f, 0f, CLOSE_MS, Motion.EASE, false);
+    }
+
+    /**
+     * The animator under both. Where the icon is is measured on its first frame with the panel
+     * laid out, not when it is made: the launcher builds its animation before its folder has a
+     * place, and a panel never laid out cannot be put over anything.
+     */
+    private static android.animation.ValueAnimator morphAnimator(View panel, View source,
+            float from, float to, long ms, android.animation.TimeInterpolator curve,
+            boolean handOver) {
+        final float[][] geometry = new float[1][];
+        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(from, to);
+        anim.setDuration(Math.max(1L, (long) (ms * Math.abs(to - from))));
+        anim.setInterpolator(curve);
+        final boolean closing = to < from;
+        anim.addUpdateListener(a -> {
+            float f = (float) a.getAnimatedValue();
+            if (geometry[0] == null) {
+                if (panel.getWidth() == 0) {
+                    panel.setAlpha(0f);
+                    return;
+                }
+                geometry[0] = geometry(panel, source);
+                panel.setPivotX(panel.getWidth() / 2f);
+                panel.setPivotY(panel.getHeight() / 2f);
+            }
+            float[] g = geometry[0];
+            panel.setTag(R_PROGRESS, f);
+            float scale = g[2] + (1f - g[2]) * f;
+            panel.setScaleX(scale);
+            panel.setScaleY(scale);
+            panel.setTranslationX(g[0] * (1f - f));
+            panel.setTranslationY(g[1] * (1f - f));
+            if (closing) {
+                // The icon comes back as the panel, now its size, fades over it.
+                float hand = Math.max(0f, Math.min(1f, f / 0.2f));
+                panel.setAlpha(hand);
+                if (handOver) {
+                    sourceAlpha(panel, 1f - hand);
+                }
+            } else {
+                // Not quite the icon's own look at the very start, so in over the first moment.
+                panel.setAlpha(Math.max(0f, Math.min(1f, 0.35f + f * 2.5f)));
+            }
+            setScrim(panel, Math.max(0f, Math.min(1f, f)));
+        });
+        return anim;
+    }
+
+    /**
      * Where the icon is, against the panel at rest: the offset of its centre from the panel's,
      * and the scale that makes the panel its size. With no icon, a small grow from where it is.
      */
@@ -187,14 +223,62 @@ public final class FolderStyle {
         if (source == null || !source.isAttachedToWindow() || w == 0 || h == 0) {
             return new float[]{0f, 0f, 0.85f};
         }
-        int[] from = new int[2];
-        source.getLocationOnScreen(from);
+        android.graphics.RectF icon = iconOnScreen(source);
         int[] at = restingOrigin(panel);
-        float side = Math.min(source.getWidth(), source.getHeight());
-        float dx = from[0] + source.getWidth() / 2f - (at[0] + w / 2f);
-        float dy = from[1] + source.getHeight() / 2f - (at[1] + h / 2f);
+        float side = Math.min(icon.width(), icon.height());
+        float dx = icon.centerX() - (at[0] + w / 2f);
+        float dy = icon.centerY() - (at[1] + h / 2f);
         float scale = Math.max(0.05f, Math.min(1f, side / Math.max(w, h)));
         return new float[]{dx, dy, scale};
+    }
+
+    /**
+     * The icon itself inside the view that was tapped, on screen.
+     *
+     * <p>A drawer or home-screen icon is a view with its label under the picture; growing from
+     * the middle of all that started the folder off too big and too low. An icon with its picture
+     * as a top drawable gives that drawable's place; a launcher folder icon, whose name view is
+     * pushed down below the preview by its top padding, gives the square above the name;
+     * anything else is taken as all icon.
+     */
+    private static android.graphics.RectF iconOnScreen(View source) {
+        int[] at = new int[2];
+        source.getLocationOnScreen(at);
+        float w = source.getWidth();
+        float h = source.getHeight();
+        android.graphics.RectF r = null;
+        if (source instanceof TextView) {
+            android.graphics.drawable.Drawable top =
+                    ((TextView) source).getCompoundDrawables()[1];
+            if (top != null && top.getBounds().width() > 0) {
+                float dw = top.getBounds().width();
+                float dh = top.getBounds().height();
+                float y = source.getPaddingTop();
+                r = new android.graphics.RectF((w - dw) / 2f, y, (w + dw) / 2f, y + dh);
+            }
+        } else if (source instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) source;
+            for (int i = 0; i < group.getChildCount() && r == null; i++) {
+                View child = group.getChildAt(i);
+                if (child instanceof TextView && child.getPaddingTop() > 0
+                        && child.getTop() == 0) {
+                    float above = child.getPaddingTop()
+                            - ((TextView) child).getCompoundDrawablePadding();
+                    float side = Math.min(w, above);
+                    if (side > 0) {
+                        r = new android.graphics.RectF((w - side) / 2f, above - side,
+                                (w + side) / 2f, above);
+                    }
+                }
+            }
+        }
+        if (r == null) {
+            float side = Math.min(w, h);
+            r = new android.graphics.RectF((w - side) / 2f, (h - side) / 2f, (w + side) / 2f,
+                    (h + side) / 2f);
+        }
+        r.offset(at[0], at[1]);
+        return r;
     }
 
     /** The panel's top-left on screen with no animation applied to it. */
