@@ -79,8 +79,8 @@ public final class FolderStyle {
             panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
                     .setInterpolator(Motion.SPRING)
                     .withEndAction(() -> {
-                        // The glass waits for this: captured mid-zoom it is sized and placed for
-                        // a panel a quarter of its size.
+                        // The glass took its picture when the panel opened; this only catches a
+                        // panel that has moved since.
                         if (panel instanceof GlassPanel) {
                             ((GlassPanel) panel).refresh();
                         }

@@ -99,16 +99,18 @@ public class GlassPanel extends FrameLayout {
         }
     }
 
+    /** Where and how big the in-window picture was taken, so a second call can skip it. */
+    private final int[] mPictured = new int[4];
+
     /**
-     * Takes the in-window picture and starts the live part. Called once the panel has settled
-     * where it will stay - a picture taken mid-animation is of the wrong place.
+     * Takes the in-window picture and starts the live part.
+     *
+     * <p>Taken as soon as the panel has a size, mid-animation or not: it is placed by where the
+     * panel will rest, not where its zoom has got to. Waiting for the animation to end is what
+     * left a folder or menu without the desktop behind it for its whole opening.
      */
     public void refresh() {
         if (getWidth() <= 0 || getHeight() <= 0) {
-            return;
-        }
-        if (getScaleX() != 1f || getScaleY() != 1f) {
-            // Mid-animation; whoever is animating it refreshes it when it settles.
             return;
         }
         if (!LiquidGlass.isSupported()) {
@@ -120,7 +122,17 @@ public class GlassPanel extends FrameLayout {
             // Refused: the in-window picture is all there is, with the tint for the rest.
             L.d("glass: panel stays on its in-window backdrop");
         });
-        mBackdrop.setWindowLayer(windowPicture(live));
+        int[] origin = restingOrigin();
+        if (mPictured[0] == origin[0] && mPictured[1] == origin[1]
+                && mPictured[2] == getWidth() && mPictured[3] == getHeight()) {
+            // Already taken for exactly this place - the end of the opening animation, mostly.
+            return;
+        }
+        mPictured[0] = origin[0];
+        mPictured[1] = origin[1];
+        mPictured[2] = getWidth();
+        mPictured[3] = getHeight();
+        mBackdrop.setWindowLayer(windowPicture(live, origin));
         if (!sSaidPath) {
             sSaidPath = true;
             L.i("glass: panels use the liquid glass shaders, "
@@ -135,7 +147,7 @@ public class GlassPanel extends FrameLayout {
      * handed in as a source - the stock drawer behind a folder - is already in the capture, and
      * would show twice.
      */
-    private Bitmap windowPicture(boolean live) {
+    private Bitmap windowPicture(boolean live, int[] origin) {
         List<View> sources = new ArrayList<>();
         for (View source : mSources) {
             if (!live || source.getRootView() == getRootView()) {
@@ -147,8 +159,6 @@ public class GlassPanel extends FrameLayout {
         }
         int width = Math.max(1, (int) (getWidth() * CAPTURE_SCALE));
         int height = Math.max(1, (int) (getHeight() * CAPTURE_SCALE));
-        int[] origin = new int[2];
-        getLocationOnScreen(origin);
         try {
             return Snapshot.capture(sources, this, origin, width, height, CAPTURE_SCALE);
         } catch (Throwable t) {
@@ -158,6 +168,20 @@ public class GlassPanel extends FrameLayout {
             }
             return null;
         }
+    }
+
+    /** The panel's top-left on screen once its own zoom has finished: its parent's, plus its place. */
+    private int[] restingOrigin() {
+        int[] origin = new int[2];
+        if (getParent() instanceof View) {
+            View parent = (View) getParent();
+            parent.getLocationOnScreen(origin);
+            origin[0] += Math.round(getLeft() + getTranslationX()) - parent.getScrollX();
+            origin[1] += Math.round(getTop() + getTranslationY()) - parent.getScrollY();
+        } else {
+            getLocationOnScreen(origin);
+        }
+        return origin;
     }
 
     private void useRealBlur() {

@@ -1,6 +1,9 @@
 package com.zuxos.desktopplus.core;
 
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Point;
 import android.graphics.ColorSpace;
 import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
@@ -11,6 +14,7 @@ import android.os.SystemClock;
 import android.view.Choreographer;
 import android.view.SurfaceControl;
 import android.view.View;
+import android.view.ViewTreeObserver;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -93,10 +97,120 @@ public final class ScreenBackdrop {
      */
     public static void nudge() {
         MAIN.post(() -> {
+            seedSoon(0L);
             for (Session s : new java.util.ArrayList<>(SESSIONS)) {
                 s.wake();
             }
         });
+    }
+
+    // --- the seed: what a pane shows on its very first frame -----------------------------------
+
+    /**
+     * A small picture of the whole display, kept fresh in the background, so a pane that has just
+     * opened has something to frost on its first frame.
+     *
+     * <p>A pane's own capture can only be asked for once it is on screen, and answers a frame
+     * later at best - and a pane with nothing behind it draws nothing at all: the drawer slid up
+     * as bare icons and the glass arrived when it stopped. The frost blurs tens of pixels wide,
+     * so an eighth of the screen's size is all a first frame needs; the pane's own capture
+     * replaces it on the next.
+     */
+    private static final float SEED_SCALE = 0.125f;
+    /** How often the seed is renewed while the screen may be changing under it. */
+    private static final long SEED_MS = 2000L;
+
+    private static final class Seed {
+        Bitmap bitmap;
+        /** The display's width when the picture was taken, which maps screen to picture. */
+        int screenWidth;
+        long due;
+        boolean inFlight;
+        /** Older pictures, freed once two newer ones exist: one may still be drawing. */
+        final ArrayDeque<Bitmap> retired = new ArrayDeque<>();
+    }
+
+    /** Per display; main thread only. */
+    private static final android.util.SparseArray<Seed> SEEDS = new android.util.SparseArray<>();
+
+    private static Seed seedFor(int display) {
+        Seed seed = SEEDS.get(display);
+        if (seed == null) {
+            seed = new Seed();
+            SEEDS.put(display, seed);
+        }
+        return seed;
+    }
+
+    /** The screen is changing: renew every seed after {@code delayMs}. */
+    private static void seedSoon(long delayMs) {
+        long due = SystemClock.uptimeMillis() + delayMs;
+        for (int i = 0; i < SEEDS.size(); i++) {
+            Seed seed = SEEDS.valueAt(i);
+            seed.due = Math.min(seed.due, due);
+        }
+    }
+
+    /** Renews the display's seed if it is due, leaving out {@code own}, the asking window. */
+    private static void maybeSeed(View pane, SurfaceControl own, long now) {
+        if (sState != WORKS || pane.getDisplay() == null) {
+            return;
+        }
+        int display = pane.getDisplay().getDisplayId();
+        Seed seed = seedFor(display);
+        if (seed.inFlight || now < seed.due) {
+            return;
+        }
+        seed.inFlight = true;
+        seed.due = now + SEED_MS;
+        Point size = new Point();
+        pane.getDisplay().getRealSize(size);
+        Rect crop = new Rect(0, 0, size.x, size.y);
+        worker().post(() -> {
+            Object shot = grab(display, crop, own, SEED_SCALE);
+            MAIN.post(() -> {
+                seed.inFlight = false;
+                Bitmap bitmap = shot != null ? toBitmap(shot) : null;
+                if (bitmap == null) {
+                    return;
+                }
+                if (seed.bitmap != null) {
+                    seed.retired.addLast(seed.bitmap);
+                    while (seed.retired.size() > 2) {
+                        seed.retired.removeFirst().recycle();
+                    }
+                }
+                seed.bitmap = bitmap;
+                seed.screenWidth = crop.width();
+            });
+        });
+    }
+
+    /**
+     * Draws the part of the seed that is behind {@code view} into {@code dst}.
+     *
+     * @return false when there is no seed for its display yet
+     */
+    public static boolean drawSeed(Canvas canvas, View view, Rect dst, Paint paint) {
+        if (view.getDisplay() == null) {
+            return false;
+        }
+        Seed seed = SEEDS.get(view.getDisplay().getDisplayId());
+        Bitmap bitmap = seed != null ? seed.bitmap : null;
+        if (bitmap == null || bitmap.isRecycled()) {
+            return false;
+        }
+        int[] at = new int[2];
+        view.getLocationOnScreen(at);
+        float sx = bitmap.getWidth() / (float) Math.max(1, seed.screenWidth);
+        Rect src = new Rect(Math.round(at[0] * sx), Math.round(at[1] * sx),
+                Math.round((at[0] + view.getWidth()) * sx),
+                Math.round((at[1] + view.getHeight()) * sx));
+        if (!src.intersect(0, 0, bitmap.getWidth(), bitmap.getHeight())) {
+            return false;
+        }
+        canvas.drawBitmap(bitmap, src, dst, paint);
+        return true;
     }
 
     /** One pane's live backdrop. Start it when the pane is attached, stop it when it is not. */
@@ -127,6 +241,14 @@ public final class ScreenBackdrop {
          */
         private final ArrayDeque<Bitmap> mRetired = new ArrayDeque<>();
         private Bitmap mCurrent;
+
+        /** Hidden: no frame callbacks until the window draws with the pane shown again. */
+        private boolean mParked;
+        private ViewTreeObserver mObserver;
+        private final ViewTreeObserver.OnPreDrawListener mPreDraw = () -> {
+            onPreDraw();
+            return true;
+        };
 
         private long mStartedAt;
         private int mCaptures;
@@ -159,18 +281,52 @@ public final class ScreenBackdrop {
             mForce = true;
             mStartedAt = SystemClock.uptimeMillis();
             SESSIONS.add(this);
-            // The first picture as soon as the pane can be measured, not a frame later: a pane
-            // with nothing behind it yet is a pane with no background.
+            // The first picture is asked for just before the pane's first frame is drawn, the
+            // moment it has a place on screen - not on the next frame callback, which came a
+            // frame later, or a quarter of a second later for a pane not laid out yet.
+            mObserver = mPane.getViewTreeObserver();
+            if (mObserver.isAlive()) {
+                mObserver.addOnPreDrawListener(mPreDraw);
+            }
             if (showing()) {
                 request(mStartedAt);
             }
             Choreographer.getInstance().postFrameCallback(this);
         }
 
+        /**
+         * The window is about to draw. A pane that has just been shown - laid out for the first
+         * time, made visible, its window brought back - asks for its picture now.
+         */
+        private void onPreDraw() {
+            if (!mRunning || !showing()) {
+                return;
+            }
+            long now = SystemClock.uptimeMillis();
+            if (mParked) {
+                mParked = false;
+                mForce = true;
+                mIntervalMs = mBaseIntervalMs;
+                Choreographer.getInstance().removeFrameCallback(this);
+                Choreographer.getInstance().postFrameCallback(this);
+                if (!mInFlight) {
+                    request(now);
+                }
+            } else if (mCurrent == null && !mInFlight) {
+                request(now);
+            }
+        }
+
         public void stop() {
             mRunning = false;
             SESSIONS.remove(this);
             Choreographer.getInstance().removeFrameCallback(this);
+            if (mObserver != null && mObserver.isAlive()) {
+                mObserver.removeOnPreDrawListener(mPreDraw);
+            }
+            mObserver = null;
+            // The pane leaving changes the screen; renew the seed once its exit has played.
+            seedSoon(400L);
             for (Bitmap b : mRetired) {
                 b.recycle();
             }
@@ -203,15 +359,22 @@ public final class ScreenBackdrop {
             if (showing()) {
                 // A capture that never answered is given up on after a second.
                 boolean free = !mInFlight || now - mFlightSince > 1000;
+                mParked = false;
                 if (free && now - mLastStart >= mIntervalMs) {
                     request(now);
+                }
+                SurfaceControl own = surfaceOf(mPane);
+                if (own != null) {
+                    maybeSeed(mPane, own, now);
                 }
                 report(now);
                 Choreographer.getInstance().postFrameCallback(this);
             } else {
-                // Nothing to show it on: look again in a while instead of every frame.
+                // Nothing to show it on. The window drawing it shown again wakes it at once
+                // (onPreDraw); the slow look is only a backstop.
                 mForce = true;
-                Choreographer.getInstance().postFrameCallbackDelayed(this, IDLE_MS);
+                mParked = true;
+                Choreographer.getInstance().postFrameCallbackDelayed(this, 1000L);
             }
         }
 
@@ -369,6 +532,47 @@ public final class ScreenBackdrop {
     }
 
     // --- the capture itself, on the worker thread ------------------------------------------------
+
+    /** One capture, waited for; null if it failed. Worker thread only. */
+    private static Object grab(int display, Rect crop, SurfaceControl own, float scale) {
+        Object[] got = new Object[1];
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean late =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        try {
+            if (!bind()) {
+                return null;
+            }
+            Object builder = sBuilder.getConstructor().newInstance();
+            sBuilder.getMethod("setSourceCrop", Rect.class).invoke(builder, crop);
+            sBuilder.getMethod("setFrameScale", float.class).invoke(builder, scale);
+            sBuilder.getMethod("setExcludeLayers", SurfaceControl[].class)
+                    .invoke(builder, (Object) new SurfaceControl[]{own});
+            Object args = sBuilder.getMethod("build").invoke(builder);
+            ObjIntConsumer<Object> answer = (shot, status) -> {
+                synchronized (got) {
+                    if (status == 0 && !late.get()) {
+                        got[0] = shot;
+                    } else {
+                        // Failed, or answered after we stopped waiting: nobody will use it.
+                        close(shot);
+                    }
+                }
+                done.countDown();
+            };
+            sCapture.invoke(sWm, display, args, sListener.newInstance(answer));
+            if (!done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                synchronized (got) {
+                    late.set(true);
+                    close(got[0]);
+                    return null;
+                }
+            }
+            return got[0];
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     private static void capture(Session session, int display, Rect crop, SurfaceControl own,
             float scale, long started) {

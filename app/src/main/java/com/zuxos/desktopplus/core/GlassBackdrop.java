@@ -240,6 +240,12 @@ public class GlassBackdrop extends FrameLayout {
             Bitmap screen = mScreen;
             if (screen != null && !screen.isRecycled()) {
                 canvas.drawBitmap(screen, null, mDst, mPaint);
+            } else if (!(mLive && ScreenBackdrop.drawSeed(canvas, GlassBackdrop.this, mDst,
+                    mPaint))) {
+                // Nothing yet. A layer that draws nothing is skipped whole - its effect never
+                // runs, and the pane opened as bare content until the first capture. The base
+                // colour is what the effect would have shown here anyway.
+                canvas.drawColor(mBase);
             }
             Bitmap window = mWindow;
             if (window != null && !window.isRecycled()) {
