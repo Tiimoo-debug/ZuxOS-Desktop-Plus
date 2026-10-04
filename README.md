@@ -141,6 +141,7 @@ ZUI's launcher:
 There is also an optional *stock launcher unlocking* feature, which flips the launcher's own
 "editing disabled" switches where they can be identified. It is a bonus, not a dependency. See
 [docs/TUNING.md](docs/TUNING.md).
+Where the project is going, and in what order: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -279,4 +280,5 @@ logic/       plain Java, no Android: the layout format and the decisions worth u
 xposed-api/  compile-only Xposed API stubs (never packaged)
 tools/       check.py, the SDK-free compile check
 docs/        TUNING.md - adapting the module to another ZuxOS build
+             ROADMAP.md - the agreed plan; read it before starting new work
 ```
