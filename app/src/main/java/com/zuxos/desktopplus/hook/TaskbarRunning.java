@@ -4,6 +4,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
@@ -15,6 +16,7 @@ import android.widget.LinearLayout;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.Motion;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.logic.PinList;
@@ -400,9 +402,18 @@ final class TaskbarRunning {
         if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins)) {
             return;
         }
-        row.removeAllViews();
         Context ctx = dragLayer.getContext();
         int displayId = TaskbarTray.displayIdOf(dragLayer);
+        if (pinKeys.equals(row.mPins)
+                && reconcile(row, wanted, ctx, size, gap, displayId)) {
+            return;
+        }
+        // Pins changed (pinned, unpinned, rearranged) - rebuilt in one go, without the row's
+        // transitions: a rearrangement has already been shown by the gap preview, and animating
+        // every icon out and back in on top of it would undo that.
+        android.animation.LayoutTransition transition = row.getLayoutTransition();
+        row.setLayoutTransition(null);
+        row.removeAllViews();
         List<String> shownPins = new ArrayList<>();
         for (Item pin : pins) {
             View icon = pinIcon(ctx, pin, size, displayId);
@@ -423,6 +434,102 @@ final class TaskbarRunning {
         // otherwise be remembered as shown and never tried again.
         row.mRunning = shown;
         row.mPins = shownPins;
+        row.setLayoutTransition(transition);
+    }
+
+    /**
+     * Brings the open apps in the row up to date one icon at a time, so each change can move.
+     *
+     * <p>Closed apps are taken out and new ones put in at their place, with everything else left
+     * standing: the row's transition then shrinks the closed ones away, springs the new ones in
+     * and slides the rest over. Rebuilding the row instead - as it used to - made every icon
+     * vanish and reappear on every change, so nothing could move.
+     *
+     * @return false when the change is not a matter of adding and removing - the open apps in a
+     *         different order - and the caller rebuilds instead
+     */
+    private static boolean reconcile(RunningRow row, List<String> wanted, Context ctx, int size,
+            int gap, int displayId) {
+        int base = row.mPins.size();
+        List<String> working = new ArrayList<>(row.mRunning);
+        if (row.getChildCount() != base + working.size()) {
+            return false;
+        }
+        for (int i = working.size() - 1; i >= 0; i--) {
+            if (!wanted.contains(working.get(i))) {
+                row.removeViewAt(base + i);
+                working.remove(i);
+            }
+        }
+        int pos = 0;
+        for (String pkg : wanted) {
+            if (pos < working.size() && working.get(pos).equals(pkg)) {
+                pos++;
+                continue;
+            }
+            if (working.contains(pkg)) {
+                // Still open, but somewhere else in the order.
+                return false;
+            }
+            View icon = iconFor(ctx, pkg, size, displayId);
+            if (icon == null) {
+                continue;
+            }
+            row.addView(icon, base + pos, new LinearLayout.LayoutParams(size, size));
+            working.add(pos, pkg);
+            pos++;
+        }
+        if (pos != working.size()) {
+            return false;
+        }
+        // The first icon sits flush; every other one keeps the launcher's gap before it.
+        for (int i = 0; i < row.getChildCount(); i++) {
+            View child = row.getChildAt(i);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) child.getLayoutParams();
+            int margin = i == 0 ? 0 : gap;
+            if (lp.leftMargin != margin) {
+                lp.leftMargin = margin;
+                child.setLayoutParams(lp);
+            }
+        }
+        row.mRunning = working;
+        return true;
+    }
+
+    /**
+     * How the row moves when an icon comes or goes: new apps spring in from half size, closed
+     * ones shrink and fade away, and the icons beside them slide over on a firm spring.
+     */
+    private static android.animation.LayoutTransition rowTransition() {
+        android.animation.LayoutTransition t = new android.animation.LayoutTransition();
+        // Only the row's own children move; the scroller and the bar around it stay put.
+        t.setAnimateParentHierarchy(false);
+        android.animation.ObjectAnimator in = android.animation.ObjectAnimator
+                .ofPropertyValuesHolder((Object) null,
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 0.5f, 1f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.5f, 1f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f));
+        t.setAnimator(android.animation.LayoutTransition.APPEARING, in);
+        t.setDuration(android.animation.LayoutTransition.APPEARING, Motion.SPRING_MS);
+        t.setInterpolator(android.animation.LayoutTransition.APPEARING, Motion.SPRING);
+        t.setStartDelay(android.animation.LayoutTransition.APPEARING, 60);
+        android.animation.ObjectAnimator out = android.animation.ObjectAnimator
+                .ofPropertyValuesHolder((Object) null,
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 0.5f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 0.5f),
+                        android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0f));
+        t.setAnimator(android.animation.LayoutTransition.DISAPPEARING, out);
+        t.setDuration(android.animation.LayoutTransition.DISAPPEARING, Motion.SHORT);
+        t.setInterpolator(android.animation.LayoutTransition.DISAPPEARING, Motion.EXIT);
+        t.setStartDelay(android.animation.LayoutTransition.DISAPPEARING, 0);
+        for (int type : new int[]{android.animation.LayoutTransition.CHANGE_APPEARING,
+                android.animation.LayoutTransition.CHANGE_DISAPPEARING}) {
+            t.setDuration(type, Motion.SPRING_MS);
+            t.setInterpolator(type, Motion.SPRING_FIRM);
+        }
+        t.setStartDelay(android.animation.LayoutTransition.CHANGE_APPEARING, 0);
+        t.setStartDelay(android.animation.LayoutTransition.CHANGE_DISAPPEARING, 80);
+        return t;
     }
 
     private static void add(RunningRow row, View icon, int size, int gap) {
@@ -469,8 +576,8 @@ final class TaskbarRunning {
                 shift = 0f;
             }
             if (child.getTranslationX() != shift) {
-                child.animate().translationX(shift).setDuration(150)
-                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                child.animate().translationX(shift).setDuration(Motion.SPRING_MS)
+                        .setInterpolator(Motion.SPRING_FIRM)
                         .start();
             }
         }
@@ -484,7 +591,8 @@ final class TaskbarRunning {
         }
         for (int i = 0; i < row.getChildCount(); i++) {
             View child = row.getChildAt(i);
-            child.animate().translationX(0f).alpha(1f).setDuration(150).start();
+            child.animate().translationX(0f).alpha(1f).setDuration(Motion.MEDIUM)
+                    .setInterpolator(Motion.EASE).start();
         }
     }
 
@@ -622,6 +730,7 @@ final class TaskbarRunning {
                 return null;
             }
             RunningRow row = new RunningRow(dragLayer.getContext());
+            row.setLayoutTransition(Cfg.animations() ? rowTransition() : null);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             ScrollRow scroller = new ScrollRow(dragLayer.getContext());
@@ -763,15 +872,20 @@ final class TaskbarRunning {
      */
     private static int leftEdge(ViewGroup dragLayer) {
         ViewGroup icons = iconRow(dragLayer);
-        if (icons == null || icons.getWidth() <= 0
-                || icons.getVisibility() != View.VISIBLE) {
+        if (icons == null || icons.getWidth() <= 0) {
             return -1;
         }
         if (Cfg.taskbarRunningOnly()) {
+            // From the navigation keys and the start button's slot, whether or not the launcher's
+            // row is showing: ZUI hides that row while its app drawer is open, and measuring from
+            // it then is what sent the whole row off beside the tray.
             int start = TaskbarStart.rightEdge(dragLayer, icons);
             // A clear gap after the start button, so it reads as the button it is and not as the
             // first of the apps.
             return start >= 0 ? start + Ui.dp(dragLayer.getContext(), 18) : -1;
+        }
+        if (icons.getVisibility() != View.VISIBLE) {
+            return -1;
         }
         int edge = -1;
         for (int i = 0; i < icons.getChildCount(); i++) {
@@ -894,6 +1008,8 @@ final class TaskbarRunning {
                         || !RunningOrder.anyRunning(IconInfo.packagesOfView(icon), mOpen)) {
                     continue;
                 }
+                mMarkPaint.setAlpha((int) (Color.alpha(TaskbarMarks.markColor(getContext()))
+                        * Math.min(1f, icon.getAlpha())));
                 TaskbarMarks.drawMark(canvas, mMarkPaint, getContext(),
                         icon.getLeft() + icon.getTranslationX(), icon.getWidth(),
                         icon.getBottom() + icon.getTranslationY(), getHeight());
@@ -1225,6 +1341,7 @@ final class TaskbarRunning {
                     mDownX = e.getRawX();
                     mDownY = e.getRawY();
                     mArmed = false;
+                    Press.down(v);
                     mArm = () -> {
                         mArmed = true;
                         // From here the row must not take the gesture for a scroll.
@@ -1232,7 +1349,8 @@ final class TaskbarRunning {
                             v.getParent().requestDisallowInterceptTouchEvent(true);
                         }
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-                        v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(120).start();
+                        v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(Motion.SPRING_MS)
+                                .setInterpolator(Motion.SPRING).start();
                     };
                     v.postDelayed(mArm, android.view.ViewConfiguration.getLongPressTimeout());
                     return false;
@@ -1247,6 +1365,7 @@ final class TaskbarRunning {
                     }
                     if (!mArmed) {
                         v.removeCallbacks(mArm);
+                        Press.up(v);
                         return false;
                     }
                     mArmed = false;
@@ -1257,6 +1376,7 @@ final class TaskbarRunning {
                 case android.view.MotionEvent.ACTION_UP: {
                     v.removeCallbacks(mArm);
                     if (!mArmed) {
+                        Press.up(v);
                         return false;
                     }
                     mArmed = false;
@@ -1266,10 +1386,8 @@ final class TaskbarRunning {
                 }
                 case android.view.MotionEvent.ACTION_CANCEL:
                     v.removeCallbacks(mArm);
-                    if (mArmed) {
-                        mArmed = false;
-                        v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
-                    }
+                    mArmed = false;
+                    Press.up(v);
                     return false;
                 default:
                     return mArmed;
@@ -1283,7 +1401,7 @@ final class TaskbarRunning {
          * so without the cancel it stays pressed and its ripple never fades.
          */
         private void settle(View v, android.view.MotionEvent e) {
-            v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+            Press.up(v);
             android.view.MotionEvent cancel = android.view.MotionEvent.obtain(e);
             cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
             v.onTouchEvent(cancel);
@@ -1300,6 +1418,42 @@ final class TaskbarRunning {
             } catch (Throwable t) {
                 L.d("taskbar running: could not pick the pin up (" + t + ")");
             }
+        }
+    }
+
+    /**
+     * The press feel on our icons: a quick dip to 90% under the finger, and a spring back when it
+     * lifts - the small physical response that makes a tap feel like it landed.
+     */
+    static final class Press implements View.OnTouchListener {
+
+        static void down(View v) {
+            v.animate().cancel();
+            v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT - 40)
+                    .setInterpolator(Motion.EASE).start();
+        }
+
+        static void up(View v) {
+            v.animate().cancel();
+            v.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                    .setInterpolator(Motion.SPRING).start();
+        }
+
+        @Override
+        public boolean onTouch(View v, android.view.MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    down(v);
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    up(v);
+                    break;
+                default:
+                    break;
+            }
+            // Only watching: the click and the hold menu still happen as before.
+            return false;
         }
     }
 
@@ -1342,6 +1496,7 @@ final class TaskbarRunning {
             // one row, and one row should not behave two ways.
             view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
                     android.os.Process.myUserHandle(), displayId));
+            view.setOnTouchListener(new Press());
             return view;
         } catch (Throwable t) {
             // An app we cannot draw is an app we leave out.

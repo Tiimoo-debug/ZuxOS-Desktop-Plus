@@ -3,7 +3,6 @@ package com.zuxos.desktopplus.core;
 import android.animation.LayoutTransition;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.DecelerateInterpolator;
 
 /**
  * Short, consistent motion for the module's surfaces.
@@ -29,7 +28,7 @@ public final class Anim {
         }
         view.setAlpha(0f);
         view.animate().alpha(1f).setDuration(FAST)
-                .setInterpolator(new DecelerateInterpolator()).start();
+                .setInterpolator(Motion.EASE).start();
     }
 
     public static void fadeOut(View view, Runnable onEnd) {
@@ -42,7 +41,7 @@ public final class Anim {
             return;
         }
         view.animate().alpha(0f).setDuration(FAST)
-                .setInterpolator(new DecelerateInterpolator())
+                .setInterpolator(Motion.EXIT)
                 .withEndAction(() -> {
                     view.setVisibility(View.GONE);
                     view.setAlpha(1f);
@@ -65,8 +64,8 @@ public final class Anim {
         view.setAlpha(0f);
         view.animate().alpha(1f).setDuration(FAST).start();
         sheet.setTranslationY(sheet.getHeight() > 0 ? sheet.getHeight() : 600);
-        sheet.animate().translationY(0f).setDuration(NORMAL)
-                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
+        sheet.animate().translationY(0f).setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SPRING_FIRM).start();
     }
 
     public static void slideDown(View view, View sheet, Runnable onEnd) {
@@ -83,7 +82,7 @@ public final class Anim {
         float target = sheet.getHeight() > 0 ? sheet.getHeight() : 600;
         view.animate().alpha(0f).setDuration(NORMAL).start();
         sheet.animate().translationY(target).setDuration(NORMAL)
-                .setInterpolator(new DecelerateInterpolator(1.6f))
+                .setInterpolator(Motion.EXIT)
                 .withEndAction(() -> {
                     view.setVisibility(View.GONE);
                     view.setAlpha(1f);
@@ -109,8 +108,8 @@ public final class Anim {
         panel.setScaleX(0.92f);
         panel.setScaleY(0.92f);
         view.animate().alpha(1f).setDuration(FAST).start();
-        panel.animate().scaleX(1f).scaleY(1f).setDuration(NORMAL)
-                .setInterpolator(new DecelerateInterpolator(1.8f)).start();
+        panel.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SPRING).start();
     }
 
     /** Slides the desktop sideways when changing page. */
@@ -125,8 +124,8 @@ public final class Anim {
                 .withEndAction(() -> {
                     atMidpoint.run();
                     view.setTranslationX(-out);
-                    view.animate().translationX(0f).alpha(1f).setDuration(180)
-                            .setInterpolator(new DecelerateInterpolator()).start();
+                    view.animate().translationX(0f).alpha(1f).setDuration(Motion.MEDIUM)
+                            .setInterpolator(Motion.EASE).start();
                 }).start();
     }
 

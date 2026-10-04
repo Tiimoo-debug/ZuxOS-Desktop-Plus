@@ -465,8 +465,8 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         view.setScaleX(1.08f);
         view.setScaleY(1.08f);
         view.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f)
-                .setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f))
+                .setDuration(com.zuxos.desktopplus.core.Motion.SPRING_MS)
+                .setInterpolator(com.zuxos.desktopplus.core.Motion.SPRING)
                 .start();
     }
 

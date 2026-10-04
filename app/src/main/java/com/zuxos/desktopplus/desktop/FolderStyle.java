@@ -2,11 +2,10 @@ package com.zuxos.desktopplus.desktop;
 
 import android.content.Context;
 import android.view.View;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Motion;
 import com.zuxos.desktopplus.core.Ui;
 
 /**
@@ -77,8 +76,8 @@ public final class FolderStyle {
             pivotAt(panel, source);
             panel.setScaleX(FROM_SCALE);
             panel.setScaleY(FROM_SCALE);
-            panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
-                    .setInterpolator(new DecelerateInterpolator(1.8f))
+            panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                    .setInterpolator(Motion.SPRING)
                     .withEndAction(() -> {
                         // The glass waits for this: captured mid-zoom it is sized and placed for
                         // a panel a quarter of its size.
@@ -100,8 +99,8 @@ public final class FolderStyle {
             return;
         }
         pivotAt(panel, source);
-        panel.animate().alpha(0f).scaleX(FROM_SCALE).scaleY(FROM_SCALE).setDuration(160)
-                .setInterpolator(new AccelerateInterpolator(1.5f))
+        panel.animate().alpha(0f).scaleX(FROM_SCALE).scaleY(FROM_SCALE).setDuration(Motion.SHORT + 40)
+                .setInterpolator(Motion.EXIT)
                 .withEndAction(() -> {
                     reset(panel);
                     if (onEnd != null) {

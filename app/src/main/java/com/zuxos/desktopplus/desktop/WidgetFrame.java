@@ -8,6 +8,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
+import com.zuxos.desktopplus.core.Motion;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.Item;
 
@@ -134,11 +135,13 @@ public class WidgetFrame extends FrameLayout {
             getParent().requestDisallowInterceptTouchEvent(true);
         }
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-        animate().scaleX(1.03f).scaleY(1.03f).setDuration(120).start();
+        animate().scaleX(1.03f).scaleY(1.03f).setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SPRING).start();
     }
 
     private void settle() {
-        animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+        animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SPRING_FIRM).start();
     }
 
     private static boolean isSecondaryButton(MotionEvent ev) {

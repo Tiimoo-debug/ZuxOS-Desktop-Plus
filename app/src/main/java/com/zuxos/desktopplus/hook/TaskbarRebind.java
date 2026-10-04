@@ -107,6 +107,44 @@ final class TaskbarRebind {
         }
         blockRecents(loader);
         hideOnAdd();
+        keepStartShowing();
+    }
+
+    private static boolean sSaidKept;
+
+    /**
+     * Keeps the start button on the bar while ZUI's app drawer is open.
+     *
+     * <p>ZUI hides its whole icon row when the drawer opens. With "Only open apps" on, that row
+     * holds nothing but the start button - every app is in our row - so hiding it only took the
+     * start button away, which a desktop never does. The request to hide it is turned into a
+     * request to show it, for that one view and only with both settings on.
+     */
+    private static void keepStartShowing() {
+        try {
+            XposedBridge.hookAllMethods(android.view.View.class, "setVisibility",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            Object view = param.thisObject;
+                            if (view == null || param.args.length == 0
+                                    || !(param.args[0] instanceof Integer)
+                                    || (Integer) param.args[0] == android.view.View.VISIBLE
+                                    || !TASKBAR_VIEW.equals(view.getClass().getName())
+                                    || !Cfg.taskbarRunningOnly() || !Cfg.startButtonLeft()) {
+                                return;
+                            }
+                            param.args[0] = android.view.View.VISIBLE;
+                            if (!sSaidKept) {
+                                sSaidKept = true;
+                                L.i("taskbar start: kept the start button visible while the "
+                                        + "launcher hid its row");
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            L.d("taskbar rebind: could not watch the row's visibility (" + t + ")");
+        }
     }
 
     private static final String MODEL_CALLBACKS =

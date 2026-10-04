@@ -31,7 +31,11 @@ public final class AndroidRobot extends Drawable {
     private float mTop;
 
     /** How long one blink takes, shut and open again. */
-    private static final long BLINK_MS = 180L;
+    private static final long BLINK_MS = 220L;
+    /** The pause between the two halves of a double blink. */
+    private static final long DOUBLE_GAP_MS = 90L;
+    /** Whether the blink under way is followed straight away by a second. */
+    private boolean mDouble;
     private final java.util.Random mRandom = new java.util.Random();
     /** When the next blink starts, on the uptime clock {@link #scheduleSelf} uses; 0 = not set. */
     private long mBlinkAt;
@@ -81,8 +85,11 @@ public final class AndroidRobot extends Drawable {
     }
 
     /**
-     * How open the eyes are, 1 to nearly shut: they close and open again over {@link #BLINK_MS},
-     * every few seconds.
+     * How open the eyes are, 1 to nearly shut.
+     *
+     * <p>Lids close quickly and open a little slower, on eased curves - the way an eye actually
+     * blinks - rather than the straight V a linear blink makes. About one blink in five is a
+     * double blink, which is what keeps it reading as alive rather than as a timer.
      */
     private float openness() {
         long now = android.os.SystemClock.uptimeMillis();
@@ -94,10 +101,25 @@ public final class AndroidRobot extends Drawable {
         }
         float t = (now - mBlinkAt) / (float) BLINK_MS;
         if (t >= 1f) {
-            mBlinkAt = now + nextGap();
+            if (mDouble) {
+                mDouble = false;
+                mBlinkAt = now + DOUBLE_GAP_MS;
+            } else {
+                mDouble = mRandom.nextInt(5) == 0;
+                mBlinkAt = now + nextGap();
+            }
             return 1f;
         }
-        return Math.max(0.12f, Math.abs(1f - 2f * t));
+        // Closing takes the first 40% of the blink, opening the rest.
+        float shut;
+        if (t < 0.4f) {
+            float x = t / 0.4f;
+            shut = x * x * (3f - 2f * x);
+        } else {
+            float x = (t - 0.4f) / 0.6f;
+            shut = 1f - x * x * (3f - 2f * x);
+        }
+        return Math.max(0.1f, 1f - shut);
     }
 
     /** Somewhere between 3.5 and 6.5 seconds: a fixed rhythm looks like a machine. */

@@ -5,7 +5,6 @@ import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -119,7 +118,7 @@ public final class MenuRows {
             pane.setPivotX(pane.getWidth() / 2f);
             pane.setPivotY(fromBelow ? pane.getHeight() : 0f);
             android.view.ViewPropertyAnimator anim = pane.animate().alpha(1f).scaleX(1f)
-                    .scaleY(1f).setDuration(140).setInterpolator(new DecelerateInterpolator());
+                    .scaleY(1f).setDuration(Motion.SPRING_MS).setInterpolator(Motion.SPRING);
             if (settled != null) {
                 anim.withEndAction(settled);
             }
