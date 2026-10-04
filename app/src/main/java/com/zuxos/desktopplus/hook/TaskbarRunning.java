@@ -105,6 +105,7 @@ final class TaskbarRunning {
         spacing(icons);
         if (onlyOpen) {
             hideLauncherApps(icons);
+            keepStill(icons);
         } else {
             showEverythingAgain(icons);
         }
@@ -144,6 +145,31 @@ final class TaskbarRunning {
     }
 
     private static final Map<View, Boolean> TRAY_WATCHED = new WeakHashMap<>();
+
+    /**
+     * Holds the launcher's row still while ours scrolls.
+     *
+     * <p>A swipe along the bar scrolled the launcher's own row as well as ours, and the drawer
+     * button is a child of that row - so it slid away under the navigation keys and the robot
+     * "disappeared" mid-scroll. With every app of the launcher's hidden there is nothing in its
+     * row to scroll to, so it is put straight back whenever it moves.
+     */
+    private static void keepStill(ViewGroup icons) {
+        if (STILL.containsKey(icons)) {
+            return;
+        }
+        STILL.put(icons, Boolean.TRUE);
+        icons.setOnScrollChangeListener((v, x, y, oldX, oldY) -> {
+            if ((x != 0 || y != 0) && Cfg.taskbarRunningOnly()) {
+                v.scrollTo(0, 0);
+            }
+        });
+        if (icons.getScrollX() != 0 || icons.getScrollY() != 0) {
+            icons.scrollTo(0, 0);
+        }
+    }
+
+    private static final Map<View, Boolean> STILL = new WeakHashMap<>();
 
     /** The last description logged per taskbar, so only a change is logged. */
     private static final Map<View, String> DESCRIBED = new WeakHashMap<>();
@@ -542,6 +568,21 @@ final class TaskbarRunning {
             setFadingEdgeLength(Ui.dp(ctx, 28));
             // Nothing here reacts to a touch unless it is a scroll, so a tap goes to the icon.
             setFillViewport(false);
+        }
+
+        /**
+         * Draws the row inside its own bounds and nowhere else.
+         *
+         * <p>Scrolled, the row's icons were drawn past both ends - over the drawer button on the
+         * left and the tray on the right - because the bar's own layer does not clip what is in
+         * it. The clip is set here, on the scroller, so it holds whatever the parents do.
+         */
+        @Override
+        protected void dispatchDraw(android.graphics.Canvas canvas) {
+            int saved = canvas.save();
+            canvas.clipRect(getScrollX(), 0, getScrollX() + getWidth(), getHeight());
+            super.dispatchDraw(canvas);
+            canvas.restoreToCount(saved);
         }
     }
 

@@ -208,6 +208,16 @@ final class TaskbarStart {
      */
     static int rightEdge(ViewGroup dragLayer, ViewGroup icons) {
         View button = allAppsButton(icons);
+        if (Cfg.startButtonLeft() && button != null && icons.getWidth() > 0) {
+            // Where the button belongs, not where it happens to be drawn this frame: scrolling,
+            // the launcher's animations and its own visibility changes all move it about, and a
+            // row measured from it jumped every time they did. Its slot does not move.
+            int target = targetLeft(dragLayer, icons);
+            if (target >= 0) {
+                int width = button.getWidth() > 0 ? button.getWidth() : 60;
+                return offsetIn(dragLayer, icons) + target + width;
+            }
+        }
         if (button != null && button.getVisibility() == View.VISIBLE && button.getWidth() > 0) {
             // Where it is laid out. Under the layout route the translation is the launcher's own
             // and comes and goes with its animations; following it is how the row learned to jump.
