@@ -107,7 +107,51 @@ final class TaskbarRebind {
         }
         blockRecents(loader);
         hideOnAdd();
+        sTaskbarView = cls;
         keepStartShowing();
+        keepStartOpaque();
+    }
+
+    /** The launcher's row class, compared by identity: the hooks below run on every view. */
+    private static Class<?> sTaskbarView;
+
+    /** Whether the start button is to stay up while the launcher hides its row. */
+    private static boolean keepsStart(Object view) {
+        return view != null && view.getClass() == sTaskbarView
+                && Cfg.taskbarRunningOnly() && Cfg.startButtonLeft();
+    }
+
+    private static boolean sSaidOpaque;
+
+    /**
+     * The other half of hiding the row: ZUI fades it out before it marks it invisible.
+     *
+     * <p>The recording shows the start button dimming over a quarter of a second and staying
+     * gone while the drawer is open, although the row was never invisible - its alpha was 0.
+     * The fade is held at fully opaque for the row, under the same two settings as above.
+     */
+    private static void keepStartOpaque() {
+        try {
+            XposedBridge.hookAllMethods(android.view.View.class, "setAlpha",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (param.args.length != 1 || !(param.args[0] instanceof Float)
+                                    || (Float) param.args[0] >= 1f
+                                    || !keepsStart(param.thisObject)) {
+                                return;
+                            }
+                            param.args[0] = 1f;
+                            if (!sSaidOpaque) {
+                                sSaidOpaque = true;
+                                L.i("taskbar start: kept the start button opaque while the "
+                                        + "launcher faded its row");
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            L.d("taskbar rebind: could not watch the row's alpha (" + t + ")");
+        }
     }
 
     private static boolean sSaidKept;
@@ -126,12 +170,10 @@ final class TaskbarRebind {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            Object view = param.thisObject;
-                            if (view == null || param.args.length == 0
+                            if (param.args.length == 0
                                     || !(param.args[0] instanceof Integer)
                                     || (Integer) param.args[0] == android.view.View.VISIBLE
-                                    || !TASKBAR_VIEW.equals(view.getClass().getName())
-                                    || !Cfg.taskbarRunningOnly() || !Cfg.startButtonLeft()) {
+                                    || !keepsStart(param.thisObject)) {
                                 return;
                             }
                             param.args[0] = android.view.View.VISIBLE;

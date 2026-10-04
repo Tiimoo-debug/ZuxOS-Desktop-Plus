@@ -881,8 +881,9 @@ final class TaskbarRunning {
             // it then is what sent the whole row off beside the tray.
             int start = TaskbarStart.rightEdge(dragLayer, icons);
             // A clear gap after the start button, so it reads as the button it is and not as the
-            // first of the apps.
-            return start >= 0 ? start + Ui.dp(dragLayer.getContext(), 18) : -1;
+            // first of the apps - and wide enough to hold or right-click for the taskbar's menu
+            // when the row is full and there is no bare bar left anywhere else.
+            return start >= 0 ? start + Ui.dp(dragLayer.getContext(), BARE_DP) : -1;
         }
         if (icons.getVisibility() != View.VISIBLE) {
             return -1;
@@ -907,11 +908,18 @@ final class TaskbarRunning {
     }
 
     /**
+     * Bare bar kept at each end of our row, after the start button and before the tray: room to
+     * hold or right-click for the taskbar's menu however many apps are open.
+     */
+    private static final int BARE_DP = 40;
+
+    /**
      * How far our row has to stay from the right-hand end of the bar: up to the tray's actual
-     * left edge, and a little more, so neither the last icon nor its fading edge touches it.
+     * left edge, and a stretch of bare bar more, so neither the last icon nor its fading edge
+     * touches it and the bar can still be held there.
      */
     private static int trayGap(ViewGroup dragLayer) {
-        int margin = Ui.dp(dragLayer.getContext(), 8);
+        int margin = Ui.dp(dragLayer.getContext(), BARE_DP);
         View tray = TaskbarTray.trayOf(dragLayer);
         if (tray != null && tray.getWidth() > 0 && dragLayer.getWidth() > 0
                 && tray.getParent() == dragLayer) {
@@ -986,6 +994,21 @@ final class TaskbarRunning {
                 mOpen = new LinkedHashSet<>(open);
                 invalidate();
             }
+        }
+
+        /**
+         * An icon changed how it is drawn - faded, slid, dipped - so its mark has to be drawn
+         * again too.
+         *
+         * <p>A change to a child's alpha or translation only updates the child; the row's own
+         * drawing, where the marks are, is kept as it was. A newly opened app springs in from
+         * alpha 0, so its mark was skipped in the one frame the row drew and stayed missing until
+         * something else redrew the row - the next app opening.
+         */
+        @Override
+        public void onDescendantInvalidated(View child, View target) {
+            super.onDescendantInvalidated(child, target);
+            invalidate();
         }
 
         /**

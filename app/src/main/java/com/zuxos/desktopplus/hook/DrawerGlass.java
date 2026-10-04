@@ -203,10 +203,73 @@ final class DrawerGlass {
                 return false;
             }
             DONE.put(window, Boolean.TRUE);
+            stopAtTheBar(window);
             return true;
         } catch (Throwable t) {
             L.d("drawer glass: could not weigh this window (" + t + ")");
             return false;
+        }
+    }
+
+    /** Drawer windows clipped to end at the taskbar, and the listener keeping that current. */
+    private static final Map<View, View.OnLayoutChangeListener> CLIPPED = new WeakHashMap<>();
+
+    /**
+     * Ends the drawer's drawing where the taskbar begins, on the desktop's screen.
+     *
+     * <p>ZUI's sheet, its scrim and the next row of its apps all carry on underneath the bar,
+     * where ZUI's own opaque bar hid them. Under our see-through one they showed: a pale band
+     * across the bar and stray icons beside the open apps. Only drawing is clipped; touches are
+     * untouched.
+     */
+    private static void stopAtTheBar(ViewGroup window) {
+        if (CLIPPED.containsKey(window)) {
+            return;
+        }
+        android.view.Display display = window.getDisplay();
+        if (display == null || display.getDisplayId() == android.view.Display.DEFAULT_DISPLAY) {
+            // The tablet's own bar is the launcher's, opaque, and none of ours.
+            return;
+        }
+        View.OnLayoutChangeListener listener =
+                (v, l, t, r, b, ol, ot, or, ob) -> clipAboveTheBar(window);
+        window.addOnLayoutChangeListener(listener);
+        CLIPPED.put(window, listener);
+        clipAboveTheBar(window);
+    }
+
+    private static boolean sSaidClipped;
+
+    private static void clipAboveTheBar(ViewGroup window) {
+        try {
+            android.view.Display display = window.getDisplay();
+            if (display == null || window.getHeight() <= 0) {
+                return;
+            }
+            int bar = Windows.taskbarHeight(display.getDisplayId());
+            if (bar <= 0) {
+                return;
+            }
+            android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+            display.getRealMetrics(metrics);
+            int[] at = new int[2];
+            window.getLocationOnScreen(at);
+            // How much of the window lies on the bar: none, for a drawer that already ends above.
+            int under = at[1] + window.getHeight() - (metrics.heightPixels - bar);
+            android.graphics.Rect clip = under > 0
+                    ? new android.graphics.Rect(0, 0, window.getWidth(), window.getHeight() - under)
+                    : null;
+            if (java.util.Objects.equals(clip, window.getClipBounds())) {
+                return;
+            }
+            window.setClipBounds(clip);
+            if (clip != null && !sSaidClipped) {
+                sSaidClipped = true;
+                L.i("drawer glass: the drawer now ends at the taskbar (" + under
+                        + "px of it was under the bar)");
+            }
+        } catch (Throwable t) {
+            L.d("drawer glass: could not stop the drawer at the bar (" + t + ")");
         }
     }
 
@@ -385,6 +448,11 @@ final class DrawerGlass {
     /** Puts a window back exactly as the launcher built it. */
     static void restore(ViewGroup window) {
         DONE.remove(window);
+        View.OnLayoutChangeListener clipper = CLIPPED.remove(window);
+        if (clipper != null) {
+            window.removeOnLayoutChangeListener(clipper);
+            window.setClipBounds(null);
+        }
         if (ORIGINALS.isEmpty()) {
             // Nothing was ever repainted, and this runs for every window the launcher opens -
             // walking each of their trees to find nothing would be the expensive way to do that.

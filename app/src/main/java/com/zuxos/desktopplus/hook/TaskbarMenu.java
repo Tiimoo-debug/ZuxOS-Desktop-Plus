@@ -242,8 +242,10 @@ public final class TaskbarMenu {
                     || child.getAlpha() <= 0.01f) {
                 continue;
             }
-            float cx = x - child.getLeft();
-            float cy = y - child.getTop();
+            // Into the child's coordinates, the group's scroll included: our row scrolls, and
+            // without it a hold after scrolling was tested against icons that had moved away.
+            float cx = x + group.getScrollX() - child.getLeft();
+            float cy = y + group.getScrollY() - child.getTop();
             if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) {
                 continue;
             }

@@ -7,7 +7,6 @@ import com.zuxos.desktopplus.core.AndroidRobot;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
-import com.zuxos.desktopplus.core.Ui;
 
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -255,9 +254,10 @@ final class TaskbarStart {
      * put the button at x=2576, off the edge of the screen.
      */
     private static int targetLeft(ViewGroup dragLayer, ViewGroup icons) {
-        // Close to the keys, the way Start sits against the corner: the space belongs between
-        // the button and the apps, not between the button and the keys.
-        int gap = Ui.dp(dragLayer.getContext(), 6);
+        // Right against the keys, the way Start sits against the corner: the space belongs
+        // between the button and the apps, not between the button and the keys. The recents
+        // key's own padding already leaves a visible gap.
+        int gap = 0;
         int navEnd = -1;
         for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
             if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
