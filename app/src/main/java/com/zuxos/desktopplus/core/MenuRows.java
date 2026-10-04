@@ -38,7 +38,13 @@ public final class MenuRows {
     }
 
     public static LinearLayout body(GlassSurface pane) {
-        return (LinearLayout) pane.getChildAt(0);
+        // Once the pane is on screen its glass is child 0, under the rows.
+        for (int i = 0; i < pane.getChildCount(); i++) {
+            if (pane.getChildAt(i) instanceof LinearLayout) {
+                return (LinearLayout) pane.getChildAt(i);
+            }
+        }
+        return null;
     }
 
     /**

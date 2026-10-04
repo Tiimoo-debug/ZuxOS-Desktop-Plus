@@ -125,6 +125,36 @@ public class GlassSurface extends FrameLayout {
         return 0xB0202024;
     }
 
+    /**
+     * Sizes the pane to its content, then gives the glass exactly that size.
+     *
+     * <p>The glass reports nothing unless told an exact size, so it can never grow the pane - but a
+     * FrameLayout only goes back to a match-parent child when there are two of them. In a menu,
+     * whose rows wrap their content, the glass is the only one: it stayed 0x0 and the menu opened
+     * as bare rows with no panel behind them.
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        if (mGlass != null) {
+            mGlass.measure(
+                    MeasureSpec.makeMeasureSpec(getMeasuredWidth(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(getMeasuredHeight(), MeasureSpec.EXACTLY));
+        }
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        if (mGlass != null && !sSaidSize && getWidth() > 0) {
+            sSaidSize = true;
+            L.d("glass: surface " + getWidth() + "x" + getHeight() + ", backdrop "
+                    + mGlass.getWidth() + "x" + mGlass.getHeight());
+        }
+    }
+
+    private static boolean sSaidSize;
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
