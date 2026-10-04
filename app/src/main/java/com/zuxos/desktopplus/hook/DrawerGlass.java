@@ -591,8 +591,10 @@ final class DrawerGlass {
      * and bent at the rim - as the sheet's first child, under ZUI's own content.
      */
     private static void liquid(ViewGroup sheet, float corner, boolean toTheEdge, int colour) {
+        // ZUI's own sheet colour, mostly opaque, until the first capture lands.
         GlassBackdrop glass = new GlassBackdrop(sheet.getContext(), LiquidGlass.THICK, corner,
-                toTheEdge ? corner : 0f, LiquidGlass.tintFor(!ToneMath.isLight(colour)), 0, 16L);
+                toTheEdge ? corner : 0f, LiquidGlass.tintFor(!ToneMath.isLight(colour)),
+                (colour & 0x00FFFFFF) | 0xD9000000, 16L);
         sheet.addView(glass, 0, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         sheet.setBackground(null);

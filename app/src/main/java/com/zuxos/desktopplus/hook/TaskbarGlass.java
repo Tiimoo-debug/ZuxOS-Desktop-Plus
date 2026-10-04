@@ -577,8 +577,9 @@ public final class TaskbarGlass {
                 mLive = true;
                 // Two frames apart, not one: the bar is always on screen, and what is behind it
                 // rarely moves faster than that.
+                boolean dark = Tone.lightOnDark(getContext());
                 mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius, mRadius,
-                        LiquidGlass.tintFor(Tone.lightOnDark(getContext())), 0, 33L);
+                        LiquidGlass.tintFor(dark), dark ? 0x99161620 : 0x99F2F2F5, 33L);
                 addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
                         LayoutParams.MATCH_PARENT));
                 mGlass.setLive(true, () -> {

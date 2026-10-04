@@ -83,8 +83,29 @@ public final class ScreenBackdrop {
         return sWorker;
     }
 
+    /** Every running session, so an event that changes the screen can wake them all. */
+    private static final java.util.Set<Session> SESSIONS =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    /**
+     * Something on screen is about to change - an app opened, closed or moved: every pane goes
+     * back to full rate and takes a real capture next, without waiting for its probe.
+     */
+    public static void nudge() {
+        MAIN.post(() -> {
+            for (Session s : new java.util.ArrayList<>(SESSIONS)) {
+                s.wake();
+            }
+        });
+    }
+
     /** One pane's live backdrop. Start it when the pane is attached, stop it when it is not. */
     public static final class Session implements Choreographer.FrameCallback {
+
+        /** Past this many pixels a pane is captured smaller: the frost would hide the detail. */
+        private static final int LARGE_AREA = 600_000;
+        /** Slowest the glass checks for change while nothing behind it moves. */
+        private static final long IDLE_MS = 250L;
 
         private final View mPane;
         private final Sink mSink;
@@ -95,6 +116,11 @@ public final class ScreenBackdrop {
         private boolean mInFlight;
         private long mFlightSince;
         private long mLastStart;
+        /** The next cycle skips the probe and captures for real. */
+        private boolean mForce = true;
+        private final Rect mLastCrop = new Rect();
+        /** Hash of the last probe; written and read on the worker only. */
+        volatile long mProbeHash;
         /**
          * Frames handed out, oldest first. A frame is recycled only once two newer ones have been
          * shown: the render thread may still be drawing the one just replaced.
@@ -102,11 +128,17 @@ public final class ScreenBackdrop {
         private final ArrayDeque<Bitmap> mRetired = new ArrayDeque<>();
         private Bitmap mCurrent;
 
+        private long mStartedAt;
+        private int mCaptures;
+        private int mSkipped;
+        private long mCaptureMs;
+        private boolean mReported;
+
         /**
          * @param scale      how much smaller than the screen the capture is; the frost blurs it
          *                   anyway, so half size costs a quarter and looks the same
-         * @param intervalMs the fastest the pane is refreshed: a frame (16) for panes you look
-         *                   at, two (33) for the always-on taskbar
+         * @param intervalMs the fastest the pane is refreshed while what is behind it moves: a
+         *                   frame (16) for panes you look at, two (33) for the always-on taskbar
          */
         public Session(View pane, Sink sink, float scale, long intervalMs) {
             mPane = pane;
@@ -124,11 +156,20 @@ public final class ScreenBackdrop {
                 return;
             }
             mRunning = true;
+            mForce = true;
+            mStartedAt = SystemClock.uptimeMillis();
+            SESSIONS.add(this);
+            // The first picture as soon as the pane can be measured, not a frame later: a pane
+            // with nothing behind it yet is a pane with no background.
+            if (showing()) {
+                request(mStartedAt);
+            }
             Choreographer.getInstance().postFrameCallback(this);
         }
 
         public void stop() {
             mRunning = false;
+            SESSIONS.remove(this);
             Choreographer.getInstance().removeFrameCallback(this);
             for (Bitmap b : mRetired) {
                 b.recycle();
@@ -136,6 +177,16 @@ public final class ScreenBackdrop {
             mRetired.clear();
             // The current frame may be in the last frame drawn; it is left to the collector.
             mCurrent = null;
+        }
+
+        void wake() {
+            mIntervalMs = mBaseIntervalMs;
+            mForce = true;
+        }
+
+        private boolean showing() {
+            return mPane.isAttachedToWindow() && mPane.isShown()
+                    && mPane.getWidth() > 0 && mPane.getHeight() > 0;
         }
 
         @Override
@@ -149,18 +200,18 @@ public final class ScreenBackdrop {
                 return;
             }
             long now = SystemClock.uptimeMillis();
-            boolean showing = mPane.isAttachedToWindow() && mPane.isShown()
-                    && mPane.getWidth() > 0 && mPane.getHeight() > 0;
-            if (showing) {
+            if (showing()) {
                 // A capture that never answered is given up on after a second.
                 boolean free = !mInFlight || now - mFlightSince > 1000;
                 if (free && now - mLastStart >= mIntervalMs) {
                     request(now);
                 }
+                report(now);
                 Choreographer.getInstance().postFrameCallback(this);
             } else {
                 // Nothing to show it on: look again in a while instead of every frame.
-                Choreographer.getInstance().postFrameCallbackDelayed(this, 250);
+                mForce = true;
+                Choreographer.getInstance().postFrameCallbackDelayed(this, IDLE_MS);
             }
         }
 
@@ -175,11 +226,28 @@ public final class ScreenBackdrop {
             mPane.getLocationOnScreen(at);
             Rect crop = new Rect(at[0], at[1], at[0] + mPane.getWidth(),
                     at[1] + mPane.getHeight());
+            if (!crop.equals(mLastCrop)) {
+                // Moved or resized: what is behind it is new, whatever the probe would say.
+                mLastCrop.set(crop);
+                mForce = true;
+                mIntervalMs = mBaseIntervalMs;
+            }
+            float scale = (long) crop.width() * crop.height() > LARGE_AREA
+                    ? Math.min(mScale, 0.35f) : mScale;
             int display = mPane.getDisplay().getDisplayId();
+            boolean force = mForce;
+            mForce = false;
             mInFlight = true;
             mFlightSince = now;
             mLastStart = now;
-            worker().post(() -> capture(this, display, crop, own, mScale, now));
+            worker().post(() -> cycle(this, display, crop, own, scale, force, now));
+        }
+
+        /** Nothing behind the pane changed: no capture, and the next check comes later. */
+        void skipped() {
+            mInFlight = false;
+            mSkipped++;
+            mIntervalMs = Math.min(IDLE_MS, Math.max(mBaseIntervalMs, mIntervalMs * 2));
         }
 
         void deliver(Object shot, int status, Rect crop, long started) {
@@ -203,7 +271,11 @@ public final class ScreenBackdrop {
                 L.i("liquid glass: live screen capture works (" + took + "ms at "
                         + frame.getWidth() + "x" + frame.getHeight() + ")");
             }
-            pace(took);
+            mCaptures++;
+            mCaptureMs += took;
+            // Something changed: back to full rate.
+            mIntervalMs = took > mBaseIntervalMs * 3 / 2
+                    ? Math.min(66, mBaseIntervalMs * 2) : mBaseIntervalMs;
             if (mCurrent != null) {
                 mRetired.addLast(mCurrent);
                 while (mRetired.size() > 2) {
@@ -214,13 +286,85 @@ public final class ScreenBackdrop {
             mSink.onFrame(frame);
         }
 
-        /** Slower when captures run long, back up to full rate when they are quick again. */
-        private void pace(long took) {
-            if (took > mIntervalMs * 3 / 2 && mIntervalMs < 66) {
-                mIntervalMs = Math.min(66, mIntervalMs * 2);
-            } else if (took < mIntervalMs / 2 && mIntervalMs > mBaseIntervalMs) {
-                mIntervalMs = Math.max(mBaseIntervalMs, mIntervalMs / 2);
+        /** Once per session, after its first ten seconds: what the glass actually cost. */
+        private void report(long now) {
+            if (mReported || now - mStartedAt < 10_000) {
+                return;
             }
+            mReported = true;
+            View parent = mPane.getParent() instanceof View ? (View) mPane.getParent() : mPane;
+            L.i("liquid glass: " + parent.getClass().getSimpleName() + " - " + mCaptures
+                    + " captures, " + mSkipped + " skipped as unchanged in 10s, avg "
+                    + (mCaptures > 0 ? mCaptureMs / mCaptures : 0) + "ms");
+        }
+    }
+
+    /**
+     * One cycle on the worker: a tiny probe first, and a real capture only if the probe shows
+     * that something behind the pane changed since the last one.
+     */
+    private static void cycle(Session session, int display, Rect crop, SurfaceControl own,
+            float scale, boolean force, long started) {
+        if (!force && sState == WORKS) {
+            long hash = probe(display, crop, own);
+            if (hash != 0 && hash == session.mProbeHash) {
+                MAIN.post(session::skipped);
+                return;
+            }
+            session.mProbeHash = hash;
+        } else {
+            session.mProbeHash = 0;
+        }
+        capture(session, display, crop, own, scale, started);
+    }
+
+    /**
+     * A fingerprint of what is behind the pane, from a capture a few dozen pixels across. Costs a
+     * fraction of a real one, and is all a static desktop ever pays for.
+     *
+     * @return 0 when it could not be taken, which counts as "changed"
+     */
+    private static long probe(int display, Rect crop, SurfaceControl own) {
+        Object[] got = new Object[1];
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        try {
+            float scale = Math.min(1f, 64f / Math.max(1, Math.max(crop.width(), crop.height())));
+            Object builder = sBuilder.getConstructor().newInstance();
+            sBuilder.getMethod("setSourceCrop", Rect.class).invoke(builder, crop);
+            sBuilder.getMethod("setFrameScale", float.class).invoke(builder, scale);
+            sBuilder.getMethod("setExcludeLayers", SurfaceControl[].class)
+                    .invoke(builder, (Object) new SurfaceControl[]{own});
+            Object args = sBuilder.getMethod("build").invoke(builder);
+            ObjIntConsumer<Object> answer = (shot, status) -> {
+                got[0] = status == 0 ? shot : null;
+                if (status != 0) {
+                    close(shot);
+                }
+                done.countDown();
+            };
+            sCapture.invoke(sWm, display, args, sListener.newInstance(answer));
+            if (!done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS) || got[0] == null) {
+                return 0;
+            }
+            Bitmap hardware = toBitmap(got[0]);
+            if (hardware == null) {
+                return 0;
+            }
+            Bitmap soft = hardware.copy(Bitmap.Config.ARGB_8888, false);
+            hardware.recycle();
+            if (soft == null) {
+                return 0;
+            }
+            int[] px = new int[soft.getWidth() * soft.getHeight()];
+            soft.getPixels(px, 0, soft.getWidth(), 0, 0, soft.getWidth(), soft.getHeight());
+            soft.recycle();
+            long h = 0xcbf29ce484222325L;
+            for (int p : px) {
+                h = (h ^ p) * 0x100000001b3L;
+            }
+            return h == 0 ? 1 : h;
+        } catch (Throwable t) {
+            return 0;
         }
     }
 

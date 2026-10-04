@@ -238,6 +238,16 @@ public final class LiquidGlass {
      */
     public static RenderEffect frost(Context ctx, Material m, int width, int height,
             float radiusPx, float extendBottomPx, int tintRgb, int base) {
+        return frost(ctx, m, width, height, radiusPx, extendBottomPx, tintRgb, base, 1f);
+    }
+
+    /**
+     * The same, for a frost layer drawn at a fraction of the pane's size and scaled up: every
+     * length - size, corner, blur - is given at that fraction, so the heavy blur runs over a
+     * quarter of the pixels at half size and looks the same once scaled.
+     */
+    public static RenderEffect frost(Context ctx, Material m, int width, int height,
+            float radiusPx, float extendBottomPx, int tintRgb, int base, float pxScale) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
@@ -249,7 +259,7 @@ public final class LiquidGlass {
                     channel(base, 24));
             return RenderEffect.createChainEffect(
                     RenderEffect.createRuntimeShaderEffect(shader, "content"),
-                    blur(Ui.dp(ctx, m.blur)));
+                    blur(Ui.dp(ctx, m.blur) * pxScale));
         } catch (Throwable t) {
             broken(t);
             return null;

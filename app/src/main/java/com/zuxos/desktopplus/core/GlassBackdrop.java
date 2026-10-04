@@ -166,11 +166,31 @@ public class GlassBackdrop extends FrameLayout {
         int h = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY
                 ? MeasureSpec.getSize(heightMeasureSpec) : 0;
         setMeasuredDimension(w, h);
-        int cw = MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY);
-        int ch = MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY);
-        for (int i = 0; i < getChildCount(); i++) {
-            getChildAt(i).measure(cw, ch);
-        }
+        mLens.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY));
+        mFrost.measure(MeasureSpec.makeMeasureSpec(frostSize(w), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(frostSize(h), MeasureSpec.EXACTLY));
+    }
+
+    /**
+     * The frost is drawn at half size and scaled up. It is the expensive layer - a blur tens of
+     * pixels wide over the whole pane - and a blur that wide has no detail half size would lose.
+     * The lens, which does carry detail, stays at full size.
+     */
+    private static final float FROST_SCALE = 0.5f;
+
+    private static int frostSize(int full) {
+        return full <= 0 ? 0 : Math.max(1, (int) Math.ceil(full * FROST_SCALE));
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        mLens.layout(0, 0, mLens.getMeasuredWidth(), mLens.getMeasuredHeight());
+        mFrost.layout(0, 0, mFrost.getMeasuredWidth(), mFrost.getMeasuredHeight());
+        mFrost.setPivotX(0f);
+        mFrost.setPivotY(0f);
+        mFrost.setScaleX(1f / FROST_SCALE);
+        mFrost.setScaleY(1f / FROST_SCALE);
     }
 
     @Override
@@ -185,8 +205,9 @@ public class GlassBackdrop extends FrameLayout {
         if (w <= 0 || h <= 0 || (w == mEffectW && h == mEffectH)) {
             return;
         }
-        RenderEffect frost = LiquidGlass.frost(getContext(), mMaterial, w, h, mRadius, mExtend,
-                mTintRgb, mBase);
+        RenderEffect frost = LiquidGlass.frost(getContext(), mMaterial, frostSize(w),
+                frostSize(h), mRadius * FROST_SCALE, mExtend * FROST_SCALE, mTintRgb, mBase,
+                FROST_SCALE);
         RenderEffect lens = LiquidGlass.lens(getContext(), mMaterial, w, h, mRadius, mExtend,
                 mTintRgb);
         if (frost == null || lens == null) {

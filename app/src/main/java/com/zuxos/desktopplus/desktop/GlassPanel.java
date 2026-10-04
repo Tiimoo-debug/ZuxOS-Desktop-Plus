@@ -66,6 +66,19 @@ public class GlassPanel extends FrameLayout {
         }
     }
 
+    /**
+     * The live part starts with the panel, not once it has settled: the opening animation is
+     * exactly when the glass has to be there already. Only the in-window picture, which has to
+     * be taken where the panel will rest, waits for {@link #refresh}.
+     */
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (LiquidGlass.isSupported() && !ScreenBackdrop.refused()) {
+            mBackdrop.setLive(true, () -> L.d("glass: panel stays on its in-window backdrop"));
+        }
+    }
+
     private static boolean isDark(int argb) {
         int r = (argb >> 16) & 0xFF;
         int g = (argb >> 8) & 0xFF;

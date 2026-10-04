@@ -271,6 +271,8 @@ final class TaskbarRunning {
      * Safe from any thread.
      */
     static void soon() {
+        // The glass behind every pane is about to be stale too.
+        com.zuxos.desktopplus.core.ScreenBackdrop.nudge();
         MAIN.removeCallbacks(sSoonFast);
         MAIN.removeCallbacks(sSoonSettle);
         sSoonFast = TaskbarRunning::applyEverywhere;

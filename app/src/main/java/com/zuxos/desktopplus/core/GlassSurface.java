@@ -85,8 +85,10 @@ public class GlassSurface extends FrameLayout {
             // The real thing: the live screen behind this window, frosted and bent at the rim.
             // Its own first child, under everything the pane holds.
             mLive = true;
+            // The pane's own tint stands in until the first capture lands, so it never opens
+            // as an empty outline.
             mGlass = new GlassBackdrop(getContext(), mMaterial, mRadius, 0f,
-                    LiquidGlass.tintFor(isDark(mTint)), 0, 16L);
+                    LiquidGlass.tintFor(isDark(mTint)), mTint, 16L);
             addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
                     LayoutParams.MATCH_PARENT));
             mGlass.setLive(true, () -> {
