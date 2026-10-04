@@ -1,211 +1,279 @@
 # ZuxOS Desktop Plus
 
-An LSPosed module that gives the **external-display desktop mode** on ZuxOS/ZUI tablets a real
-home screen: rearrangeable icons, folders, shortcuts and widgets — plus an app drawer you can
-sort yourself and group into folders.
+**An LSPosed module that turns ZuxOS desktop mode into a real desktop.** Plug the tablet into a
+monitor and you get a home screen you can arrange, widgets, folders, a liquid-glass app drawer and
+a taskbar of the apps that are actually open. It also fixes a handful of bugs in ZUI's own desktop
+mode along the way.
 
-Built for and tested against the setup it was written for:
+> **Tested on a real device.** Every build has run on a Lenovo Legion Tab Gen 5 with ZuxOS
+> 2.0.10.026 (Android 16), driving an external 2560×1440 display. Each fix here came from that
+> device's LSPosed logs and the module's own probe dumps, not from guesswork.
 
 | | |
 |---|---|
 | Device | Lenovo Legion Tab Gen 5 (Snapdragon 8 Elite Gen 5) |
-| OS | Android 16 / ZuxOS 2.0.10.026 |
-| Target | the ZUI/Zux home app that draws the desktop-mode home screen |
+| OS | ZuxOS 2.0.10.026, Android 16 |
+| Launcher | `com.zui.launcher`, desktop activity `SecondaryDisplayLauncher` |
+| Needs | Root, LSPosed, and the module scoped to the home app |
+
+**At a glance**
+
+- A home screen with free icon placement, pages, folders, widgets and shortcuts.
+- The launcher's own app drawer, organised: your order, your folders, hidden apps.
+- A taskbar of open apps, with pins, folders, reordering and a hold menu on every icon.
+- Liquid glass (a refracting, lens-like glass effect) on the drawer, folders and menus.
+- Back, home and recents on the monitor that act on the monitor, not on the tablet.
+
+---
 
 ## What it adds
 
-On the external-display desktop:
+### Home screen (external display)
 
-- **Rearranging** — drag any icon to any grid cell. Drag it to the *Remove* bar at the top to take
-  it off the desktop.
-- **Folders** — drop one icon onto another to create a folder; open it to launch, rename it in
-  place, drag items back out, or unpack it from the icon's menu.
-- **Shortcuts** — pin an app's deep shortcuts ("New message", "New private tab", …) straight onto
-  the desktop.
-- **Widgets** — a real `AppWidgetHost` runs inside the launcher, so widgets work even though the
-  stock desktop mode has no widget support at all. Long-press one for a resize frame: drag an edge
-  to resize, the middle to move, and Remove / Done in the bar at the top.
-- **Pages** — arrows at the edges and dots at the bottom. Drag an icon onto an arrow to send it to
-  the next page; dragging past the last page starts a new one.
-- **Pinned shortcuts land here** — a web page or file pinned from any app (a browser's "add to
-  home screen") normally goes to the tablet's home screen and never appears in desktop mode. The
-  module catches the request and puts it on the desktop too.
-- **Hold to act** — holding an icon and letting go opens its menu (App info, Select apps, …);
-  holding and *moving* picks it up. One gesture, two outcomes, the way a launcher behaves.
-- **Select several** — the drawer's item menu has *Select apps*: tick as many as you like, then
-  drag them onto a folder or the desktop together, or use *Add to folder* in the bar that appears.
-  The ticks survive searching.
-- **Rearrange inside folders** — drag an icon around inside an open folder to reorder it; drag it
-  out onto the desktop to take it out. Works in the drawer's folders too.
-- **Multi-select** — build a folder by ticking a list of apps rather than one drag at a time:
-  right-click the desktop for *New folder with apps*, or the drawer's three-dot menu for
-  *New folder with apps*; an existing folder's menu has *Add apps to folder*.
-- **Liquid glass** — the drawer and folder panels refract what is behind them through a
-  signed-distance lens: the rim compresses the backdrop, fringes it with chromatic dispersion and
-  carries a two-lobe specular highlight. The optical model is ported from
-  [LiquidGlass for Android](https://github.com/QWEA0/Liquid-Glass-Android) (MIT) - see
-  [NOTICE.md](NOTICE.md). Needs Android 13+; older versions fall back to blur, then to layered
-  translucency.
+- **Place anything anywhere.** Drag icons to any cell, and drop one icon on another to make a
+  folder. Drag to *Remove* at the top to take something off.
+- **Pages.** Arrows at the sides move between pages. Drag an icon onto an arrow to send it to the
+  next page, and dragging past the last page starts a new one. Page dots are optional.
+- **Widgets.** A real `AppWidgetHost` runs inside the launcher, which ZUI's desktop mode has no
+  support for at all.
+  - Hold a widget **anywhere** and move to pick it up. It lands with the spot you grabbed under
+    your finger.
+  - Hold and let go for the resize frame.
+  - Widgets are rebuilt at their real size after every restart, so they don't spill out of their
+    frame.
+- **Shortcuts.** Pin an app's deep shortcuts ("New message", "New private tab") onto the desktop.
+  A page or file pinned from any app (a browser's *Add to home screen*) lands here too, instead of
+  only on the tablet.
+- **Motion.** Dropped items glide into their cell. Folders grow out of the icon you tapped and
+  shrink back into it.
+- **Menus.** Right-click, or hold and let go, for a liquid-glass menu with an icon on every row.
+  App menus include **Close** and the app's own shortcuts with their icons. Menus open above the
+  taskbar, never under it.
 
-In the app drawer - both the module's own (the **Apps** button, or the All-Apps / Search key) and,
-where the launcher's list can be reached, **the stock drawer the taskbar opens**:
+### App drawer
 
-- **Your own order** — drag apps around; the order is remembered. Or keep A–Z.
-- **Drawer folders** — drop one app onto another to group them; apps inside a folder stop
-  cluttering the flat list.
-- **Search**, **hide apps**, and drag any app straight out of the drawer onto the desktop.
+- **The launcher's own drawer, organised.** Your order, your folders and your hidden apps are
+  applied to ZUI's drawer as well as the module's. The two share one set of data. This works on
+  the tablet's drawer too.
+- **Hold to choose.** Hold an app and let go for its menu: Open, Close, App info, its shortcuts,
+  *Pin to the taskbar* and *Add to desktop*. Hold and move to drag it out onto the desktop or the
+  taskbar. On the tablet, ZUI's own drag is left alone.
+- **Folders that open like ZUI's.** A compact panel sized to its contents, with the name in the
+  corner, zooming out of the icon you tapped.
 
-Folders, ordering and hidden apps are one shared set of data, so whatever you arrange in the
-module's drawer shows up in the stock one as well. Tapping a folder there opens it in a window of
-its own. Turn this off with **Use the stock taskbar drawer too** if you would rather leave the
-launcher's drawer untouched.
+### Taskbar
 
-## How it works (and why it works on an OEM launcher nobody can read)
+- **Only open apps.** The bar shows what is running on its own screen, plus your pins, in one row.
+  - Apps you have open inside a folder get an icon of their own, and the folder gets a mark.
+  - ZUI's "recommended apps", which it pushes back into the bar on every launch, are hidden in
+    the same frame they appear, so nothing flashes.
+- **Pins.** Drop an app or a folder on the bar to pin it.
+  - Hold a pin and move it to reorder: the other pins slide aside to open a gap.
+  - Hold and let go, or right-click, for its menu.
+  - Pinned folders open in place.
+- **A hold menu on every icon:** Open, Close, App info, and the app's own shortcuts with their
+  icons. This includes ZUI's icons and the icon of the app in front.
+- **A mark under every open app.**
+- **The drawer button is moved to the far left, beside the navigation keys.** It is ZUI's own
+  button, moved; nothing is hidden or redrawn.
+- **Scrolling.** With more apps than room, the row scrolls and its ends fade.
+- **A status tray:** network, battery, temperatures and a clock, with a quick panel behind it for
+  toggles, media and notifications.
+- **Glass taskbar** (optional). Under the glyphs it adds the lightest tint that keeps them at a
+  3:1 contrast ratio over any app, so white icons don't vanish over a white app.
 
-The module does **not** try to talk the stock launcher into features it was built without. It
-layers its own surface into the desktop-mode home activity and implements the behaviour itself
-with public Android APIs (`LauncherApps`, `AppWidgetHost`, the drag-and-drop framework). The only
-OEM-specific things it needs are:
+### Liquid glass
 
-1. *Which activity is the desktop home* — detected from the display id plus the system's own list
-   of home activities, with a name-based fallback. On ZuxOS 2.0.10.026 this is
-   `com.zui.launcher.secondarydisplay.SecondaryDisplayLauncher`, an AOSP-derived secondary-display
-   launcher which installs its layout only after the launcher model loads, so the module retries
-   and also attaches the moment `setContentView` runs.
-2. *Which stock view draws the old icon grid* — hidden so you do not see every app twice. If the
-   detection misses, switch **Stock home content** to "Hide everything the stock home draws".
+The drawer, folder panels and desktop menus bend what is behind them through a signed-distance
+lens. The rim compresses the backdrop, fringes it with chromatic dispersion and carries a two-lobe
+highlight. The optical model is ported from
+[LiquidGlass for Android](https://github.com/QWEA0/Liquid-Glass-Android) (MIT); see
+[NOTICE.md](NOTICE.md).
 
-Because the tablet has **two** desktop modes (the one on the tablet screen and the one on an
-external display), the module asks which one to attach to. The default is external-display only.
+To do that, the panel takes a snapshot of what is behind it. The snapshot is rendered **through
+the GPU** (a `RenderNode` drawn by a `HardwareRenderer` of the module's own). A software capture
+fails on this device as soon as a blurred pane or a widget is behind the panel. If a capture does
+fail, only that one panel falls back to a real blur.
 
-There is also an optional second front — *Stock launcher unlocking* — which flips the launcher's
-own "editing disabled" booleans where they can be named. It is a bonus, not a dependency:
-everything above works with it turned off. See [docs/TUNING.md](docs/TUNING.md).
+---
 
-## Requirements
+## ZuxOS bugs it works around
 
-- Root with **LSPosed** (Zygisk on Magisk, or KernelSU/APatch equivalents) working on Android 16.
-- The module enabled in LSPosed Manager, **scoped to your home app** — `com.zui.home`,
-  `com.zui.launcher` or whatever your build uses. The module's default scope lists the names ZUI
-  has used; if yours differs, tick it in LSPosed and add the package name in the module settings.
-- A reboot (or a restart of the home app) after enabling.
+All of these were found in logs and probe dumps from the device above.
 
-## Building
+| What goes wrong in stock ZuxOS | What the module does |
+|---|---|
+| Back, home and recents on the monitor's taskbar act on the **tablet** (the system sends them to whichever screen it last thought was in front) | Sends each key to the monitor's own display. The launcher isn't allowed to inject keys, so this goes through root |
+| The taskbar **crashes the launcher** with `IllegalStateException: The specified child already has a parent`, from ZUI's `RecentUsedModel` rebinding the row | Catches that one exception, so the bar skips a refresh instead of the launcher restarting |
+| Recommended apps flash into the taskbar for a second on every launch | Hides them in the same frame ZUI adds them |
+| With ZUI as the main launcher, open apps that live in a hotseat folder never show in the bar | Gives every open app its own icon; the folder gets a mark |
+| The all-apps button floats in the middle of the icons | Moves ZUI's own button to the left edge |
+| Apps tapped on the monitor sometimes open on the tablet | Optional: gives each launch the display it was tapped on |
+| The stock drawer has no folders or custom order | Applies the module's folders, order and hidden apps to it |
 
-Nothing exotic — it is a normal Gradle/AGP project with no third-party dependencies (the Xposed
-API is vendored as compile-only stubs in `xposed-api/`, so the build never depends on the
-frequently-offline Xposed maven repo).
+---
 
-```bash
-./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
-./gradlew :logic:test         # the unit tests - seconds, and no Android SDK needed
-tools/check.py                # a real compile check without the Android SDK
-```
+## How it works
 
-Or open the project in Android Studio, or grab the APK from the **Build module APK** GitHub
-Actions run for any pushed commit.
+The module does not try to talk the stock launcher into features it was built without. It adds
+its own surface to the desktop-mode home activity and builds the features itself, with public
+Android APIs: `LauncherApps`, `AppWidgetHost` and drag and drop. Where it does reach into
+ZUI's launcher:
 
-### Tests
+- **Class names survive R8, field names do not.** ZuxOS ships a minified Launcher3, so the
+  module looks things up by class name (`TaskbarView`, `TaskbarModelCallbacks`) and finds fields
+  by their type and shape, not by name.
+- **Nothing foreign goes inside `TaskbarView`.** The bar animates every child as one of its own
+  icons, and an outside view there crash-looped the launcher during development. The module's row,
+  tray and drop target live in the taskbar's drag layer beside it.
+- **Hooks sit on methods ZUI's classes declare themselves.** Xposed only hooks methods declared on
+  the class it is given, so a hook on an inherited method silently does nothing. The log reports
+  how many methods each hook caught (`x2`, `x0`), so a hook that caught nothing is visible.
+- **Drags cross windows.** The desktop, the taskbar and the stock drawer are separate windows.
+  Drags carry their payload on the clip as well as in local state, so an icon can go from the
+  drawer to the desktop to the bar.
+- **Everything is reversible.** Hidden icons, moved buttons and taken-over listeners are
+  remembered and put back when their setting is turned off.
 
-Everything that can be decided without a device lives in `logic/` — a plain Java module with no
-Android dependency at all. That is what makes `./gradlew :logic:test` run anywhere, including on a
-machine that cannot reach Google's maven repo (add `--configure-on-demand` there, so Gradle does
-not configure `:app` and reach for the Android plugin). CI runs the same tests before it builds
-the APK, so a regression in the layout format, the taskbar's ordering or the glass tone fails in
-seconds instead of on your tablet.
+There is also an optional *stock launcher unlocking* feature, which flips the launcher's own
+"editing disabled" switches where they can be identified. It is a bonus, not a dependency. See
+[docs/TUNING.md](docs/TUNING.md).
 
-The hook and view code is not covered — that needs a device — so the tests are a net under the
-logic, not a guarantee about the UI.
+---
 
-`tools/check.py` is the other half of that net: it compiles everything against Robolectric's
-`android-all` jar (fetched once from Maven Central, cached outside the repo), which is the only way
-to type-check this code without the SDK. Plain `javac` cannot — it gives up inside every class that
-touches a framework type, so a deleted method with its call left behind compiles clean and fails in
-CI. Run it before pushing; it says what CI will say.
+## Install
 
-Both the release and debug APKs are signed with the key committed in `keystore/`, and the version
-code climbs with the commit count. That means **every build installs over the previous one** - no
-uninstall, no lost settings. The key is deliberately not a secret; it exists so updates are
-painless. Swap in your own signing config if you ever distribute this.
+1. You need root with **LSPosed** (Zygisk on Magisk, KernelSU or APatch) working on Android 16.
+2. Install the APK, enable the module in LSPosed and **scope it to the home app**
+   (`com.zui.launcher` on this firmware). Then restart the home app or reboot.
+3. Open **ZuxOS Desktop Plus** once. The banner says whether LSPosed has really loaded it.
+4. Connect the monitor and enter desktop mode.
+
+Updates install over the top, with no uninstall and no lost settings. Every build is signed with
+the same key and has a higher version code.
 
 ## Using it
 
-1. Install the APK, enable the module in LSPosed, scope it to the home app, reboot.
-   (Updates after that are a plain install over the top - same key, higher version code.)
-2. Open the settings app once ("ZuxOS Desktop Plus"). The banner at the top says whether LSPosed
-   really has the module loaded.
-3. Connect the external display and enter desktop mode.
-4. **Right-click** (or long-press) empty desktop space for the main menu: add apps, widgets,
-   shortcuts, folders, change icon/cell size, tidy up icons, export diagnostics.
-5. **Right-click** an icon or widget for its own menu. **Drag** to move. **Drop on another icon**
-   to make a folder.
-6. Click **Apps** (bottom-left) for the drawer. Three-dot menu → sorting, resetting order,
-   un-hiding apps.
+| To | Do |
+|---|---|
+| Open an item's menu | Right-click it, or hold it and let go |
+| Move something | Hold it and move |
+| Make a folder | Drop one icon on another |
+| Get the desktop menu (add apps, widgets, shortcuts, folders, sizes, export) | Right-click empty space |
+| Pin to the taskbar | Drag onto the bar, or use *Pin to the taskbar* in a drawer menu |
+| Reorder pins | Hold a pin and slide it along the bar |
+| Get the taskbar menu (task manager, settings) | Right-click empty bar space |
 
-Everything you arrange is stored inside the launcher's own data directory
-(`files/zux_desktop_plus/`), so it survives launcher restarts and reboots.
+Your layout is stored in the launcher's own data folder (`files/zux_desktop_plus/`), so it
+survives restarts and reboots.
 
 ## Settings worth knowing
 
-| Setting | Why you would change it |
-|---|---|
-| **Which desktop mode** | The tablet has two. Default: external display only. |
-| **Stock home content** | How much of the stock home to hide. Start with "Hide the stock icon grid"; switch to "Hide everything" if you still see duplicated icons. |
-| **Attach to any activity** | Last resort if the desktop home is not detected. |
-| **Extra launcher packages** | If your ZuxOS build ships the home app under a package the module does not know. |
-| **Dump launcher info on attach** | Writes the activity name, display info and full view tree to the LSPosed log and to `Android/data/<home app>/files/zux_desktop_plus/probe.txt`. This is the file to look at (or attach to a bug report) when something does not appear. |
-| **Desktop pages / Glass style / Animations** | All three are on by default and can be turned off individually. |
-| **Show the Apps button** | Off by default, because the stock taskbar sits on top of it. The drawer still opens from the desktop menu or the All-apps key. |
+| Setting | Default | Why you would change it |
+|---|---|---|
+| **Which desktop mode** | External only | The tablet has a desktop mode of its own too |
+| **Stock home content** | Hide the icon grid | Switch to "hide everything" if you still see duplicated icons |
+| **Only open apps in the taskbar** | Off | The taskbar shows what is open, not ZUI's hotseat and recommendations |
+| **No recommended-apps flash** | On | Hides ZUI's recommendations the moment it re-adds them |
+| **Navigation keys act on their own screen** | On | Back, home and recents on the monitor act on the monitor |
+| **Drawer button on the left** | On | ZUI's all-apps button beside the navigation keys |
+| **Mark the apps that are open** | On | A line under each running app, folders included |
+| **Menu on a taskbar icon** | On | Hold an icon for Open, Close, App info and shortcuts |
+| **Glass taskbar** | Off | Experimental: a translucent bar with a contrast floor |
+| **Status tray / Show temperatures** | On | The tray at the right of the bar |
+| **Drag apps out of the stock drawer** | On | Hold and move in ZUI's drawer to drag to the desktop or bar |
+| **Use the stock taskbar drawer too** | On | Your folders and order in ZUI's own drawer |
+| **Glass app drawer** | On | A translucent pane behind ZUI's drawer |
+| **Desktop pages / Page dots** | On / Off | More than one page; the dots are optional |
+| **Open apps on the screen you tapped** | Off | If apps keep opening on the wrong screen. It changes every launch, so it starts off |
+| **Use root** | On | Needed for the navigation-key fix, quick toggles and screenshots |
+| **Dump launcher info on attach** | Off | Writes a probe dump. Turn on when reporting a bug |
 
-## Not done yet
+## Other modules
 
-These were asked for and are honestly not built:
+These were seen hooking the same launcher on the test device. They are worth knowing about when
+something misbehaves.
 
-- **Anything inside the stock taskbar** — notifications, network info, quick toggles, or restyling
-  it as glass. The taskbar is a separate window owned by the launcher, and injecting views into it
-  needs its view tree identified first (`Export layout + launcher info` now dumps every window in
-  the process, which is the missing input).
-- **Notifications** — needs a `NotificationListenerService` in the settings app plus an explicit
-  grant from the user; a real feature in its own right rather than a tweak.
-- **Dragging out of the *stock* drawer** onto the desktop — that is a cross-window drag. The
-  module's own drawer already supports dragging apps straight out onto the desktop.
-- **Glass on the stock drawer** — same dependency as the taskbar. The module's own panels are
-  real liquid glass; the stock drawer is the launcher's own view tree and restyling it needs the
-  taskbar dump above.
-- **The wallpaper is blurred but not refracted.** It is drawn by the system behind the window,
-  not by any view, so nothing can capture it to bend it through the lens - the reference library
-  has the same limit, because it also samples views. While a panel is open the module asks the
-  system to blur behind the whole launcher window, which *does* cover the wallpaper; what the
-  lens itself refracts is the desktop's own icons and widgets.
+- **ZTool** (`com.qimian233.ztool`): its *launcher recent task memory view* option runs just
+  before a `dispatchDetachedFromWindow` crash in the launcher. If the launcher crashes when its
+  desktop closes, turn that one option off.
+- **ZuiRecentsFix** (`io.github.miner7222.fixrecents`) also patches Recents. Turn it off when
+  testing this module's navigation keys.
+- **unfuckzui** and other ZUI modules: no conflicts seen so far.
 
-## Known limits — read before filing a bug
+## Reporting a problem
 
-- **This has not been run on a device by its author.** It compiles against the Android framework
-  and the logic is defensive throughout, but the one thing nobody can do without your tablet in
-  hand is confirm which activity and which stock view ZuxOS 2.0.10.026 actually uses. If the
-  surface does not appear, the probe dump (above) has everything needed to fix it, and
-  `docs/TUNING.md` explains what to do with it.
-- The **stock drawer** integration works by rewriting Launcher3's own app list, which ZuxOS uses
-  under its original class names. If a firmware update renames those classes the module says so in
-  the log and leaves the stock drawer alone; the module's own drawer keeps working either way.
-- **Widgets** need the home app to be allowed to bind them. System launchers normally hold
-  `BIND_APPWIDGET`; if yours does not, Android's own "allow this widget?" dialog appears instead.
-- **Deep shortcuts** require the home app to be the default launcher (it normally is).
-- The desktop is a single page — no horizontal paging.
-- Widgets resize through a size dialog rather than drag handles (deliberate: it is far easier
-  with a mouse).
-- The layout is stored per *kind* of display (external vs tablet), not per individual monitor.
+1. Turn on **Dump launcher info on attach**. Or, from the desktop, right-click → **Export layout
+   + launcher info**. Both write `probe.txt` to `Download/`.
+2. Export the LSPosed log (Manager → Logs → save).
+3. Send both, with a screenshot if it is visual.
 
-## Layout of the repo
+The log has one line per taskbar whenever its contents change, like
+`taskbar running: display 2 open=[...] zui=[...] ours=[...]`. That line answers most "why isn't
+this app on the bar" questions on its own.
+
+## Known limits
+
+- **Taskbar menus are blurred glass, not refracting glass.** They float over other apps' windows,
+  and Android does not let one app read another app's pixels, so there is nothing to bend. The
+  desktop's menus and panels are over the launcher's own content, so they refract.
+- **The wallpaper is blurred but not refracted.** It is drawn by the system, not by any view, so
+  nothing can capture it.
+- **ZUI's own folder view cannot be reused.** It needs the launcher's activity and its data
+  model behind every icon, so the module's folders copy its look and motion instead.
+- **Root is needed for the navigation keys** (the launcher is refused `INJECT_EVENTS`), and for
+  some quick-settings toggles. Everything else works without it.
+- **The layout is stored per kind of display** (external or tablet), not per monitor.
+- **Widgets need the launcher to be allowed to bind them.** System launchers normally are; if
+  not, Android's own "allow this widget?" dialog appears.
+
+---
+
+## Building
+
+There is nothing exotic here. The Xposed API is vendored as compile-only stubs in `xposed-api/`,
+so the build never depends on the often-offline Xposed maven repo.
+
+```bash
+./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+./gradlew :logic:test         # the unit tests - seconds, no Android SDK needed
+tools/check.py                # a real compile check without the Android SDK
+```
+
+Or grab the APK from the **Build module APK** GitHub Actions run for any pushed commit.
+
+### Tests
+
+Everything that can be decided without a device lives in `logic/`, a plain Java module with no
+Android dependency. It holds the layout format, the taskbar's ordering and spacing, pin moves,
+drag payloads, and the glass and contrast maths. `./gradlew :logic:test` runs anywhere. On a
+machine that cannot reach Google's maven repo, add `--configure-on-demand`. CI runs the tests
+before it builds the APK.
+
+The hook and view code needs a device, so the tests are a safety net under the logic, not a
+guarantee about the UI.
+
+`tools/check.py` is the other half of that net. It compiles everything against Robolectric's
+`android-all` jar, which is fetched once from Maven Central and cached outside the repo. Plain
+`javac` can't do this: it gives up inside every class that touches a framework type, so a deleted
+method compiles clean and only fails in CI. Run it before pushing; it says what CI will say.
+
+Release and debug APKs are signed with the key committed in `keystore/`, and the version code
+climbs with the commit count, so **every build installs over the previous one**. The key is
+deliberately not secret. Use your own signing config if you distribute this.
+
+## Repository layout
 
 ```
 app/src/main/java/com/zuxos/desktopplus/
-  core/      config, logging, storage, reflection helpers
-  hook/      LSPosed entry point, activity watcher, home detection, stock-launcher unlocking, probe
-  model/     items, desktop/drawer persistence, app + icon repository
-  desktop/   the desktop surface: grid, icons, folders, widgets, menus, dialogs
-  drawer/    the app drawer
+  core/      settings, logging, storage, reflection, glass, tone, menus, icons
+  hook/      LSPosed entry point and every hook: taskbar, stock drawer, nav keys, tray, probe
+  model/     items, desktop/drawer persistence, app and icon repository
+  desktop/   the desktop surface: grid, icons, folders, widgets, menus, drag and drop
+  drawer/    the module's own app drawer
   ui/        the settings app
 logic/       plain Java, no Android: the layout format and the decisions worth unit-testing
 xposed-api/  compile-only Xposed API stubs (never packaged)
+tools/       check.py, the SDK-free compile check
+docs/        TUNING.md - adapting the module to another ZuxOS build
 ```

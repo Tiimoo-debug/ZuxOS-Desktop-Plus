@@ -9,7 +9,7 @@ Settings → Diagnostics → **Dump launcher info on attach**, then go back to t
 The dump lands in two places:
 
 - the LSPosed log (Manager → Logs), and
-- `/sdcard/Android/data/<home package>/files/zux_desktop_plus/probe.txt`
+- `Download/probe.txt` on the tablet's storage
 
 You can also trigger it any time from the desktop: right-click empty space →
 **Export layout + launcher info**.

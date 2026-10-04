@@ -129,8 +129,8 @@ public class MainActivity extends Activity {
                         + "works depends on how your firmware paints that bar, so it starts off",
                 Const.KEY_TASKBAR_GLASS, false);
         addSwitch("Only open apps in the taskbar",
-                "Turns the stock taskbar's recommendations off and its running apps on, using "
-                        + "the launcher's own switches for both",
+                "The taskbar shows what is open on its screen, plus your pins - not the "
+                        + "launcher's hotseat and recommendations",
                 Const.KEY_TASKBAR_RUNNING_ONLY, false);
         addSwitch("Menu on a taskbar icon",
                 "Hold an app in the taskbar for open, close, app info and the app's own "
