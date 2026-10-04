@@ -341,8 +341,7 @@ final class DrawerGlass {
                 continue;
             }
             android.view.SurfaceControl own = surfaceOf(window);
-            if (own != null && android.os.Build.VERSION.SDK_INT >= 31
-                    && own.isSameSurface(target)) {
+            if (own != null && sameSurface(own, target)) {
                 int asked = (Integer) param.args[1];
                 param.args[1] = 0;
                 if (!sSaidSurfaceBlur) {
@@ -357,6 +356,19 @@ final class DrawerGlass {
             sSaidOtherBlur = true;
             L.i("drawer glass: the launcher blurred another surface (" + param.args[1] + "px) "
                     + "from " + caller() + " - not the drawer's window, left alone");
+        }
+    }
+
+    /** The same surface, by the framework's own test where it has one, else by identity. */
+    private static boolean sameSurface(Object a, Object b) {
+        if (a == b) {
+            return true;
+        }
+        try {
+            Object same = a.getClass().getMethod("isSameSurface", a.getClass()).invoke(a, b);
+            return Boolean.TRUE.equals(same);
+        } catch (Throwable t) {
+            return false;
         }
     }
 
