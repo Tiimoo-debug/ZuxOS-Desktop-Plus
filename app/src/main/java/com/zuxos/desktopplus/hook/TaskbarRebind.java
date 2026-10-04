@@ -2,6 +2,7 @@ package com.zuxos.desktopplus.hook;
 
 import android.view.ViewGroup;
 
+import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 
@@ -92,6 +93,9 @@ final class TaskbarRebind {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     if (param.thisObject instanceof ViewGroup) {
+                        // Hidden here too, in the pass that would draw them: anything of the
+                        // launcher's that came back since it was added is gone before the frame.
+                        TaskbarRunning.hideOnSight((ViewGroup) param.thisObject);
                         TaskbarStart.relayout((ViewGroup) param.thisObject);
                     }
                 }
@@ -100,6 +104,77 @@ final class TaskbarRebind {
             L.i("taskbar rebind: placing the drawer button after the row's layout x" + laid);
         } catch (Throwable t) {
             L.d("taskbar rebind: could not hook onLayout (" + t + ")");
+        }
+        blockRecents(loader);
+        hideOnAdd();
+    }
+
+    private static final String MODEL_CALLBACKS =
+            "com.android.launcher3.taskbar.TaskbarModelCallbacks";
+    private static boolean sSaidBlocked;
+
+    /**
+     * ZUI's recent and recommended apps, refused at the door.
+     *
+     * <p>{@code TaskbarModelCallbacks.bindRecentUsedApps} is where ZUI's {@code RecentUsedModel}
+     * hands the bar its recents on every launch and every close - the stack traces name it. With
+     * "Only open apps" on, our row shows what is open, so this call is skipped outright: the
+     * icons are never added, so there is nothing to flash. It is also the call ZUI's own
+     * "child already has a parent" crash comes through.
+     */
+    private static void blockRecents(ClassLoader loader) {
+        Class<?> callbacks = Reflect.findClass(MODEL_CALLBACKS, loader);
+        if (callbacks == null) {
+            L.d("taskbar rebind: no " + MODEL_CALLBACKS + " on this build");
+            return;
+        }
+        try {
+            int hooked = XposedBridge.hookAllMethods(callbacks, "bindRecentUsedApps",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
+                                return;
+                            }
+                            param.setResult(null);
+                            if (!sSaidBlocked) {
+                                sSaidBlocked = true;
+                                L.i("taskbar rebind: the launcher's recent and recommended apps "
+                                        + "are kept off the bar");
+                            }
+                        }
+                    }).size();
+            L.i("taskbar rebind: holding back the launcher's recent apps x" + hooked);
+        } catch (Throwable t) {
+            L.d("taskbar rebind: could not hook bindRecentUsedApps (" + t + ")");
+        }
+    }
+
+    /**
+     * Anything ZUI still adds to its row by another route is hidden as it is added.
+     *
+     * <p>{@code onViewAdded} runs inside {@code addView}, before the view has been laid out or
+     * drawn, so an icon hidden here never reaches the screen. Hooked on {@code ViewGroup},
+     * where the method is declared, and narrowed to the launcher's taskbar row at once.
+     */
+    private static void hideOnAdd() {
+        try {
+            int hooked = XposedBridge.hookAllMethods(ViewGroup.class, "onViewAdded",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            Object row = param.thisObject;
+                            if (row == null || !TASKBAR_VIEW.equals(row.getClass().getName())
+                                    || param.args.length == 0
+                                    || !(param.args[0] instanceof android.view.View)) {
+                                return;
+                            }
+                            TaskbarRunning.hideIfApp((android.view.View) param.args[0]);
+                        }
+                    }).size();
+            L.i("taskbar rebind: hiding the launcher's icons as they are added x" + hooked);
+        } catch (Throwable t) {
+            L.d("taskbar rebind: could not hook onViewAdded (" + t + ")");
         }
     }
 }

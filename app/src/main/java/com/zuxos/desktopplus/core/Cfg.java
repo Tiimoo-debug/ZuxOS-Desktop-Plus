@@ -191,11 +191,12 @@ public final class Cfg {
     }
 
     /**
-     * Hide the recommended apps ZUI puts back in the taskbar on every launch, straight away.
+     * Keep ZUI's recent and recommended apps off the taskbar entirely.
      *
-     * <p>On by default, and only does anything with "Only open apps in the taskbar" on: it hides
-     * the same icons that setting already hides, just in the frame they appear in rather than at
-     * the next refresh. The key keeps its old name so an existing choice carries over.
+     * <p>On by default, and only does anything with "Only open apps in the taskbar" on, where our
+     * own row shows what is open: ZUI's call that adds its recents is skipped, and any icon of its
+     * that arrives another way is hidden as it is added. The key keeps its old name so an
+     * existing choice carries over.
      */
     public static boolean hideRecommendedFlash() {
         return getBool(Const.KEY_HIDE_RECENTS_FLASH, true);

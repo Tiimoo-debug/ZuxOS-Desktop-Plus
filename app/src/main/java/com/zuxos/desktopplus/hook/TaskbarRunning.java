@@ -303,6 +303,27 @@ final class TaskbarRunning {
      * them in its own order, so with both showing the bar was two clusters that shifted on every
      * launch and ran under the tray.
      */
+    /** Called from the launcher's layout pass: hides its apps when "Only open apps" is on. */
+    static void hideOnSight(ViewGroup icons) {
+        if (Cfg.taskbarRunningOnly() && Cfg.hideRecommendedFlash()) {
+            hideLauncherApps(icons);
+        }
+    }
+
+    /**
+     * Hides one icon the launcher has just added to its row, if it stands for an app.
+     *
+     * <p>Remembered like the rest, so the setting going off shows it again.
+     */
+    static void hideIfApp(View child) {
+        if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
+                || IconInfo.packagesOfView(child).isEmpty()) {
+            return;
+        }
+        HIDDEN.put(child, Boolean.TRUE);
+        child.setVisibility(View.GONE);
+    }
+
     private static void hideLauncherApps(ViewGroup icons) {
         boolean changed = false;
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {

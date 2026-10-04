@@ -136,10 +136,10 @@ public class MainActivity extends Activity {
                 "Hold an app in the taskbar for open, close, app info and the app's own "
                         + "shortcuts",
                 Const.KEY_TASKBAR_APP_MENU, true);
-        addSwitch("No recommended-apps flash when an app opens",
-                "With \"Only open apps\" on, the launcher still puts its recommended apps back "
-                        + "in the taskbar for a moment on every launch. This hides them in the "
-                        + "same frame they appear",
+        addSwitch("Keep the launcher's recents off the taskbar",
+                "With \"Only open apps\" on, the launcher's own recent and recommended apps are "
+                        + "never added to the taskbar - not even for a moment when an app opens "
+                        + "or closes",
                 Const.KEY_HIDE_RECENTS_FLASH, true);
         addSwitch("Navigation keys act on their own screen",
                 "Back, home and recents on the monitor's taskbar act on the monitor - not on "

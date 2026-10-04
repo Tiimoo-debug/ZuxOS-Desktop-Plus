@@ -67,8 +67,8 @@ mode along the way.
   then open apps in the order you opened them, one row from left to right. The row stops before
   the tray and scrolls when full.
   - Apps you have open inside a folder get an icon of their own, and the folder gets a mark.
-  - ZUI's "recommended apps", which it pushes back into the bar on every launch, are hidden in
-    the same frame they appear, so nothing flashes.
+  - ZUI's recent and recommended apps never reach the bar: the call that adds them on every
+    launch and close is skipped, so nothing flashes.
 - **Pins.** Drop an app or a folder on the bar to pin it.
   - Hold a pin and move it to reorder: the other pins slide aside to open a gap.
   - Hold and let go, or right-click, for its menu.
@@ -108,7 +108,7 @@ All of these were found in logs and probe dumps from the device above.
 |---|---|
 | Back, home and recents on the monitor's taskbar act on the **tablet** (the system sends them to whichever screen it last thought was in front) | Sends each key to the monitor's own display. The launcher isn't allowed to inject keys, so this goes through root |
 | The taskbar **crashes the launcher** with `IllegalStateException: The specified child already has a parent`, from ZUI's `RecentUsedModel` rebinding the row | Catches that one exception, so the bar skips a refresh instead of the launcher restarting |
-| Recommended apps flash into the taskbar for a second on every launch | Hides them in the same frame ZUI adds them |
+| Recent and recommended apps flash into the taskbar on every launch and close | Skips ZUI's call that adds them, and hides any of its icons the instant they are added |
 | With ZUI as the main launcher, open apps that live in a hotseat folder never show in the bar | Gives every open app its own icon; the folder gets a mark |
 | The all-apps button floats in the middle of the icons | Moves ZUI's own button to the left edge |
 | Apps tapped on the monitor sometimes open on the tablet | Optional: gives each launch the display it was tapped on |
@@ -177,7 +177,7 @@ survives restarts and reboots.
 | **Which desktop mode** | External only | The tablet has a desktop mode of its own too |
 | **Stock home content** | Hide the icon grid | Switch to "hide everything" if you still see duplicated icons |
 | **Only open apps in the taskbar** | Off | The taskbar shows what is open, not ZUI's hotseat and recommendations |
-| **No recommended-apps flash** | On | Hides ZUI's recommendations the moment it re-adds them |
+| **Keep the launcher's recents off the taskbar** | On | ZUI's recent and recommended apps never reach the bar |
 | **Navigation keys act on their own screen** | On | Back, home and recents on the monitor act on the monitor |
 | **Drawer button on the left** | On | ZUI's all-apps button beside the navigation keys |
 | **Mark the apps that are open** | On | A line under each running app, folders included |
