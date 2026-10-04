@@ -49,6 +49,7 @@ final class TaskbarStart {
                 return;
             }
             robot(button);
+            toggles(button);
             if (sLayoutHooked) {
                 // The move itself happens in relayout(); all this does is ask for a layout when
                 // the button is not where it should be, or no longer should be.
@@ -187,6 +188,96 @@ final class TaskbarStart {
         if (!sSaidRobot) {
             sSaidRobot = true;
             L.i("taskbar start: the Android robot is on the drawer button");
+        }
+    }
+
+    /**
+     * Whether the drawer is open, per icon row, as last told by the row's own fade.
+     *
+     * <p>ZUI fades its row out as its drawer opens and back in as it closes - the one signal
+     * there is, since the drawer itself is a window of the launcher's own making.
+     */
+    private static final Map<View, Boolean> DRAWER_OPEN = new WeakHashMap<>();
+
+    /** Told by the row's fade: the drawer is opening ({@code open}) or closing. */
+    static void drawerShowing(View row, boolean open) {
+        if (!(row instanceof ViewGroup)) {
+            return;
+        }
+        Boolean was = DRAWER_OPEN.put(row, open);
+        if (was == null || was != open) {
+            eyes((ViewGroup) row, open);
+        }
+    }
+
+    /** The robot's eyes on this row's button, wide or not. */
+    private static void eyes(ViewGroup row, boolean wide) {
+        View button = allAppsButton(row);
+        if (!(button instanceof android.widget.TextView)) {
+            return;
+        }
+        for (android.graphics.drawable.Drawable d
+                : ((android.widget.TextView) button).getCompoundDrawables()) {
+            if (d instanceof AndroidRobot) {
+                ((AndroidRobot) d).setWide(wide);
+            }
+        }
+    }
+
+    private static boolean sSaidToggle;
+
+    /**
+     * Makes the button a toggle: pressed with the drawer open, it closes it.
+     *
+     * <p>ZUI's click only ever opens the drawer. That never mattered while ZUI hid the button
+     * with its row; kept on screen, a second press reopened the drawer instead of closing it,
+     * which no start button does.
+     */
+    private static void toggles(View button) {
+        Object info = Reflect.field(button, "mListenerInfo");
+        Object current = info == null ? null : Reflect.field(info, "mOnClickListener");
+        if (current instanceof StartClick || !(current instanceof View.OnClickListener)) {
+            return;
+        }
+        button.setOnClickListener(new StartClick((View.OnClickListener) current));
+    }
+
+    private static final class StartClick implements View.OnClickListener {
+        private final View.OnClickListener mOriginal;
+
+        StartClick(View.OnClickListener original) {
+            mOriginal = original;
+        }
+
+        @Override
+        public void onClick(View v) {
+            View row = v.getParent() instanceof View ? (View) v.getParent() : null;
+            int display = TaskbarTray.displayIdOf(v);
+            // Open only when both agree: the row's fade says so, and the drawer's window is
+            // really there - a window kept around after closing must not swallow the press.
+            boolean open = !Boolean.FALSE.equals(DRAWER_OPEN.get(row))
+                    && TaskbarBridge.isStockDrawerOpen(display);
+            if (open) {
+                try {
+                    if (TaskbarBridge.closeStockDrawer(display)) {
+                        if (row != null) {
+                            drawerShowing(row, false);
+                        }
+                        if (!sSaidToggle) {
+                            sSaidToggle = true;
+                            L.i("start button: closed the drawer, as a second press should");
+                        }
+                        return;
+                    }
+                } catch (Throwable t) {
+                    L.d("start button: could not close the drawer (" + t + ")");
+                }
+            }
+            if (row != null) {
+                // At the press, not when the fade gets round to it: the eyes answer the finger.
+                drawerShowing(row, true);
+            }
+            mOriginal.onClick(v);
         }
     }
 

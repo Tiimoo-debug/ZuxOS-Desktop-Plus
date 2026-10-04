@@ -236,6 +236,179 @@ final class DrawerGlass {
         window.addOnLayoutChangeListener(listener);
         CLIPPED.put(window, listener);
         clipAboveTheBar(window);
+        noWindowBlur(window);
+    }
+
+    // --- the launcher's own blur ---------------------------------------------
+
+    /** Drawer windows whose whole-window blur is being kept off, so only the sheet blurs. */
+    private static final Map<View, Boolean> BLUR_FREE =
+            java.util.Collections.synchronizedMap(new WeakHashMap<>());
+    /** What the window's own blur-behind settings were, to put back. */
+    private static final Map<View, int[]> BLUR_PARAMS = new WeakHashMap<>();
+    private static boolean sBlurHooked;
+    private static boolean sSaidSurfaceBlur;
+    private static boolean sSaidOtherBlur;
+
+    /**
+     * Takes ZUI's blur off the drawer's whole window.
+     *
+     * <p>ZUI blurs everything behind its drawer, edge to edge. With the sheet glazed, the sheet
+     * blurred the same content by about the same amount, so it looked like no glass at all on
+     * top of a blurred screen. Without the window blur, the screen behind is only dimmed and the
+     * sheet is the one frosted thing on it. Android offers two ways to blur a window, and both
+     * are covered, since which one ZUI uses cannot be seen from outside.
+     */
+    private static void noWindowBlur(ViewGroup window) {
+        BLUR_FREE.put(window, Boolean.TRUE);
+        hookSurfaceBlur();
+        try {
+            android.view.WindowManager wm = (android.view.WindowManager) window.getContext()
+                    .getSystemService(android.content.Context.WINDOW_SERVICE);
+            if (wm != null && android.os.Build.VERSION.SDK_INT >= 31) {
+                L.i("drawer glass: cross-window blur is "
+                        + (wm.isCrossWindowBlurEnabled() ? "enabled" : "DISABLED - the sheet "
+                        + "cannot blur what is behind it on this device right now"));
+            }
+            if (!(window.getLayoutParams() instanceof android.view.WindowManager.LayoutParams)
+                    || wm == null) {
+                return;
+            }
+            android.view.WindowManager.LayoutParams lp =
+                    (android.view.WindowManager.LayoutParams) window.getLayoutParams();
+            int radius = android.os.Build.VERSION.SDK_INT >= 31 ? lp.getBlurBehindRadius() : 0;
+            boolean flag = (lp.flags & android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    != 0;
+            if (!flag && radius <= 0) {
+                return;
+            }
+            BLUR_PARAMS.put(window, new int[]{flag ? 1 : 0, radius});
+            lp.flags &= ~android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                lp.setBlurBehindRadius(0);
+            }
+            wm.updateViewLayout(window, lp);
+            L.i("drawer glass: took the launcher's window blur off the drawer (blur-behind "
+                    + radius + "px" + (flag ? ", flag set" : "") + ") - only the sheet blurs now");
+        } catch (Throwable t) {
+            L.d("drawer glass: could not look at the drawer window's blur (" + t + ")");
+        }
+    }
+
+    /**
+     * The other way: the launcher setting a blur radius on the window's surface directly, as
+     * Launcher3 does for its depth effect. Held at 0 for the drawer windows above, and only
+     * those - every other blur the launcher sets goes through untouched.
+     */
+    private static void hookSurfaceBlur() {
+        if (sBlurHooked) {
+            return;
+        }
+        sBlurHooked = true;
+        try {
+            Class<?> tx = Class.forName("android.view.SurfaceControl$Transaction");
+            int hooked = de.robv.android.xposed.XposedBridge.hookAllMethods(tx,
+                    "setBackgroundBlurRadius", new de.robv.android.xposed.XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                onSurfaceBlur(param);
+                            } catch (Throwable ignored) {
+                                // Never in the way of a blur the launcher is setting.
+                            }
+                        }
+                    }).size();
+            L.d("drawer glass: watching surface blurs x" + hooked);
+        } catch (Throwable t) {
+            L.d("drawer glass: could not watch surface blurs (" + t + ")");
+        }
+    }
+
+    private static void onSurfaceBlur(de.robv.android.xposed.XC_MethodHook.MethodHookParam param) {
+        if (param.args.length < 2 || !(param.args[0] instanceof android.view.SurfaceControl)
+                || !(param.args[1] instanceof Integer) || (Integer) param.args[1] <= 0
+                || BLUR_FREE.isEmpty() || !on()) {
+            return;
+        }
+        android.view.SurfaceControl target = (android.view.SurfaceControl) param.args[0];
+        // Transactions are built on more than one thread; the set is read from a copy.
+        List<View> windows;
+        synchronized (BLUR_FREE) {
+            windows = new ArrayList<>(BLUR_FREE.keySet());
+        }
+        for (View window : windows) {
+            if (window == null) {
+                continue;
+            }
+            android.view.SurfaceControl own = surfaceOf(window);
+            if (own != null && android.os.Build.VERSION.SDK_INT >= 31
+                    && own.isSameSurface(target)) {
+                int asked = (Integer) param.args[1];
+                param.args[1] = 0;
+                if (!sSaidSurfaceBlur) {
+                    sSaidSurfaceBlur = true;
+                    L.i("drawer glass: took the launcher's surface blur (" + asked
+                            + "px) off the drawer window - only the sheet blurs now");
+                }
+                return;
+            }
+        }
+        if (!sSaidOtherBlur) {
+            sSaidOtherBlur = true;
+            L.i("drawer glass: the launcher blurred another surface (" + param.args[1] + "px) "
+                    + "from " + caller() + " - not the drawer's window, left alone");
+        }
+    }
+
+    private static android.view.SurfaceControl surfaceOf(View window) {
+        try {
+            Object root = View.class.getMethod("getViewRootImpl").invoke(window);
+            Object surface = root == null ? null
+                    : root.getClass().getMethod("getSurfaceControl").invoke(root);
+            return surface instanceof android.view.SurfaceControl
+                    ? (android.view.SurfaceControl) surface : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** The first frame of the launcher's own code on the stack, for the log. */
+    private static String caller() {
+        for (StackTraceElement e : new Throwable().getStackTrace()) {
+            String c = e.getClassName();
+            if (!c.startsWith("android.") && !c.startsWith("com.android.internal")
+                    && !c.startsWith("java.") && !c.startsWith("de.robv")
+                    && !c.startsWith("com.zuxos") && !c.startsWith("LSP")
+                    && !c.startsWith("org.lsposed") && !c.startsWith("dalvik")) {
+                return c + "." + e.getMethodName();
+            }
+        }
+        return "unknown";
+    }
+
+    /** The window's own blur-behind, as it was. */
+    private static void restoreWindowBlur(ViewGroup window) {
+        BLUR_FREE.remove(window);
+        int[] was = BLUR_PARAMS.remove(window);
+        if (was == null || !(window.getLayoutParams()
+                instanceof android.view.WindowManager.LayoutParams)) {
+            return;
+        }
+        try {
+            android.view.WindowManager wm = (android.view.WindowManager) window.getContext()
+                    .getSystemService(android.content.Context.WINDOW_SERVICE);
+            android.view.WindowManager.LayoutParams lp =
+                    (android.view.WindowManager.LayoutParams) window.getLayoutParams();
+            if (was[0] != 0) {
+                lp.flags |= android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                lp.setBlurBehindRadius(was[1]);
+            }
+            wm.updateViewLayout(window, lp);
+        } catch (Throwable ignored) {
+            // The window is gone, which is the same outcome.
+        }
     }
 
     private static boolean sSaidClipped;
@@ -453,6 +626,7 @@ final class DrawerGlass {
             window.removeOnLayoutChangeListener(clipper);
             window.setClipBounds(null);
         }
+        restoreWindowBlur(window);
         if (ORIGINALS.isEmpty()) {
             // Nothing was ever repainted, and this runs for every window the launcher opens -
             // walking each of their trees to find nothing would be the expensive way to do that.

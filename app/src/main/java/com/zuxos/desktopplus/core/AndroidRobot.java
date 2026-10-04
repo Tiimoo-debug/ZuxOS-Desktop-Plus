@@ -73,9 +73,9 @@ public final class AndroidRobot extends Drawable {
         // The dome: the top half of a disc, flat side down, filling the width and centred on
         // the grid so the logo sits in the middle of the button.
         canvas.drawArc(new RectF(1.5f, 7.7f, 22.5f, 28.7f), 180f, 180f, true, mFill);
-        // Eyes, which blink.
+        // Eyes, which blink - and grow while the drawer is open.
         float open = openness();
-        float r = 1.25f;
+        float r = 1.25f * (1f + (WIDE_SCALE - 1f) * mWide);
         canvas.drawOval(new RectF(8.0f - r, 13.8f - r * open, 8.0f + r, 13.8f + r * open), mEye);
         canvas.drawOval(new RectF(16.0f - r, 13.8f - r * open, 16.0f + r, 13.8f + r * open),
                 mEye);
@@ -120,6 +120,37 @@ public final class AndroidRobot extends Drawable {
             shut = 1f - x * x * (3f - 2f * x);
         }
         return Math.max(0.1f, 1f - shut);
+    }
+
+    /** How much bigger the eyes are while the drawer is open. */
+    private static final float WIDE_SCALE = 1.45f;
+    /** 0 = normal eyes, 1 = wide; overshoots a touch on the way, which is the spring. */
+    private float mWide;
+    private boolean mWideTarget;
+    private android.animation.ValueAnimator mWideAnim;
+
+    /**
+     * Eyes wide while the app drawer is open, back to normal when it closes.
+     *
+     * <p>On the module's spring, from wherever they are now, so opening and closing the drawer
+     * quickly in a row turns the motion round smoothly instead of jumping.
+     */
+    public void setWide(boolean wide) {
+        if (wide == mWideTarget) {
+            return;
+        }
+        mWideTarget = wide;
+        if (mWideAnim != null) {
+            mWideAnim.cancel();
+        }
+        mWideAnim = android.animation.ValueAnimator.ofFloat(mWide, wide ? 1f : 0f);
+        mWideAnim.setDuration(Motion.SPRING_MS);
+        mWideAnim.setInterpolator(Motion.SPRING);
+        mWideAnim.addUpdateListener(a -> {
+            mWide = (float) a.getAnimatedValue();
+            invalidateSelf();
+        });
+        mWideAnim.start();
     }
 
     /** Somewhere between 3.5 and 6.5 seconds: a fixed rhythm looks like a machine. */

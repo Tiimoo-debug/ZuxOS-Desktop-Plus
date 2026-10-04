@@ -43,6 +43,29 @@ public final class TaskbarBridge {
         return closed;
     }
 
+    /** Whether the stock drawer is open on this display. */
+    public static boolean isStockDrawerOpen(int displayId) {
+        return drawerOn(displayId) != null;
+    }
+
+    /** Closes the stock drawer on this display only; true when one was open and asked to close. */
+    public static boolean closeStockDrawer(int displayId) {
+        View root = drawerOn(displayId);
+        return root != null && closeWindow(root);
+    }
+
+    private static View drawerOn(int displayId) {
+        for (View root : Windows.roots()) {
+            if (root.isAttachedToWindow() && root.getVisibility() == View.VISIBLE
+                    && root.getWindowVisibility() == View.VISIBLE
+                    && root.getWidth() > 0 && root.getHeight() > 0
+                    && TaskbarTray.displayIdOf(root) == displayId && isAllAppsWindow(root)) {
+                return root;
+            }
+        }
+        return null;
+    }
+
     /**
      * The root view of the stock drawer's window, or null when it is not open.
      *

@@ -124,6 +124,10 @@ final class TaskbarRebind {
 
     private static boolean sSaidOpaque;
 
+    /** The alpha each row was last asked for - the fade's direction is the drawer's state. */
+    private static final java.util.Map<android.view.View, Float> LAST_ALPHA =
+            new java.util.WeakHashMap<>();
+
     /**
      * The other half of hiding the row: ZUI fades it out before it marks it invisible.
      *
@@ -137,9 +141,23 @@ final class TaskbarRebind {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            if (param.args.length != 1 || !(param.args[0] instanceof Float)
-                                    || (Float) param.args[0] >= 1f
-                                    || !keepsStart(param.thisObject)) {
+                            Object view = param.thisObject;
+                            if (view == null || view.getClass() != sTaskbarView
+                                    || param.args.length != 1
+                                    || !(param.args[0] instanceof Float)) {
+                                return;
+                            }
+                            float asked = (Float) param.args[0];
+                            // Which way the fade is going says which way the drawer is: out as
+                            // it opens, back in as it closes. Read before it is held at 1.
+                            Float last = LAST_ALPHA.put((android.view.View) view, asked);
+                            float before = last != null ? last : 1f;
+                            if (asked < before - 0.001f) {
+                                TaskbarStart.drawerShowing((android.view.View) view, true);
+                            } else if (asked > before + 0.001f) {
+                                TaskbarStart.drawerShowing((android.view.View) view, false);
+                            }
+                            if (asked >= 1f || !keepsStart(view)) {
                                 return;
                             }
                             param.args[0] = 1f;
