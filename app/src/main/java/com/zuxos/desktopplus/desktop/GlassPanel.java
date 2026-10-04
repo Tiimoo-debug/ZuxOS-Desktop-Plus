@@ -45,7 +45,7 @@ public class GlassPanel extends FrameLayout {
     private static boolean sSaidPath;
 
     public GlassPanel(Context ctx, float radiusPx, int tint) {
-        this(ctx, radiusPx, tint, LiquidGlass.REGULAR);
+        this(ctx, radiusPx, tint, LiquidGlass.MENU);
     }
 
     /**

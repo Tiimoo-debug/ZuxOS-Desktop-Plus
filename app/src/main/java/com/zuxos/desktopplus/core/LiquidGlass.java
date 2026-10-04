@@ -70,7 +70,13 @@ public final class LiquidGlass {
     /** The bar and menus: frosted enough to read over anything, edges that clearly bend. */
     public static final Material REGULAR = new Material("regular", 24f, 1.5f, 20f, 26f, 1.5f, 0.06f, 1.35f, 0.015f, 0.12f, 0.16f, 0.8f, 0.12f);
     /** Sheets - the app drawer, the quick panel: thicker glass, much more blur. */
-    public static final Material THICK = new Material("thick", 40f, 2f, 28f, 36f, 1.5f, 0.06f, 1.4f, 0.02f, 0.14f, 0.14f, 0.8f, 0.12f);
+    public static final Material THICK = new Material("thick", 40f, 2f, 28f, 36f, 1.5f, 0.06f, 1.4f, 0.02f, 0.24f, 0.14f, 0.8f, 0.12f);
+    /**
+     * Menus and folders: a denser body than the bar. Over a dark, busy wallpaper a lightly tinted
+     * frost is nearly the wallpaper itself, and a menu made of it reads as text with no
+     * background at all - so, like iOS, menus carry far more of their own tint.
+     */
+    public static final Material MENU = new Material("menu", 30f, 1.5f, 18f, 22f, 1.5f, 0.06f, 1.4f, 0.04f, 0.58f, 0.16f, 0.8f, 0.12f);
     /** Small controls: barely frosted, nearly all lens. */
     public static final Material CLEAR = new Material("clear", 6f, 1f, 14f, 20f, 1.5f, 0.07f, 1.2f, 0.01f, 0.04f, 0.2f, 1.0f, 0.08f);
 
@@ -225,7 +231,7 @@ public final class LiquidGlass {
 
     /** The glass's tint for the current tone: white over light glass, near-black over dark. */
     public static int tintFor(boolean dark) {
-        return dark ? 0xFF1C1C21 : 0xFFFFFFFF;
+        return dark ? 0xFF2C2C33 : 0xFFF7F7FA;
     }
 
     /**

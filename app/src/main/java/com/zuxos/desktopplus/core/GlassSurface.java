@@ -40,7 +40,7 @@ public class GlassSurface extends FrameLayout {
     private GlassBackdrop mGlass;
 
     public GlassSurface(Context ctx, float radiusPx, int tint) {
-        this(ctx, radiusPx, tint, LiquidGlass.REGULAR);
+        this(ctx, radiusPx, tint, LiquidGlass.MENU);
     }
 
     public GlassSurface(Context ctx, float radiusPx, int tint, LiquidGlass.Material material) {
