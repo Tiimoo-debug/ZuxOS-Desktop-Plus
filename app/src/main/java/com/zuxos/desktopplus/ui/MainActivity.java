@@ -150,8 +150,8 @@ public class MainActivity extends Activity {
                         + "navigation keys, instead of leaving it in the middle of the icons",
                 Const.KEY_START_LEFT, true);
         addSwitch("Android logo on the drawer button",
-                "Shows the green Android robot on the launcher's all-apps button instead of its "
-                        + "own icon",
+                "Shows the green Android head on the launcher's all-apps button, like a start "
+                        + "button, instead of its own icon",
                 Const.KEY_START_ROBOT, true);
         addSwitch("Mark the apps that are open",
                 "A line under every taskbar icon whose app is running - including shortcuts and "

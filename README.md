@@ -77,7 +77,7 @@ mode along the way.
   icons. This includes ZUI's icons and the icon of the app in front.
 - **A mark under every open app.**
 - **The drawer button is moved to the far left, beside the navigation keys**, and shows the
-  green Android robot (optional). It is ZUI's own button, moved, so it opens ZUI's drawer as
+  green Android head as a start logo (optional). It is ZUI's own button, moved, so it opens ZUI's drawer as
   before.
 - **Scrolling.** With more apps than room, the row scrolls and its ends fade.
 - **A status tray:** network, battery, temperatures and a clock, with a quick panel behind it for

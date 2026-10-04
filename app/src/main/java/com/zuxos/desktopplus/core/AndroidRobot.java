@@ -10,7 +10,9 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 
 /**
- * The Android robot, drawn: head with antennae and eyes, body, arms and legs, in Android green.
+ * The Android head, as a start button: the green half-dome with its antennae and eyes - the mark
+ * Android itself uses since 2019 - with no body, so it reads as a logo rather than as one more
+ * app on the bar.
  *
  * <p>Built from shapes on a 24-unit grid rather than shipped as an image - the module has no
  * resources of its own inside the launcher's process - and scaled to whatever bounds it is
@@ -52,27 +54,17 @@ public final class AndroidRobot extends Drawable {
         canvas.translate(mLeft, mTop);
         canvas.scale(mScale, mScale);
         // The scale is on the canvas, so the antennae are stroked in grid units.
-        mLine.setStrokeWidth(1.1f);
+        mLine.setStrokeWidth(1.4f);
 
-        // Antennae.
-        canvas.drawLine(8.6f, 3.2f, 7.4f, 1.2f, mLine);
-        canvas.drawLine(15.4f, 3.2f, 16.6f, 1.2f, mLine);
-        // Head: the top half of a disc, with a sliver of gap above the body.
-        canvas.drawArc(new RectF(5.5f, 2.6f, 18.5f, 15.6f), 180f, 180f, true, mFill);
+        // Antennae, angled out from the top of the dome.
+        canvas.drawLine(7.2f, 9.6f, 5.0f, 5.8f, mLine);
+        canvas.drawLine(16.8f, 9.6f, 19.0f, 5.8f, mLine);
+        // The dome: the top half of a disc, flat side down, filling the width and centred on
+        // the grid so the logo sits in the middle of the button.
+        canvas.drawArc(new RectF(1.5f, 7.7f, 22.5f, 28.7f), 180f, 180f, true, mFill);
         // Eyes.
-        canvas.drawCircle(9.4f, 6.4f, 0.8f, mEye);
-        canvas.drawCircle(14.6f, 6.4f, 0.8f, mEye);
-        // Body, rounded at the bottom.
-        Path body = new Path();
-        body.addRoundRect(new RectF(5.5f, 9.8f, 18.5f, 19.4f),
-                new float[]{0, 0, 0, 0, 2.2f, 2.2f, 2.2f, 2.2f}, Path.Direction.CW);
-        canvas.drawPath(body, mFill);
-        // Arms.
-        canvas.drawRoundRect(new RectF(2.2f, 10.2f, 4.6f, 17f), 1.2f, 1.2f, mFill);
-        canvas.drawRoundRect(new RectF(19.4f, 10.2f, 21.8f, 17f), 1.2f, 1.2f, mFill);
-        // Legs.
-        canvas.drawRoundRect(new RectF(8.2f, 17.5f, 10.6f, 23f), 1.2f, 1.2f, mFill);
-        canvas.drawRoundRect(new RectF(13.4f, 17.5f, 15.8f, 23f), 1.2f, 1.2f, mFill);
+        canvas.drawCircle(8.0f, 13.8f, 1.25f, mEye);
+        canvas.drawCircle(16.0f, 13.8f, 1.25f, mEye);
 
         canvas.restoreToCount(saved);
     }
