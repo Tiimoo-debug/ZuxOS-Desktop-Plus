@@ -259,39 +259,88 @@ public final class FolderStyle {
         source.getLocationOnScreen(at);
         float w = source.getWidth();
         float h = source.getHeight();
-        android.graphics.RectF r = null;
-        if (source instanceof TextView) {
-            android.graphics.drawable.Drawable top =
-                    ((TextView) source).getCompoundDrawables()[1];
-            if (top != null && top.getBounds().width() > 0) {
-                float dw = top.getBounds().width();
-                float dh = top.getBounds().height();
-                float y = source.getPaddingTop();
-                r = new android.graphics.RectF((w - dw) / 2f, y, (w + dw) / 2f, y + dh);
-            }
-        } else if (source instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) source;
-            for (int i = 0; i < group.getChildCount() && r == null; i++) {
-                View child = group.getChildAt(i);
-                if (child instanceof TextView && child.getPaddingTop() > 0
-                        && child.getTop() == 0) {
-                    float above = child.getPaddingTop()
-                            - ((TextView) child).getCompoundDrawablePadding();
-                    float side = Math.min(w, above);
-                    if (side > 0) {
-                        r = new android.graphics.RectF((w - side) / 2f, above - side,
-                                (w + side) / 2f, above);
-                    }
-                }
-            }
-        }
+        android.graphics.RectF r = findIcon(source, 0f, 0f, 0);
         if (r == null) {
             float side = Math.min(w, h);
             r = new android.graphics.RectF((w - side) / 2f, (h - side) / 2f, (w + side) / 2f,
                     (h + side) / 2f);
         }
+        if (SAID.add(source.getClass().getName())) {
+            com.zuxos.desktopplus.core.L.i("folder motion: icon of "
+                    + source.getClass().getSimpleName() + " " + (int) w + "x" + (int) h
+                    + " is " + (int) r.width() + "x" + (int) r.height() + " at "
+                    + (int) r.left + "," + (int) r.top);
+        }
         r.offset(at[0], at[1]);
         return r;
+    }
+
+    private static final java.util.Set<String> SAID = new java.util.HashSet<>();
+
+    /**
+     * The picture in {@code view} or under it, in the coordinates of the view first asked
+     * ({@code dx}, {@code dy} being this view's offset in it): a top drawable, an image view's
+     * picture, or the space a label leaves above itself for an icon it draws by hand.
+     */
+    private static android.graphics.RectF findIcon(View view, float dx, float dy, int depth) {
+        if (view.getVisibility() != View.VISIBLE || depth > 4) {
+            return null;
+        }
+        float w = view.getWidth();
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            android.graphics.drawable.Drawable top = text.getCompoundDrawables()[1];
+            if (top != null) {
+                float dw = top.getBounds().width() > 0 ? top.getBounds().width()
+                        : top.getIntrinsicWidth();
+                float dh = top.getBounds().height() > 0 ? top.getBounds().height()
+                        : top.getIntrinsicHeight();
+                if (dw > 0 && dh > 0) {
+                    float y = text.getPaddingTop();
+                    return new android.graphics.RectF(dx + (w - dw) / 2f, dy + y,
+                            dx + (w + dw) / 2f, dy + y + dh);
+                }
+            }
+            // A launcher icon that draws its picture itself pushes its label down below it.
+            float above = text.getTotalPaddingTop() - text.getCompoundDrawablePadding();
+            if (above > view.getHeight() * 0.3f) {
+                float side = Math.min(w, above);
+                return new android.graphics.RectF(dx + (w - side) / 2f, dy + above - side,
+                        dx + (w + side) / 2f, dy + above);
+            }
+            return null;
+        }
+        if (view instanceof android.widget.ImageView
+                && ((android.widget.ImageView) view).getDrawable() != null) {
+            float side = Math.min(w - view.getPaddingLeft() - view.getPaddingRight(),
+                    view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
+            if (side > 0) {
+                float cx = dx + view.getPaddingLeft()
+                        + (w - view.getPaddingLeft() - view.getPaddingRight()) / 2f;
+                float cy = dy + view.getPaddingTop() + (view.getHeight()
+                        - view.getPaddingTop() - view.getPaddingBottom()) / 2f;
+                return new android.graphics.RectF(cx - side / 2f, cy - side / 2f,
+                        cx + side / 2f, cy + side / 2f);
+            }
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            // Pictures first: an image view beside a label is the icon, whatever the label does.
+            for (int pass = 0; pass < 2; pass++) {
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    View child = group.getChildAt(i);
+                    if ((pass == 0) == (child instanceof TextView)) {
+                        continue;
+                    }
+                    android.graphics.RectF r = findIcon(child, dx + child.getLeft(),
+                            dy + child.getTop(), depth + 1);
+                    if (r != null) {
+                        return r;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /** The panel's top-left on screen with no animation applied to it. */
