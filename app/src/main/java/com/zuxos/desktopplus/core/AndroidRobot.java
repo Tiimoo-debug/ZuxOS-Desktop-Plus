@@ -12,7 +12,7 @@ import android.graphics.drawable.Drawable;
 /**
  * The Android head, as a start button: the green half-dome with its antennae and eyes - the mark
  * Android itself uses since 2019 - with no body, so it reads as a logo rather than as one more
- * app on the bar.
+ * app on the bar. It blinks every few seconds.
  *
  * <p>Built from shapes on a 24-unit grid rather than shipped as an image - the module has no
  * resources of its own inside the launcher's process - and scaled to whatever bounds it is
@@ -29,6 +29,13 @@ public final class AndroidRobot extends Drawable {
     private float mScale = 1f;
     private float mLeft;
     private float mTop;
+
+    /** How long one blink takes, shut and open again. */
+    private static final long BLINK_MS = 180L;
+    private final java.util.Random mRandom = new java.util.Random();
+    /** When the next blink starts, on the uptime clock {@link #scheduleSelf} uses; 0 = not set. */
+    private long mBlinkAt;
+    private final Runnable mTick = this::invalidateSelf;
 
     public AndroidRobot() {
         mFill.setColor(GREEN);
@@ -62,11 +69,65 @@ public final class AndroidRobot extends Drawable {
         // The dome: the top half of a disc, flat side down, filling the width and centred on
         // the grid so the logo sits in the middle of the button.
         canvas.drawArc(new RectF(1.5f, 7.7f, 22.5f, 28.7f), 180f, 180f, true, mFill);
-        // Eyes.
-        canvas.drawCircle(8.0f, 13.8f, 1.25f, mEye);
-        canvas.drawCircle(16.0f, 13.8f, 1.25f, mEye);
+        // Eyes, which blink.
+        float open = openness();
+        float r = 1.25f;
+        canvas.drawOval(new RectF(8.0f - r, 13.8f - r * open, 8.0f + r, 13.8f + r * open), mEye);
+        canvas.drawOval(new RectF(16.0f - r, 13.8f - r * open, 16.0f + r, 13.8f + r * open),
+                mEye);
 
         canvas.restoreToCount(saved);
+        scheduleNext();
+    }
+
+    /**
+     * How open the eyes are, 1 to nearly shut: they close and open again over {@link #BLINK_MS},
+     * every few seconds.
+     */
+    private float openness() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (mBlinkAt == 0) {
+            mBlinkAt = now + nextGap();
+        }
+        if (now < mBlinkAt) {
+            return 1f;
+        }
+        float t = (now - mBlinkAt) / (float) BLINK_MS;
+        if (t >= 1f) {
+            mBlinkAt = now + nextGap();
+            return 1f;
+        }
+        return Math.max(0.12f, Math.abs(1f - 2f * t));
+    }
+
+    /** Somewhere between 3.5 and 6.5 seconds: a fixed rhythm looks like a machine. */
+    private long nextGap() {
+        return 3500L + mRandom.nextInt(3000);
+    }
+
+    /**
+     * Asks to be drawn again when something will have changed: every frame during a blink, and
+     * otherwise not until the next one starts. Only while visible and attached to a view, so a
+     * hidden bar has nothing ticking.
+     */
+    private void scheduleNext() {
+        if (getCallback() == null || !isVisible()) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        unscheduleSelf(mTick);
+        scheduleSelf(mTick, now >= mBlinkAt ? now + 16L : mBlinkAt);
+    }
+
+    @Override
+    public boolean setVisible(boolean visible, boolean restart) {
+        boolean changed = super.setVisible(visible, restart);
+        if (!visible) {
+            unscheduleSelf(mTick);
+        } else if (changed) {
+            invalidateSelf();
+        }
+        return changed;
     }
 
     @Override

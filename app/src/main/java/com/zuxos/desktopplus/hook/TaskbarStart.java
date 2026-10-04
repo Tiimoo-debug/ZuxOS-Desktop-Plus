@@ -255,7 +255,9 @@ final class TaskbarStart {
      * put the button at x=2576, off the edge of the screen.
      */
     private static int targetLeft(ViewGroup dragLayer, ViewGroup icons) {
-        int gap = Ui.dp(dragLayer.getContext(), 16);
+        // Close to the keys, the way Start sits against the corner: the space belongs between
+        // the button and the apps, not between the button and the keys.
+        int gap = Ui.dp(dragLayer.getContext(), 6);
         int navEnd = -1;
         for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
             if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {

@@ -68,6 +68,29 @@ final class TaskbarMarks {
         }
     }
 
+    /**
+     * Draws one mark under an icon whose app is open, in the canvas of whatever view holds the
+     * icon - our row draws its own with this, so its marks are part of what scrolls.
+     *
+     * @param left   the icon's left edge in the canvas, translation included
+     * @param bottom where the icon ends vertically in the canvas
+     * @param floor  how far down the canvas may be drawn on
+     */
+    static void drawMark(Canvas canvas, Paint paint, Context ctx, float left, float width,
+            float bottom, float floor) {
+        float height = Ui.dp(ctx, HEIGHT_DP);
+        float markWidth = Ui.dp(ctx, WIDTH_DP);
+        float end = Math.min(bottom + Ui.dp(ctx, BELOW_DP), floor);
+        float centre = left + width / 2f;
+        canvas.drawRoundRect(new RectF(centre - markWidth / 2f, end - height,
+                centre + markWidth / 2f, end), height / 2f, height / 2f, paint);
+    }
+
+    /** The marks' colour: light over a dark bar, dark over a light one. */
+    static int markColor(Context ctx) {
+        return Tone.lightOnDark(ctx) ? 0xCCFFFFFF : 0x99000000;
+    }
+
     /** Re-draws them without re-reading what is open; for when the bar has just been laid out. */
     static void refresh(ViewGroup dragLayer) {
         MarkView marks = markIn(dragLayer);
@@ -152,7 +175,7 @@ final class TaskbarMarks {
             if (dragLayer == null || mRunning.isEmpty()) {
                 return;
             }
-            mPaint.setColor(Tone.lightOnDark(getContext()) ? 0xCCFFFFFF : 0x99000000);
+            mPaint.setColor(markColor(getContext()));
             float height = Ui.dp(getContext(), HEIGHT_DP);
             float width = Ui.dp(getContext(), WIDTH_DP);
             float below = Ui.dp(getContext(), BELOW_DP);
@@ -162,19 +185,9 @@ final class TaskbarMarks {
             if (icons != null) {
                 mark(canvas, icons, icons.getLeft(), icons.getTop(), height, width, below);
             }
-            ViewGroup ours = TaskbarRunning.rowOf(dragLayer);
-            if (ours == null) {
-                return;
-            }
-            int[] bounds = TaskbarRunning.rowBounds(dragLayer);
-            int saved = canvas.save();
-            if (bounds != null) {
-                // Nothing drawn for an icon the scroller is hiding.
-                canvas.clipRect(bounds[0] - getLeft(), 0, bounds[1] - getLeft(), getHeight());
-            }
-            mark(canvas, ours, TaskbarRunning.rowLeft(dragLayer), TaskbarRunning.rowTop(dragLayer),
-                    height, width, below);
-            canvas.restoreToCount(saved);
+            // Our own row draws its marks itself (TaskbarRunning.RunningRow), inside the scroller,
+            // so they move in the same frame as the icons. Drawn from here they had to wait for
+            // this view to redraw, which scrolling never asked for - so they trailed behind.
         }
 
         private void mark(Canvas canvas, ViewGroup row, int rowLeft, int rowTop,

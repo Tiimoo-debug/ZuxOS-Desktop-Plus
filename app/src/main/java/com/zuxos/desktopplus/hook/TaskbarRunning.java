@@ -120,6 +120,10 @@ final class TaskbarRunning {
             place(dragLayer, row, TaskbarTray.rowReference(dragLayer));
         }
         TaskbarMarks.apply(dragLayer, icons, running);
+        RunningRow ours = rowIn(dragLayer);
+        if (ours != null) {
+            ours.setOpen(running);
+        }
         describe(dragLayer, icons, running);
     }
 
@@ -765,8 +769,9 @@ final class TaskbarRunning {
         }
         if (Cfg.taskbarRunningOnly()) {
             int start = TaskbarStart.rightEdge(dragLayer, icons);
-            return start >= 0 ? start + Math.max(spacing(icons), Ui.dp(dragLayer.getContext(), 6))
-                    : -1;
+            // A clear gap after the start button, so it reads as the button it is and not as the
+            // first of the apps.
+            return start >= 0 ? start + Ui.dp(dragLayer.getContext(), 18) : -1;
         }
         int edge = -1;
         for (int i = 0; i < icons.getChildCount(); i++) {
@@ -852,9 +857,47 @@ final class TaskbarRunning {
         List<String> mPins = new ArrayList<>();
         /** Open apps that are not pinned anywhere, in the order that has to hold still. */
         List<String> mRunning = new ArrayList<>();
+        /** What is open right now, for the marks under the icons. */
+        private Set<String> mOpen = Collections.emptySet();
+        private final android.graphics.Paint mMarkPaint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
 
         RunningRow(Context ctx) {
             super(ctx);
+            setWillNotDraw(false);
+        }
+
+        void setOpen(Set<String> open) {
+            if (!open.equals(mOpen)) {
+                mOpen = new LinkedHashSet<>(open);
+                invalidate();
+            }
+        }
+
+        /**
+         * The mark under each open app, drawn with the icons.
+         *
+         * <p>Part of the row's own drawing, so it is part of what the scroller scrolls and moves
+         * in the same frame as the icon above it - at any speed, and through a pin's slide when
+         * the row is being rearranged, since it follows each icon's translation too.
+         */
+        @Override
+        protected void dispatchDraw(android.graphics.Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if (mOpen.isEmpty() || !Cfg.runningMarks()) {
+                return;
+            }
+            mMarkPaint.setColor(TaskbarMarks.markColor(getContext()));
+            for (int i = 0; i < getChildCount(); i++) {
+                View icon = getChildAt(i);
+                if (icon.getVisibility() != VISIBLE || icon.getWidth() <= 0 || icon.getAlpha() <= 0f
+                        || !RunningOrder.anyRunning(IconInfo.packagesOfView(icon), mOpen)) {
+                    continue;
+                }
+                TaskbarMarks.drawMark(canvas, mMarkPaint, getContext(),
+                        icon.getLeft() + icon.getTranslationX(), icon.getWidth(),
+                        icon.getBottom() + icon.getTranslationY(), getHeight());
+            }
         }
     }
 
