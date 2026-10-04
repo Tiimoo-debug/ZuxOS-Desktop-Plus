@@ -63,8 +63,6 @@ final class TaskbarRunning {
     /** The last list we acted on. Written on the UI thread, but published for safety. */
     private static volatile Set<String> sShowing = new LinkedHashSet<>();
     private static int sSource = -1;
-    /** What each taskbar last read as open, for hiding what ZUI adds between two reads. */
-    private static final Map<View, Set<String>> OPEN = new WeakHashMap<>();
     /** Per taskbar: with two displays, one ticking must not stand for the other. */
     private static final Map<View, Boolean> TICKING = new WeakHashMap<>();
 
@@ -101,9 +99,12 @@ final class TaskbarRunning {
             restore(dragLayer);
             return;
         }
-        OPEN.put(dragLayer, running);
+        // Measured while the launcher's icons are still up to be measured: once they are hidden
+        // their size and spacing are what our row keeps using.
+        iconSize(icons);
+        spacing(icons);
         if (onlyOpen) {
-            hideWhatIsNotOpen(icons, running);
+            hideLauncherApps(icons);
         } else {
             showEverythingAgain(icons);
         }
@@ -112,9 +113,37 @@ final class TaskbarRunning {
         TaskbarApps.installRowMenu(icons);
         TaskbarStart.apply(dragLayer, icons);
         extras(dragLayer, icons, running, pins, onlyOpen);
+        watchTray(dragLayer);
+        RunningRow row = rowIn(dragLayer);
+        if (row != null) {
+            place(dragLayer, row, TaskbarTray.rowReference(dragLayer));
+        }
         TaskbarMarks.apply(dragLayer, icons, running);
         describe(dragLayer, icons, running);
     }
+
+    /**
+     * Follows the tray too: its clock and temperatures change length, and the room our row may
+     * use ends where the tray begins. Watching only the launcher's row is how the icons ended up
+     * over the tray's text.
+     */
+    private static void watchTray(ViewGroup dragLayer) {
+        View tray = TaskbarTray.trayOf(dragLayer);
+        if (tray == null || TRAY_WATCHED.containsKey(tray)) {
+            return;
+        }
+        TRAY_WATCHED.put(tray, Boolean.TRUE);
+        tray.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol) {
+                RunningRow current = rowIn(dragLayer);
+                if (current != null) {
+                    place(dragLayer, current, TaskbarTray.rowReference(dragLayer));
+                }
+            }
+        });
+    }
+
+    private static final Map<View, Boolean> TRAY_WATCHED = new WeakHashMap<>();
 
     /** The last description logged per taskbar, so only a change is logged. */
     private static final Map<View, String> DESCRIBED = new WeakHashMap<>();
@@ -153,14 +182,14 @@ final class TaskbarRunning {
     /**
      * Called straight after ZUI has rebuilt its icon row, before that frame is drawn.
      *
-     * <p>Opening an app makes ZUI's recent-used model rebind the whole row, recommended apps and
-     * all, and the next three-second tick was what took them out again - the second of clutter
-     * you saw beside the open apps on every launch. Hiding them here, in the same frame they were
-     * added in, leaves nothing to see. The app being launched counts as open already, so its own
-     * icon is not hidden for the moment before the task list has caught up with it.
+     * <p>Opening an app makes ZUI's recent-used model rebind the whole row - its hotseat, its
+     * recommendations and the apps it thinks are open - centred on the bar. With "Only open
+     * apps" on, every app in our bar is drawn by our own row, so all of ZUI's are hidden again
+     * here, in the same frame they were added in: nothing flashes, and nothing pushes our row
+     * along.
      *
-     * <p>The rebind also hands ZUI's icons fresh listeners, which is how the app open in front
-     * lost its hold menu; it is put back here for the same reason.
+     * <p>The rebind also hands ZUI's icons fresh listeners, so the hold menu goes back on too,
+     * for when the setting is off and ZUI's icons are the ones showing.
      */
     static void rebound(ViewGroup icons) {
         try {
@@ -171,17 +200,7 @@ final class TaskbarRunning {
                 return;
             }
             ViewGroup dragLayer = (ViewGroup) root;
-            Set<String> known = OPEN.get(dragLayer);
-            if (known == null || known.isEmpty()) {
-                // Nothing read yet, and hiding against an empty list would empty the bar.
-                return;
-            }
-            Set<String> open = new LinkedHashSet<>(known);
-            String launched = TaskbarRebind.justLaunched();
-            if (launched != null) {
-                open.add(launched);
-            }
-            hideWhatIsNotOpen(icons, open);
+            hideLauncherApps(icons);
             // And a real read soon, rather than at the next tick, now that something changed.
             dragLayer.removeCallbacks(REREAD.get(dragLayer));
             // Weakly, because it is also the value of a weak map keyed by this same view.
@@ -250,33 +269,29 @@ final class TaskbarRunning {
         }
     }
 
-    private static void hideWhatIsNotOpen(ViewGroup icons, Set<String> running) {
+    /**
+     * Hides every app and folder in the launcher's own row, leaving its drawer button.
+     *
+     * <p>The open apps are all drawn by our row instead, which is what lets them line up from the
+     * drawer button in the order they opened. ZUI centres its icons on the whole bar and adds
+     * them in its own order, so with both showing the bar was two clusters that shifted on every
+     * launch and ran under the tray.
+     */
+    private static void hideLauncherApps(ViewGroup icons) {
         boolean changed = false;
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
             View child = icons.getChildAt(i);
-            // Everything the icon stands for: a folder in the bar is open when anything inside it
-            // is, which is what stopped a shortcut's app from being counted as closed.
-            List<String> packages = IconInfo.packagesOfView(child);
-            if (packages.isEmpty()) {
-                // The all-apps button and anything else without an app behind it stays.
+            if (IconInfo.packagesOfView(child).isEmpty()) {
+                // The drawer button, and anything else with no app behind it.
                 continue;
             }
-            if (anyOf(packages, running)) {
-                if (HIDDEN.remove(child) != null) {
-                    child.setVisibility(View.VISIBLE);
-                    changed = true;
-                }
-            } else if (child.getVisibility() == View.VISIBLE) {
+            if (child.getVisibility() != View.GONE) {
                 HIDDEN.put(child, Boolean.TRUE);
                 child.setVisibility(View.GONE);
-                // (kept in HIDDEN so the setting going off puts it back exactly)
                 changed = true;
             }
         }
         if (changed) {
-            // A gone child takes no space only if its parent lays out again. Without this the row
-            // keeps the empty slot, which reads as a hole in the middle of the bar - and makes the
-            // gap between two icons measure a whole icon too wide.
             icons.requestLayout();
         }
     }
@@ -672,12 +687,23 @@ final class TaskbarRunning {
         }
     }
 
-    /** Where our row starts: just past the last icon the launcher is showing. */
+    /**
+     * Where our row starts.
+     *
+     * <p>With "Only open apps" on, the whole bar is ours: right after the drawer button, the way
+     * Windows lines its taskbar up after Start. Otherwise just past the last icon the launcher
+     * is showing.
+     */
     private static int leftEdge(ViewGroup dragLayer) {
         ViewGroup icons = iconRow(dragLayer);
         if (icons == null || icons.getWidth() <= 0
                 || icons.getVisibility() != View.VISIBLE) {
             return -1;
+        }
+        if (Cfg.taskbarRunningOnly()) {
+            int start = TaskbarStart.rightEdge(dragLayer, icons);
+            return start >= 0 ? start + Math.max(spacing(icons), Ui.dp(dragLayer.getContext(), 6))
+                    : -1;
         }
         int edge = -1;
         for (int i = 0; i < icons.getChildCount(); i++) {
@@ -704,7 +730,9 @@ final class TaskbarRunning {
         if (dragLayer.getWidth() <= 0 || left < 0) {
             return 0;
         }
-        return dragLayer.getWidth() - TaskbarTray.trayWidth(dragLayer) - left;
+        // A little short of the tray, so the last icon - and its fading edge - never touches it.
+        return Math.max(0, dragLayer.getWidth() - TaskbarTray.trayWidth(dragLayer) - left
+                - Ui.dp(dragLayer.getContext(), 8));
     }
 
     /** How far a view's left edge is from the drag layer's. */
@@ -738,9 +766,19 @@ final class TaskbarRunning {
             }
             previous = child;
         }
-        return RunningOrder.spacing(gaps, Ui.dp(icons.getContext(), 64),
+        if (gaps.isEmpty()) {
+            // Nothing of the launcher's showing to measure, as when all of it is hidden: the gap
+            // last measured, or the one the probe shows ZUI using.
+            return sGap > 0 ? sGap : 3;
+        }
+        sGap = RunningOrder.spacing(gaps, Ui.dp(icons.getContext(), 64),
                 Ui.dp(icons.getContext(), 8));
+        return sGap;
     }
+
+    /** The launcher's icon gap and size, last measured; kept for when its icons are hidden. */
+    private static int sGap;
+    private static int sIconSize;
 
     /** Ours, and never a child of the launcher's icon row. */
     private static final class RunningRow extends LinearLayout {
@@ -948,10 +986,12 @@ final class TaskbarRunning {
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
             if (child.getWidth() > 0 && IconInfo.packageOfView(child) != null) {
-                return child.getWidth();
+                sIconSize = child.getWidth();
+                return sIconSize;
             }
         }
-        return Ui.dp(icons.getContext(), 44);
+        // 60px is what ZUI draws them at on the external bar, per the probe.
+        return sIconSize > 0 ? sIconSize : 60;
     }
 
     /** True when any of these packages is in that set. */

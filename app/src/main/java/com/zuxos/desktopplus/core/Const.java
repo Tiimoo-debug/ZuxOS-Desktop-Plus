@@ -80,6 +80,7 @@ public final class Const {
     public static final String KEY_LAUNCH_DISPLAY = "launch_on_tapped_display";
     /** Move the launcher's drawer button to the left of the bar, beside the navigation keys. */
     public static final String KEY_START_LEFT = "start_button_left";
+    public static final String KEY_START_ROBOT = "start_button_robot";
     /** Keep ZUI's overview down during the moment an app is opening. */
     public static final String KEY_HIDE_RECENTS_FLASH = "hide_recents_flash";
     public static final String KEY_NAV_OWN_SCREEN = "nav_keys_own_screen";

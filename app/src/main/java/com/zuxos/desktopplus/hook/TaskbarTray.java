@@ -235,6 +235,11 @@ public final class TaskbarTray {
     }
 
     /** How much of the bar's right-hand end the tray occupies, margin included. */
+    /** Our tray in this taskbar, or null when it is not up. */
+    static View trayOf(ViewGroup dragLayer) {
+        return dragLayer.findViewWithTag(TAG_TRAY);
+    }
+
     static int trayWidth(ViewGroup dragLayer) {
         View tray = dragLayer.findViewWithTag(TAG_TRAY);
         int width = tray != null ? tray.getWidth() : 0;

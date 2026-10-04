@@ -212,6 +212,11 @@ public final class Cfg {
         return getBool(Const.KEY_NAV_OWN_SCREEN, true);
     }
 
+    /** The Android robot as the drawer button's icon, in place of ZUI's own. */
+    public static boolean startButtonRobot() {
+        return getBool(Const.KEY_START_ROBOT, true);
+    }
+
     /** A mark under the taskbar icons whose apps are open. */
     public static boolean runningMarks() {
         return getBool(Const.KEY_RUNNING_MARKS, true);

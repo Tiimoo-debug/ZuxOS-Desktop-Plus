@@ -63,7 +63,9 @@ mode along the way.
 
 ### Taskbar
 
-- **Only open apps.** The bar shows what is running on its own screen, plus your pins, in one row.
+- **Only open apps, lined up like Windows.** The drawer button sits at the left, then your pins,
+  then open apps in the order you opened them, one row from left to right. The row stops before
+  the tray and scrolls when full.
   - Apps you have open inside a folder get an icon of their own, and the folder gets a mark.
   - ZUI's "recommended apps", which it pushes back into the bar on every launch, are hidden in
     the same frame they appear, so nothing flashes.
@@ -74,8 +76,9 @@ mode along the way.
 - **A hold menu on every icon:** Open, Close, App info, and the app's own shortcuts with their
   icons. This includes ZUI's icons and the icon of the app in front.
 - **A mark under every open app.**
-- **The drawer button is moved to the far left, beside the navigation keys.** It is ZUI's own
-  button, moved; nothing is hidden or redrawn.
+- **The drawer button is moved to the far left, beside the navigation keys**, and shows the
+  green Android robot (optional). It is ZUI's own button, moved, so it opens ZUI's drawer as
+  before.
 - **Scrolling.** With more apps than room, the row scrolls and its ends fade.
 - **A status tray:** network, battery, temperatures and a clock, with a quick panel behind it for
   toggles, media and notifications.

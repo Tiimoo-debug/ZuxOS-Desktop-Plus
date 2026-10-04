@@ -93,9 +93,6 @@ final class LaunchDisplay {
     private static final XC_MethodHook OPTIONS = new XC_MethodHook() {
         @Override
         protected void beforeHookedMethod(MethodHookParam param) {
-            // Said first and unconditionally: something else wants to know that an app is coming
-            // up, whether or not we are giving this launch a display.
-            TaskbarRebind.launching(param.args);
             if (!Cfg.launchOnTappedDisplay()) {
                 return;
             }
