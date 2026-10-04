@@ -287,6 +287,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     public void onResume() {
         mWidgets.start();
+        clearTaskbar();
         Cfg.reload();
         boolean appsChanged = mRepo.reloadIfStale();
         long signature = configSignature();
@@ -487,7 +488,29 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         arrow.bringToFront();
     }
 
+    /**
+     * Keeps what sits at the bottom of the desktop above the taskbar: the page dots and the Apps
+     * pill. Anchored to the screen's bottom they sat under the bar - the dots blurred by its
+     * glass, the pill right on top of the back key.
+     */
+    private void clearTaskbar() {
+        int bar = com.zuxos.desktopplus.hook.Windows.taskbarHeight(mDisplayId);
+        FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
+        int bottom = bar + Ui.dp(mActivity, 10);
+        if (dlp.bottomMargin != bottom) {
+            dlp.bottomMargin = bottom;
+            mDots.setLayoutParams(dlp);
+        }
+        FrameLayout.LayoutParams alp = (FrameLayout.LayoutParams) mAppsButton.getLayoutParams();
+        int appsBottom = bar + Ui.dp(mActivity, bar > 0 ? 12 : 20);
+        if (alp.bottomMargin != appsBottom) {
+            alp.bottomMargin = appsBottom;
+            mAppsButton.setLayoutParams(alp);
+        }
+    }
+
     private void updatePageControls() {
+        clearTaskbar();
         if (!Cfg.pages()) {
             mPrevPage.setVisibility(View.GONE);
             mNextPage.setVisibility(View.GONE);
@@ -502,13 +525,6 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mDots.setVisibility(pages > 1 && Cfg.pageDots() ? View.VISIBLE : View.GONE);
         // Above the taskbar, not under it: the bar covers the bottom of this activity, and dots
         // behind its glass read as part of the bar - blurred, and in the way of nothing useful.
-        FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
-        int bottom = com.zuxos.desktopplus.hook.Windows.taskbarHeight(mDisplayId)
-                + Ui.dp(mActivity, 10);
-        if (dlp.bottomMargin != bottom) {
-            dlp.bottomMargin = bottom;
-            mDots.setLayoutParams(dlp);
-        }
         for (int i = 0; i < pages; i++) {
             View dot = new View(mActivity);
             int size = Ui.dp(mActivity, 7);

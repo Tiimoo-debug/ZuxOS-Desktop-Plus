@@ -20,15 +20,24 @@ import java.util.WeakHashMap;
  * <em>that</em> button - ZUI's own view, its own icon, its own click and animation - to just right
  * of the navigation keys. Nothing is hidden and nothing is drawn in its place.
  *
- * <p>Moved with {@code translationX}, not by re-parenting or re-laying-out: the button stays a
- * child of {@code TaskbarView} exactly where ZUI put it, so nothing of the launcher's idea of its
- * own row changes, and taking the translation off puts it back. A translated view is drawn and
- * touched where it appears, so it works where it is seen.
+ * <p>Moved by layout: straight after {@code TaskbarView} lays its children out, the button is laid
+ * out again at the left (see {@link #relayout}, called from the {@code onLayout} hook in
+ * {@link TaskbarRebind}). It used to be moved with {@code translationX}, but Launcher3 animates its
+ * taskbar icons through a translation delegate of its own that rewrites {@code translationX} on
+ * every icon whenever an animation ticks - which put the button back in the middle several times
+ * a second, and the row measured from it jumped with it. Translation is left to the launcher now;
+ * the position is ours, and holds until the row lays out again, when it is set again.
+ *
+ * <p>Only if that hook cannot be installed does it fall back to the translation.
  */
 final class TaskbarStart {
 
     /** ZUI's buttons we have moved, so the setting going off can put them back. */
     private static final Map<View, Boolean> MOVED = new WeakHashMap<>();
+
+    /** Whether {@code TaskbarView.onLayout} is hooked, so the button can be moved by layout. */
+    static volatile boolean sLayoutHooked;
+    private static boolean sSaidMoved;
 
     private TaskbarStart() {
     }
@@ -41,6 +50,23 @@ final class TaskbarStart {
                 return;
             }
             robot(button);
+            if (sLayoutHooked) {
+                // The move itself happens in relayout(); all this does is ask for a layout when
+                // the button is not where it should be, or no longer should be.
+                if (!Cfg.startButtonLeft()) {
+                    if (MOVED.remove(button) != null) {
+                        icons.requestLayout();
+                    }
+                    return;
+                }
+                if (button.getWidth() > 0 && icons.getWidth() > 0) {
+                    int target = targetLeft(dragLayer, icons);
+                    if (target >= 0 && button.getLeft() != target) {
+                        icons.requestLayout();
+                    }
+                }
+                return;
+            }
             if (!Cfg.startButtonLeft()) {
                 if (MOVED.remove(button) != null) {
                     button.setTranslationX(0f);
@@ -67,6 +93,39 @@ final class TaskbarStart {
             }
         } catch (Throwable t) {
             L.d("taskbar start: not moved (" + t + ")");
+        }
+    }
+
+    /**
+     * Lays the button out at the left, right after {@code TaskbarView} has laid out its row.
+     *
+     * <p>Called from inside the layout pass, so it only calls {@code layout()} on the one child -
+     * nothing that would ask for another pass.
+     */
+    static void relayout(ViewGroup icons) {
+        try {
+            if (!Cfg.startButtonLeft()) {
+                return;
+            }
+            View button = allAppsButton(icons);
+            View root = icons.getRootView();
+            if (button == null || button.getWidth() <= 0 || !(root instanceof ViewGroup)) {
+                return;
+            }
+            int target = targetLeft((ViewGroup) root, icons);
+            if (target < 0 || button.getLeft() == target) {
+                return;
+            }
+            button.layout(target, button.getTop(), target + button.getWidth(),
+                    button.getBottom());
+            MOVED.put(button, Boolean.TRUE);
+            if (!sSaidMoved) {
+                sSaidMoved = true;
+                L.i("taskbar start: the drawer button is laid out at x=" + target
+                        + " in the row, beside the navigation keys");
+            }
+        } catch (Throwable t) {
+            L.d("taskbar start: not laid out (" + t + ")");
         }
     }
 
@@ -139,7 +198,7 @@ final class TaskbarStart {
      * where the launcher's icons end has to skip it or it measures to a hole.
      */
     static boolean isMoved(View child) {
-        return MOVED.containsKey(child) && child.getTranslationX() != 0f;
+        return MOVED.containsKey(child) && (sLayoutHooked || child.getTranslationX() != 0f);
     }
 
     /**
@@ -150,8 +209,10 @@ final class TaskbarStart {
     static int rightEdge(ViewGroup dragLayer, ViewGroup icons) {
         View button = allAppsButton(icons);
         if (button != null && button.getVisibility() == View.VISIBLE && button.getWidth() > 0) {
-            return offsetIn(dragLayer, icons) + button.getLeft()
-                    + Math.round(button.getTranslationX()) + button.getWidth();
+            // Where it is laid out. Under the layout route the translation is the launcher's own
+            // and comes and goes with its animations; following it is how the row learned to jump.
+            int shift = sLayoutHooked ? 0 : Math.round(button.getTranslationX());
+            return offsetIn(dragLayer, icons) + button.getRight() + shift;
         }
         for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
             if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {

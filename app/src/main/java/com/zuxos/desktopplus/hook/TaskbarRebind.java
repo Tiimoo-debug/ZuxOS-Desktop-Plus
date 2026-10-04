@@ -87,5 +87,19 @@ final class TaskbarRebind {
             }
         }
         L.i("taskbar rebind: watching the launcher rebuild its row x" + hooked);
+        try {
+            int laid = XposedBridge.hookAllMethods(cls, "onLayout", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.thisObject instanceof ViewGroup) {
+                        TaskbarStart.relayout((ViewGroup) param.thisObject);
+                    }
+                }
+            }).size();
+            TaskbarStart.sLayoutHooked = laid > 0;
+            L.i("taskbar rebind: placing the drawer button after the row's layout x" + laid);
+        } catch (Throwable t) {
+            L.d("taskbar rebind: could not hook onLayout (" + t + ")");
+        }
     }
 }

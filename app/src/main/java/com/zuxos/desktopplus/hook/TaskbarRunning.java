@@ -652,22 +652,23 @@ final class TaskbarRunning {
             }
             int edge = leftEdge(dragLayer);
             int left;
-            int right;
+            int right = trayGap(dragLayer);
+            int width;
             if (edge >= 0) {
+                // Anchored at both ends - after the drawer button on the left, short of the tray
+                // on the right - and as wide as whatever lies between, worked out by the layout
+                // pass itself. A width computed here went stale whenever the button or the tray
+                // moved after it was measured, which is how icons ended up over the tray.
                 gravity |= Gravity.START;
                 left = edge;
-                right = 0;
+                width = ViewGroup.LayoutParams.MATCH_PARENT;
             } else {
                 // No icons to sit beside - a bar of navigation buttons only. Beside the tray is
                 // then the only place left that is not on top of something else.
                 gravity |= Gravity.END;
                 left = 0;
-                right = TaskbarTray.trayWidth(dragLayer) + Ui.dp(dragLayer.getContext(), 8);
+                width = ViewGroup.LayoutParams.WRAP_CONTENT;
             }
-            // As wide as the room between the launcher's icons and the tray, so that a row too
-            // long for the bar scrolls inside it rather than running under the clock.
-            int room = edge >= 0 ? room(dragLayer) : 0;
-            int width = room > 0 ? room : ViewGroup.LayoutParams.WRAP_CONTENT;
             if (lp.gravity == gravity && lp.height == height && lp.topMargin == top
                     && lp.leftMargin == left && lp.rightMargin == right && lp.width == width) {
                 // Nothing moved. This runs from a layout listener, and setting layout params
@@ -724,15 +725,18 @@ final class TaskbarRunning {
         return edge + offsetIn(dragLayer, icons) + spacing(icons);
     }
 
-    /** How much room there is between the launcher's icons and the tray. */
-    private static int room(ViewGroup dragLayer) {
-        int left = leftEdge(dragLayer);
-        if (dragLayer.getWidth() <= 0 || left < 0) {
-            return 0;
+    /**
+     * How far our row has to stay from the right-hand end of the bar: up to the tray's actual
+     * left edge, and a little more, so neither the last icon nor its fading edge touches it.
+     */
+    private static int trayGap(ViewGroup dragLayer) {
+        int margin = Ui.dp(dragLayer.getContext(), 8);
+        View tray = TaskbarTray.trayOf(dragLayer);
+        if (tray != null && tray.getWidth() > 0 && dragLayer.getWidth() > 0
+                && tray.getParent() == dragLayer) {
+            return Math.max(0, dragLayer.getWidth() - tray.getLeft()) + margin;
         }
-        // A little short of the tray, so the last icon - and its fading edge - never touches it.
-        return Math.max(0, dragLayer.getWidth() - TaskbarTray.trayWidth(dragLayer) - left
-                - Ui.dp(dragLayer.getContext(), 8));
+        return TaskbarTray.trayWidth(dragLayer) + margin;
     }
 
     /** How far a view's left edge is from the drag layer's. */
