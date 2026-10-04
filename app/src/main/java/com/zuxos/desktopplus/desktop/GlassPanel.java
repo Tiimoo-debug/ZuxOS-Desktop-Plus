@@ -176,8 +176,9 @@ public class GlassPanel extends FrameLayout {
         if (getParent() instanceof View) {
             View parent = (View) getParent();
             parent.getLocationOnScreen(origin);
-            origin[0] += Math.round(getLeft() + getTranslationX()) - parent.getScrollX();
-            origin[1] += Math.round(getTop() + getTranslationY()) - parent.getScrollY();
+            // Translation and scale are the opening animation's, not the panel's place.
+            origin[0] += getLeft() - parent.getScrollX();
+            origin[1] += getTop() - parent.getScrollY();
         } else {
             getLocationOnScreen(origin);
         }

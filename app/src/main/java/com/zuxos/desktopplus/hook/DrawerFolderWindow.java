@@ -369,6 +369,10 @@ public final class DrawerFolderWindow {
     }
 
     public static void dismiss() {
+        if (sPanel != null) {
+            // Gone without the closing animation - an app launched from it: the icon comes back.
+            FolderStyle.show(sPanel);
+        }
         sPanel = null;
         sSource = null;
         View current = sCurrent;

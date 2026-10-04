@@ -200,12 +200,10 @@ public final class ScreenBackdrop {
         if (bitmap == null || bitmap.isRecycled()) {
             return false;
         }
-        int[] at = new int[2];
-        view.getLocationOnScreen(at);
+        Rect on = onScreen(view);
         float sx = bitmap.getWidth() / (float) Math.max(1, seed.screenWidth);
-        Rect src = new Rect(Math.round(at[0] * sx), Math.round(at[1] * sx),
-                Math.round((at[0] + view.getWidth()) * sx),
-                Math.round((at[1] + view.getHeight()) * sx));
+        Rect src = new Rect(Math.round(on.left * sx), Math.round(on.top * sx),
+                Math.round(on.right * sx), Math.round(on.bottom * sx));
         if (!src.intersect(0, 0, bitmap.getWidth(), bitmap.getHeight())) {
             return false;
         }
@@ -385,10 +383,10 @@ public final class ScreenBackdrop {
                 // feed back into itself every frame.
                 return;
             }
-            int[] at = new int[2];
-            mPane.getLocationOnScreen(at);
-            Rect crop = new Rect(at[0], at[1], at[0] + mPane.getWidth(),
-                    at[1] + mPane.getHeight());
+            Rect crop = onScreen(mPane);
+            if (crop.isEmpty()) {
+                return;
+            }
             if (!crop.equals(mLastCrop)) {
                 // Moved or resized: what is behind it is new, whatever the probe would say.
                 mLastCrop.set(crop);
@@ -675,6 +673,28 @@ public final class ScreenBackdrop {
         } catch (Throwable ignored) {
             // Gone already.
         }
+    }
+
+    /**
+     * Where the view really is on screen, scale and all.
+     *
+     * <p>Its location plus its laid-out size is right only while nothing scales it. A folder
+     * growing out of its icon is a fifth of its size at first, and a capture of its full size
+     * from its corner was a different, bigger part of the screen squeezed into it.
+     */
+    public static Rect onScreen(View view) {
+        android.graphics.Matrix toWindow = new android.graphics.Matrix();
+        view.transformMatrixToGlobal(toWindow);
+        android.graphics.RectF r = new android.graphics.RectF(0, 0, view.getWidth(),
+                view.getHeight());
+        toWindow.mapRect(r);
+        int[] inWindow = new int[2];
+        int[] onScreen = new int[2];
+        view.getLocationInWindow(inWindow);
+        view.getLocationOnScreen(onScreen);
+        r.offset(onScreen[0] - inWindow[0], onScreen[1] - inWindow[1]);
+        return new Rect(Math.round(r.left), Math.round(r.top), Math.round(r.right),
+                Math.round(r.bottom));
     }
 
     /** The window's own layer, which every capture for a pane in it leaves out. */

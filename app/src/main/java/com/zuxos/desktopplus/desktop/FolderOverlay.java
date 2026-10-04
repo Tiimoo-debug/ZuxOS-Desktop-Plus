@@ -11,7 +11,6 @@ import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.desktop.DragPayload;
@@ -152,7 +151,11 @@ public class FolderOverlay extends FrameLayout {
         mName.setText(folder.label != null ? folder.label : "Folder");
         rebuild(iconSizePx, showLabels, labelShadow);
         bringToFront();
-        Anim.fadeIn(this);
+        // The panel grows out of the icon and the scrim fades with it; fading the whole overlay
+        // as well would fade the panel in on top of its own growing.
+        animate().cancel();
+        setAlpha(1f);
+        setVisibility(VISIBLE);
         FolderStyle.zoomIn(mPanel, source);
         post(mPanel::refresh);
     }
@@ -238,8 +241,8 @@ public class FolderOverlay extends FrameLayout {
         final View source = mSource;
         mFolder = null;
         mSource = null;
-        FolderStyle.zoomOut(mPanel, source, null);
-        Anim.fadeOut(this, () -> {
+        FolderStyle.zoomOut(mPanel, source, () -> {
+            setVisibility(GONE);
             if (folder != null) {
                 mListener.onClosed(folder);
             }
