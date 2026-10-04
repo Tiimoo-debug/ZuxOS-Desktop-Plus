@@ -16,7 +16,9 @@ import android.widget.ImageView;
 
 import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.GlassBackdrop;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.LiquidGlass;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
@@ -535,16 +537,15 @@ public final class TaskbarGlass {
     /**
      * The bar.
      *
-     * <p>A vertical gradient rather than a flat fill, a bright hairline along the top edge and a
-     * soft specular running across it. There is no refraction here and there cannot be: behind
-     * the taskbar is another process's window, which nothing in this module can capture, and the
-     * one API that could blur it operates on the window - the route that broke the display last
-     * time. So this is lit translucency, honestly, rather than a lens that has nothing to bend.
+     * <p>Liquid glass where the device allows it: the app behind the bar captured live, frosted,
+     * its top edge bending what is under it - see {@link GlassBackdrop}. Elsewhere, the system's
+     * blur with a lit gradient, a bright hairline along the top and a soft sheen. Either way the
+     * contrast veil goes on top, so the glyphs stay legible over whatever is behind.
      */
-    private static final class BarView extends View {
+    private static final class BarView extends FrameLayout {
 
         private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
-        /** Keeps the glyphs legible over whatever app is behind the glass; see onDraw. */
+        /** Keeps the glyphs legible over whatever app is behind the glass; see dispatchDraw. */
         private final Paint mContrast = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int mContrastFor;
         private int mContrastColor;
@@ -553,9 +554,13 @@ public final class TaskbarGlass {
         private final float mRadius;
 
         private boolean mBlurred;
+        private boolean mLive;
+        private GlassBackdrop mGlass;
+        private static boolean sSaid;
 
         BarView(Context ctx) {
             super(ctx);
+            setWillNotDraw(false);
             mEdge.setStyle(Paint.Style.STROKE);
             mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
             mEdge.setColor(0x4DFFFFFF);
@@ -565,12 +570,38 @@ public final class TaskbarGlass {
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            if (mBlurred) {
+            if (mBlurred || mLive) {
                 return;
             }
-            // The real thing: the compositor blurs what is behind this strip and nothing else -
-            // no window flags, no blur across the display. Where it is unavailable the painted
-            // tint below carries the bar on its own, as it did before.
+            if (GlassBackdrop.possible()) {
+                mLive = true;
+                // Two frames apart, not one: the bar is always on screen, and what is behind it
+                // rarely moves faster than that.
+                mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius, mRadius,
+                        LiquidGlass.tintFor(Tone.lightOnDark(getContext())), 0, 33L);
+                addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
+                        LayoutParams.MATCH_PARENT));
+                mGlass.setLive(true, () -> {
+                    removeView(mGlass);
+                    mGlass = null;
+                    mLive = false;
+                    systemBlur();
+                    invalidate();
+                });
+                if (!sSaid) {
+                    sSaid = true;
+                    L.i("taskbar glass: liquid glass over the live screen");
+                }
+                return;
+            }
+            systemBlur();
+        }
+
+        /**
+         * The compositor blurs what is behind this strip and nothing else. Where it is unavailable
+         * the painted tint carries the bar on its own.
+         */
+        private void systemBlur() {
             Drawable backdrop = Blur.backdrop(this, Ui.dp(getContext(), 40), mRadius, 0x1AFFFFFF);
             if (backdrop != null) {
                 setBackground(backdrop);
@@ -583,8 +614,10 @@ public final class TaskbarGlass {
             super.onDetachedFromWindow();
             // The drawable belongs to the window that made it. On the next attach the question
             // is asked again, so a device that has since turned blur off gets its tint back.
-            setBackground(null);
-            mBlurred = false;
+            if (mBlurred) {
+                setBackground(null);
+                mBlurred = false;
+            }
         }
 
         @Override
@@ -616,6 +649,22 @@ public final class TaskbarGlass {
 
         @Override
         protected void onDraw(Canvas canvas) {
+            if (mLive || mBlurred || !Tone.lightOnDark(getContext())) {
+                // Painted over a real blur this tint is exactly the colour cast that stops it
+                // reading as glass; under dark glyphs it is what made them disappear.
+                return;
+            }
+            float w = getWidth();
+            float h = getHeight();
+            if (w > 0 && h > 0) {
+                RectF r = new RectF(0, 0, w, h + mRadius);
+                canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            }
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
             float w = getWidth();
             float h = getHeight();
             if (w <= 0 || h <= 0) {
@@ -624,20 +673,14 @@ public final class TaskbarGlass {
             // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
             // rectangle is extended past it and the bottom corners fall off the view.
             RectF r = new RectF(0, 0, w, h + mRadius);
-            boolean lightGlyphs = Tone.lightOnDark(getContext());
-            if (!mBlurred && lightGlyphs) {
-                // Only when there is nothing behind it: painted over a real blur, this tint is
-                // exactly the colour cast that stops it reading as glass. And only under light
-                // glyphs - it is dark, and under dark ones it is what made them disappear.
-                canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            // The floor under every glyph, over the glass: the lightest veil, in the colour
+            // opposite the glyphs, that keeps them at 3:1 against anything behind.
+            canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(Tone.lightOnDark(getContext())));
+            if (!mLive) {
+                // Live glass lights its own rim.
+                canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
+                canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
             }
-            // The floor under every glyph. Glass shows the app behind it, and a white app behind
-            // white glyphs - or a black one behind black - left nothing to see. This is the
-            // lightest veil, in the colour opposite the glyphs, that keeps them at 3:1 against
-            // anything behind; most of the time it is barely there.
-            canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(lightGlyphs));
-            canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
-            canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
         }
     }
 }

@@ -1,155 +1,219 @@
 package com.zuxos.desktopplus.core;
 
+import android.content.Context;
 import android.graphics.RenderEffect;
 import android.graphics.RuntimeShader;
 import android.graphics.Shader;
 import android.os.Build;
 
 /**
- * The liquid-glass lens: an AGSL shader that refracts the backdrop through a rounded-rect lens.
+ * Liquid glass, as two layers over one backdrop.
  *
- * <p>The optical model is ported from LiquidGlass for Android by pandadog (MIT licensed,
- * https://github.com/QWEA0/Liquid-Glass-Android): a signed-distance field gives the shape and,
- * through its gradient, a surface normal; a bevel profile turns distance-from-edge into a slope;
- * the backdrop is sampled along that normal, per colour channel, so the rim compresses what is
- * behind it and fringes it with dispersion; a two-lobe specular term lights the rim.
+ * <p><b>Frost</b> is the body of the pane: the backdrop heavily blurred, given iOS's vibrancy -
+ * colour lifted where there is little of it, protected where there is a lot - a breath of
+ * brightness and the material's tint, cut to a continuous-corner (superellipse) outline.
  *
- * <p>Two things differ from the original, both forced by where this runs. The backdrop is captured
- * once per panel rather than re-sampled every frame - a launcher overlay is static while it is
- * open, and this costs nothing per frame. And the sampled alpha is carried through instead of
- * being treated as opaque: the live wallpaper is not part of any view tree, so a panel has to stay
- * genuinely translucent where nothing was captured, and a base tint is composited underneath.
+ * <p><b>Lens</b> is the edge, drawn over the frost. Across a rim band the glass is modelled as a
+ * real surface: a quarter-circle height profile, from which a true 3D normal, through which a ray
+ * straight into the screen is refracted by Snell's law at glass's IOR - per colour channel, at
+ * three slightly different IORs, which is where the fringing comes from. What it refracts is the
+ * backdrop only lightly blurred, so the bending is visible: shapes behind the rim are magnified
+ * and pulled round it, and fade into the frost as the rim flattens out. Fresnel brightens the rim
+ * as it turns away, a two-lobe specular lights it from the top-left, and a faint shade sits inside
+ * the far edge so the pane has depth.
+ *
+ * <p>Why two layers: in the flat interior the refraction offset is zero, so the frost needs no
+ * bending, and only the rim needs the sharp backdrop. Splitting them lets each be one ordinary
+ * blur plus one shader on the GPU, at any size, instead of a heavy blur inside a shader.
+ *
+ * <p>The AGSL below is also what {@code tools/glass_preview.py} runs, read straight out of this
+ * file, so the previews are of exactly this code.
  */
 public final class LiquidGlass {
 
-    private static final String LENS_AGSL = """
-            uniform shader content;
-            uniform float2 viewSize;
-            uniform float2 halfSize;
+    /** What a pane is made of. Lengths in dp. */
+    public static final class Material {
+        public final String name;
+        public final float blur;
+        public final float sharp;
+        public final float bevel;
+        public final float depth;
+        public final float ior;
+        public final float dispersion;
+        public final float sat;
+        public final float lift;
+        public final float tintAlpha;
+        public final float fresnel;
+        public final float spec;
+        public final float shadow;
+
+        Material(String name, float blur, float sharp, float bevel, float depth, float ior,
+                float dispersion, float sat, float lift, float tintAlpha, float fresnel,
+                float spec, float shadow) {
+            this.name = name;
+            this.blur = blur;
+            this.sharp = sharp;
+            this.bevel = bevel;
+            this.depth = depth;
+            this.ior = ior;
+            this.dispersion = dispersion;
+            this.sat = sat;
+            this.lift = lift;
+            this.tintAlpha = tintAlpha;
+            this.fresnel = fresnel;
+            this.spec = spec;
+            this.shadow = shadow;
+        }
+    }
+
+    // The table tools/glass_preview.py reads. Keep one material per line.
+    /** The bar and menus: frosted enough to read over anything, edges that clearly bend. */
+    public static final Material REGULAR = new Material("regular", 24f, 1.5f, 20f, 26f, 1.5f, 0.06f, 1.35f, 0.015f, 0.12f, 0.16f, 0.8f, 0.12f);
+    /** Sheets - the app drawer, the quick panel: thicker glass, much more blur. */
+    public static final Material THICK = new Material("thick", 40f, 2f, 28f, 36f, 1.5f, 0.06f, 1.4f, 0.02f, 0.14f, 0.14f, 0.8f, 0.12f);
+    /** Small controls: barely frosted, nearly all lens. */
+    public static final Material CLEAR = new Material("clear", 6f, 1f, 14f, 20f, 1.5f, 0.07f, 1.2f, 0.01f, 0.04f, 0.2f, 1.0f, 0.08f);
+
+    /** Superellipse exponent of the corners: 2 is a circle, iOS's continuous corner is about 4. */
+    public static final float SMOOTH = 4f;
+
+    /** Where the light comes from, as a direction in the screen: the top-left. */
+    public static final float LIGHT_X = -0.55f;
+    public static final float LIGHT_Y = -0.83f;
+
+    private static final String SHAPE_AGSL = """
+            uniform float2 size;
+            uniform float extendB;
             uniform float radius;
-            uniform float bevel;
-            uniform float refractPx;
-            uniform float falloff;
-            uniform float dispersion;
-            uniform float2 lightDir;
-            uniform float specStrength;
-            uniform float4 baseTint;
-            uniform float satFactor;
-            uniform float sheen;
+            uniform float smoothN;
 
-            float sdRoundedBox(float2 p, float2 b, float r) {
-                float2 q = abs(p) - b + r;
-                return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - r;
-            }
-
-            float shape(float2 p) {
-                return sdRoundedBox(p - halfSize, halfSize, radius);
-            }
-
-            half4 main(float2 coord) {
-                float2 p = coord;
-                if (p.x < 0.0 || p.y < 0.0 || p.x > viewSize.x || p.y > viewSize.y) {
-                    return half4(0.0);
-                }
-                float d = shape(p);
-
-                // Coverage with a 1.5px feather, so the lens has a clean antialiased edge.
-                float cov = clamp(0.5 - d / 1.5, 0.0, 1.0);
-                if (cov <= 0.004) {
-                    return half4(0.0);
-                }
-
-                // Screen-space outward normal, from the numeric gradient of the field.
-                float2 n = float2(
-                    shape(p + float2(1.0, 0.0)) - shape(p - float2(1.0, 0.0)),
-                    shape(p + float2(0.0, 1.0)) - shape(p - float2(0.0, 1.0)));
-                float nLen = length(n);
-                n = nLen > 0.0001 ? n / nLen : float2(0.0, -1.0);
-
-                // Thickness profile: 1 across the flat interior, 0 at the rim.
-                float t = clamp(-d / max(bevel, 1.0), 0.0, 1.0);
-                float edge = 1.0 - t;
-                float slope;
-                if (falloff > 0.001) {
-                    // Inverse-power falloff: nearly all of the bending happens in the last few
-                    // pixels, which is what makes the rim read as thick glass rather than a bevel.
-                    float gB = pow(5.0, -falloff);
-                    slope = (pow(1.0 + 4.0 * t, -falloff) - gB) / (1.0 - gB);
-                } else {
-                    slope = edge * edge;
-                }
-
-                // Sample inward along the normal: the rim shows a compressed mirror of the
-                // interior, so nothing outside the captured area is ever needed.
-                float2 offset = n * (-slope * refractPx);
-                float2 lo = float2(0.0, 0.0);
-                float2 hi = viewSize;
-                float2 cR = clamp(coord + offset * (1.0 - dispersion * slope), lo, hi);
-                float2 cG = clamp(coord + offset, lo, hi);
-                float2 cB = clamp(coord + offset * (1.0 + dispersion * slope), lo, hi);
-
-                half4 sR = content.eval(cR);
-                half4 sG = content.eval(cG);
-                half4 sB = content.eval(cB);
-                float aR = sR.a;
-                float aG = sG.a;
-                float aB = sB.a;
-                float3 col = float3(
-                    aR > 0.001 ? sR.r / aR : 0.0,
-                    aG > 0.001 ? sG.g / aG : 0.0,
-                    aB > 0.001 ? sB.b / aB : 0.0);
-                float a = (aR + aG + aB) / 3.0;
-
-                // Vibrancy rather than a linear saturation lift: low-saturation pixels gain most,
-                // already-saturated and very bright ones are protected from blowing out.
-                float lum = dot(col, float3(0.2126, 0.7152, 0.0722));
-                if (satFactor <= 1.0) {
-                    col = mix(float3(lum), col, satFactor);
-                } else {
-                    float satNow = max(col.r, max(col.g, col.b)) - min(col.r, min(col.g, col.b));
-                    float room = 1.0 - smoothstep(0.2, 0.85, satNow);
-                    float hl = 1.0 - smoothstep(0.75, 0.98, lum);
-                    float amount = 1.0 + (satFactor - 1.0) * mix(0.3, 1.0, room * hl);
-                    col = clamp(mix(float3(lum), col, amount), float3(0.0), float3(1.0));
-                }
-
-                // Composite over the base tint. Where nothing was captured this is all there is,
-                // and its alpha is what lets the wallpaper through.
-                float baseA = baseTint.a * (1.0 - a);
-                col = col * a + baseTint.rgb * baseA;
-                float outA = a + baseA;
-                if (outA > 0.001) {
-                    col = col / outA;
-                }
-
-                // A faint white veil over the whole pane. Without it a thin, barely blurred glass
-                // reads as a hole cut in the window rather than as a sheet of glass over it.
-                if (sheen > 0.001) {
-                    float veiled = sheen + outA * (1.0 - sheen);
-                    if (veiled > 0.001) {
-                        col = (float3(sheen) + col * outA * (1.0 - sheen)) / veiled;
-                    }
-                    outA = veiled;
-                }
-
-                // Rim light: one hairline at the edge plus an inward glow on the lit side, both
-                // driven by the same normal field, so there is no direction-independent outline.
-                float facing = dot(n, -lightDir);
-                float lobeF = pow(max(facing, 0.0), 4.5);
-                float lobeB = pow(max(-facing, 0.0), 4.5);
-                float bandW = clamp(bevel * 0.3, 2.0, 6.0);
-                float glowIn = clamp((-d - 1.0) / 2.0, 0.0, 1.0);
-                float glow = glowIn * pow(clamp(1.0 - (-d - 3.0) / bandW, 0.0, 1.0), 1.5);
-                float hair = clamp(1.0 - abs(d + 1.0) / 2.0, 0.0, 1.0);
-                float spec = (hair * 0.70 * (lobeF + lobeB) + glow * 0.10 * lobeF) * specStrength;
-                col = clamp(col + float3(spec), float3(0.0), float3(1.0));
-                outA = clamp(outA + spec, 0.0, 1.0);
-
-                return half4(half3(col * outA * cov), half(outA * cov));
+            // Continuous-corner rounded box. The shape may run past the bottom of the view by
+            // extendB, which squares off the bottom corners of a pane sitting on a screen edge.
+            float sdShape(float2 p) {
+                float2 halfS = float2(size.x, size.y + extendB) * 0.5;
+                float2 q = abs(p - halfS) - halfS + radius;
+                float2 m = max(q, float2(0.0)) / max(radius, 0.001);
+                float corner = radius * pow(pow(m.x, smoothN) + pow(m.y, smoothN) + 1e-9,
+                        1.0 / smoothN);
+                return corner + min(max(q.x, q.y), 0.0) - radius;
             }
             """;
 
-    /** Set once a device fails to compile the shader, so it is not retried every frame. */
+    private static final String BODY_AGSL = """
+            uniform float sat;
+            uniform float lift;
+            uniform float4 tint;
+
+            // Vibrancy, brightness and tint: the glass's own body.
+            float3 body(float3 c) {
+                float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
+                float satNow = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+                float room = 1.0 - smoothstep(0.1, 0.6, satNow);
+                float hl = 1.0 - smoothstep(0.75, 0.98, lum);
+                float amount = 1.0 + (sat - 1.0) * (0.15 + 0.85 * room * hl);
+                c = clamp(mix(float3(lum), c, amount), float3(0.0), float3(1.0));
+                c = clamp(c + float3(lift), float3(0.0), float3(1.0));
+                return mix(c, tint.rgb, tint.a);
+            }
+            """;
+
+    /** The frost: content is the heavily blurred backdrop. */
+    static final String FROST_AGSL = SHAPE_AGSL + BODY_AGSL + """
+            uniform shader content;
+            uniform float4 base;
+
+            half4 main(float2 p) {
+                float cov = clamp(0.5 - sdShape(p), 0.0, 1.0);
+                if (cov <= 0.0) {
+                    return half4(0.0);
+                }
+                half4 s = content.eval(p);
+                float a = float(s.a);
+                float3 c = a > 0.001 ? float3(s.rgb) / a : float3(0.0);
+                c = body(c);
+                // Where nothing was captured the base colour carries the pane.
+                float outA = a + base.a * (1.0 - a);
+                float3 pm = c * a + base.rgb * base.a * (1.0 - a);
+                return half4(half3(pm * cov), half(outA * cov));
+            }
+            """;
+
+    /** The lens: content is the lightly blurred backdrop; drawn over the frost. */
+    static final String LENS_AGSL = SHAPE_AGSL + BODY_AGSL + """
+            uniform shader content;
+            uniform float bevel;
+            uniform float depth;
+            uniform float ior;
+            uniform float dispersion;
+            uniform float fresnel;
+            uniform float spec;
+            uniform float shadow;
+            uniform float2 lightDir;
+
+            // GLSL refract() of a ray straight into the screen, returned as T.xy / -T.z.
+            float2 refr(float3 n, float eta) {
+                float k = max(1.0 - eta * eta * (1.0 - n.z * n.z), 0.0);
+                float a = eta * n.z - sqrt(k);
+                float tz = min(-eta + a * n.z, -0.15);
+                return float2(a * n.x, a * n.y) / -tz;
+            }
+
+            float3 sampleAt(float2 p) {
+                half4 s = content.eval(p);
+                float a = float(s.a);
+                return a > 0.001 ? float3(s.rgb) / a : float3(0.0);
+            }
+
+            half4 main(float2 p) {
+                float d = sdShape(p);
+                float cov = clamp(0.5 - d, 0.0, 1.0);
+                float s = -d;
+                if (cov <= 0.0 || s > bevel * 3.0) {
+                    // Past the rim's reach nothing here adds anything: the frost shows alone.
+                    return half4(0.0);
+                }
+                float2 g = float2(sdShape(p + float2(1.0, 0.0)) - sdShape(p - float2(1.0, 0.0)),
+                        sdShape(p + float2(0.0, 1.0)) - sdShape(p - float2(0.0, 1.0)));
+                float gl = length(g);
+                float2 n2 = gl > 0.0001 ? g / gl : float2(0.0, -1.0);
+
+                // A quarter-circle across the rim: flat inside, vertical at the very edge.
+                float t = clamp(s / bevel, 0.0, 1.0);
+                float u = 1.0 - t;
+                float hgt = sqrt(max(1.0 - u * u, 0.0));
+                float slope = clamp(u / max(hgt, 0.05), 0.0, 20.0);
+                float3 n = normalize(float3(n2 * slope, 1.0));
+
+                // Snell per channel; the IOR spread is the dispersion.
+                float2 oR = refr(n, 1.0 / (ior * (1.0 - dispersion))) * depth;
+                float2 oG = refr(n, 1.0 / ior) * depth;
+                float2 oB = refr(n, 1.0 / (ior * (1.0 + dispersion))) * depth;
+                float3 c = float3(sampleAt(p + oR).r, sampleAt(p + oG).g, sampleAt(p + oB).b);
+                c = body(c);
+
+                // How much of the bent, sharper backdrop shows over the frost.
+                // Scaled by how much backdrop there is: nothing captured yet, nothing to bend.
+                float rim = pow(u, 1.6) * float(content.eval(p + oG).a);
+
+                // Fresnel, the specular rim and the inner shade.
+                float fres = 0.04 + 0.96 * pow(1.0 - n.z, 5.0);
+                float facing = dot(n2, -lightDir);
+                float band = exp(-max(s, 0.0) / (bevel * 0.16));
+                float lit = pow(max(facing, 0.0), 2.0);
+                float back = 0.3 * pow(max(-facing, 0.0), 2.0);
+                float hair = clamp(1.0 - abs(s - 0.75), 0.0, 1.0) * 0.22;
+                float light = fres * fresnel + (band * (lit + back) * 0.55 + hair) * spec;
+                float shade = exp(-max(s, 0.0) / (bevel * 0.5))
+                        * pow(max(-facing, 0.0), 1.5) * shadow;
+
+                // Over the frost F this gives (c * rim + F * (1 - rim)) * (1 - shade) + light.
+                float3 pm = c * rim * (1.0 - shade) + float3(light);
+                float outA = clamp(rim + shade * (1.0 - rim), 0.0, 1.0);
+                return half4(half3(pm * cov), half(outA * cov));
+            }
+            """;
+
+    /** Set once a device fails to compile the shaders, so they are not retried every frame. */
     private static boolean sBroken;
 
     private LiquidGlass() {
@@ -159,62 +223,106 @@ public final class LiquidGlass {
         return !sBroken && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Cfg.glass();
     }
 
+    /** The glass's tint for the current tone: white over light glass, near-black over dark. */
+    public static int tintFor(boolean dark) {
+        return dark ? 0xFF1C1C21 : 0xFFFFFFFF;
+    }
+
     /**
-     * The lens effect for a panel of this size, or null when the device cannot run it.
+     * The body of a pane of this size.
      *
-     * @param tint  premultiplied-free ARGB shown where the backdrop captured nothing
-     * @param sheen 0..1 white veil over the whole pane, which is most of what makes glass read
-     *              as glass when the backdrop behind it is only lightly blurred
+     * @param extendBottomPx how far the shape runs past the view's bottom edge (0 for a free
+     *                       pane; the corner radius for one sitting on the screen edge)
+     * @param tintRgb        the material's colour; its alpha comes from the material
+     * @param base           shown where the backdrop has nothing, as ARGB; 0 for none
      */
-    public static RenderEffect lens(int width, int height, float radiusPx, float blurPx, int tint,
-            float rimPx, float sheen) {
+    public static RenderEffect frost(Context ctx, Material m, int width, int height,
+            float radiusPx, float extendBottomPx, int tintRgb, int base) {
+        if (!isSupported() || width <= 0 || height <= 0) {
+            return null;
+        }
+        try {
+            RuntimeShader shader = new RuntimeShader(FROST_AGSL);
+            shape(shader, width, height, radiusPx, extendBottomPx);
+            body(shader, m, tintRgb);
+            shader.setFloatUniform("base", channel(base, 16), channel(base, 8), channel(base, 0),
+                    channel(base, 24));
+            return RenderEffect.createChainEffect(
+                    RenderEffect.createRuntimeShaderEffect(shader, "content"),
+                    blur(Ui.dp(ctx, m.blur)));
+        } catch (Throwable t) {
+            broken(t);
+            return null;
+        }
+    }
+
+    /** The rim of the same pane, drawn over its {@link #frost}. */
+    public static RenderEffect lens(Context ctx, Material m, int width, int height,
+            float radiusPx, float extendBottomPx, int tintRgb) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
         try {
             RuntimeShader shader = new RuntimeShader(LENS_AGSL);
-            shader.setFloatUniform("viewSize", width, height);
-            shader.setFloatUniform("halfSize", width / 2f, height / 2f);
-            shader.setFloatUniform("radius", radiusPx);
-            // The rim is a fixed band, not a fraction of the panel: glass thickness does not
-            // grow just because the pane is bigger.
-            float bevel = Math.max(8f, Math.min(rimPx, Math.min(width, height) * 0.35f));
-            shader.setFloatUniform("bevel", bevel);
-            shader.setFloatUniform("refractPx", bevel * 0.85f);
-            shader.setFloatUniform("falloff", 2.0f);
-            shader.setFloatUniform("dispersion", 0.08f);
-            // Light from the top-left, matching where Android draws its own material highlights.
-            shader.setFloatUniform("lightDir", -0.55f, -0.83f);
-            shader.setFloatUniform("specStrength", 1.0f);
-            shader.setFloatUniform("satFactor", 1.2f);
-            shader.setFloatUniform("sheen", sheen);
-            shader.setFloatUniform("baseTint",
-                    ((tint >> 16) & 0xFF) / 255f,
-                    ((tint >> 8) & 0xFF) / 255f,
-                    (tint & 0xFF) / 255f,
-                    ((tint >>> 24) & 0xFF) / 255f);
-
-            RenderEffect lens = RenderEffect.createRuntimeShaderEffect(shader, "content");
-            if (blurPx <= 0f) {
-                return lens;
-            }
-            RenderEffect blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP);
-            // Blur first, then bend the blurred backdrop through the lens.
-            return RenderEffect.createChainEffect(lens, blur);
+            shape(shader, width, height, radiusPx, extendBottomPx);
+            body(shader, m, tintRgb);
+            shader.setFloatUniform("bevel", Ui.dp(ctx, m.bevel));
+            shader.setFloatUniform("depth", Ui.dp(ctx, m.depth));
+            shader.setFloatUniform("ior", m.ior);
+            shader.setFloatUniform("dispersion", m.dispersion);
+            shader.setFloatUniform("fresnel", m.fresnel);
+            shader.setFloatUniform("spec", m.spec);
+            shader.setFloatUniform("shadow", m.shadow);
+            float len = (float) Math.hypot(LIGHT_X, LIGHT_Y);
+            shader.setFloatUniform("lightDir", LIGHT_X / len, LIGHT_Y / len);
+            return RenderEffect.createChainEffect(
+                    RenderEffect.createRuntimeShaderEffect(shader, "content"),
+                    blur(Ui.dp(ctx, m.sharp)));
         } catch (Throwable t) {
-            sBroken = true;
-            L.e("liquid glass unavailable, falling back to layered translucency", t);
+            broken(t);
             return null;
+        }
+    }
+
+    private static void shape(RuntimeShader shader, int width, int height, float radius,
+            float extend) {
+        shader.setFloatUniform("size", width, height);
+        shader.setFloatUniform("extendB", extend);
+        shader.setFloatUniform("radius", Math.max(0f, Math.min(radius,
+                Math.min(width, height + extend) / 2f)));
+        shader.setFloatUniform("smoothN", SMOOTH);
+    }
+
+    private static void body(RuntimeShader shader, Material m, int tintRgb) {
+        shader.setFloatUniform("sat", m.sat);
+        shader.setFloatUniform("lift", m.lift);
+        shader.setFloatUniform("tint", channel(tintRgb, 16), channel(tintRgb, 8),
+                channel(tintRgb, 0), m.tintAlpha);
+    }
+
+    private static RenderEffect blur(float px) {
+        float r = Math.max(0.5f, px);
+        return RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP);
+    }
+
+    private static float channel(int argb, int shift) {
+        return ((argb >>> shift) & 0xFF) / 255f;
+    }
+
+    private static void broken(Throwable t) {
+        if (!sBroken) {
+            sBroken = true;
+            L.e("liquid glass: the shaders would not build on this device - plain blur instead", t);
         }
     }
 
     /** Plain backdrop blur, for devices without AGSL. */
     public static RenderEffect blurOnly(float blurPx) {
-        if (sBroken || Build.VERSION.SDK_INT < Build.VERSION_CODES.S || blurPx <= 0f) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || blurPx <= 0f) {
             return null;
         }
         try {
-            return RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP);
+            return blur(blurPx);
         } catch (Throwable t) {
             return null;
         }

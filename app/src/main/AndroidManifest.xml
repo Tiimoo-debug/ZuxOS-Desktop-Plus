@@ -22,6 +22,16 @@
         </activity>
 
         <!--
+            Picks the account picture for the desktop's app drawer. Started by the launcher, so
+            exported; it has no window of its own, only Android's photo picker.
+        -->
+        <activity
+            android:name=".ui.AvatarPicker"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
             Notifications. The launcher may not read them and cannot be given permission to, so
             the module's own listener does - once the user switches it on - and the provider is
             how the launcher asks. The provider is exported because the launcher is a different

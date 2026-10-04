@@ -62,8 +62,11 @@ public final class Snapshot {
                     source.getLocationOnScreen(at);
                     int saved = canvas.save();
                     canvas.translate(at[0] - origin[0], at[1] - origin[1]);
-                    drawWithout(canvas, source, exclude);
+                    boolean reached = drawWithout(canvas, source, exclude);
                     canvas.restoreToCount(saved);
+                    if (reached) {
+                        break;
+                    }
                 }
             } finally {
                 node.endRecording();
@@ -108,20 +111,26 @@ public final class Snapshot {
     }
 
     /**
-     * Draws a view, leaving one descendant out.
+     * Draws a view, leaving one descendant out - and everything drawn after it.
      *
      * <p>A view that does not contain the excluded one draws itself whole. One that does is
      * opened up: its background, then each child in place - carrying the child's own offset and
      * transform, which the parent would normally apply - recursing only down the branch that
      * leads to the excluded view.
+     *
+     * <p>Only what is behind the excluded view belongs in its backdrop. Anything drawn after it
+     * is in front of it: a list of icons over a sheet of glass would otherwise show up a second
+     * time, blurred, inside the glass.
+     *
+     * @return true once the excluded view has been reached, so the caller stops there too
      */
-    private static void drawWithout(Canvas canvas, View view, View exclude) {
+    private static boolean drawWithout(Canvas canvas, View view, View exclude) {
         if (view == exclude) {
-            return;
+            return true;
         }
         if (exclude == null || !(view instanceof ViewGroup) || !contains(view, exclude)) {
             view.draw(canvas);
-            return;
+            return false;
         }
         Drawable background = view.getBackground();
         if (background != null) {
@@ -140,9 +149,13 @@ public final class Snapshot {
             if (!matrix.isIdentity()) {
                 canvas.concat(matrix);
             }
-            drawWithout(canvas, child, exclude);
+            boolean reached = drawWithout(canvas, child, exclude);
             canvas.restoreToCount(saved);
+            if (reached) {
+                return true;
+            }
         }
+        return true;
     }
 
     private static boolean contains(View ancestor, View view) {

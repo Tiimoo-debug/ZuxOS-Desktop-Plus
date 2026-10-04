@@ -212,7 +212,8 @@ public final class QuickPanel {
         try {
             final int inset = TaskbarTray.barInset(anchor);
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx));
+            GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx),
+                    com.zuxos.desktopplus.core.LiquidGlass.THICK);
 
             ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);

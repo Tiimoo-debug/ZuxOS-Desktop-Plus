@@ -103,6 +103,7 @@ public final class TaskbarTray {
         if (!isTaskbar(root)) {
             // Every other window the launcher opens - among them the app drawer's own.
             DrawerGlass.onWindowAdded(root);
+            DrawerAccountBar.onWindowAdded(root);
             return;
         }
         // The window's children are not laid out yet; the pieces go in once they are.
@@ -156,6 +157,7 @@ public final class TaskbarTray {
             } else {
                 // The drawer's window may already have been open when the setting changed.
                 DrawerGlass.onWindowAdded(root);
+                DrawerAccountBar.onWindowAdded(root);
             }
         }
     }

@@ -151,7 +151,8 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
             return true;
         };
 
-        GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0x66141419);
+        GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0x66141419,
+                com.zuxos.desktopplus.core.LiquidGlass.THICK);
         mSheet = sheet;
         sheet.setClickable(true);
 

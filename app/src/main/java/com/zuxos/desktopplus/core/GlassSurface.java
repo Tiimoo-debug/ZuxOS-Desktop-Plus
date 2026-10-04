@@ -33,12 +33,21 @@ public class GlassSurface extends FrameLayout {
     private final Paint mCool = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float mRadius;
     private final int mTint;
+    private final LiquidGlass.Material mMaterial;
     private boolean mBlurred;
+    /** Drawing real liquid glass from the live screen, rather than the system blur. */
+    private boolean mLive;
+    private GlassBackdrop mGlass;
 
     public GlassSurface(Context ctx, float radiusPx, int tint) {
+        this(ctx, radiusPx, tint, LiquidGlass.REGULAR);
+    }
+
+    public GlassSurface(Context ctx, float radiusPx, int tint, LiquidGlass.Material material) {
         super(ctx);
         mRadius = radiusPx;
         mTint = tint;
+        mMaterial = material;
         setWillNotDraw(false);
 
         mEdge.setStyle(Paint.Style.STROKE);
@@ -69,7 +78,26 @@ public class GlassSurface extends FrameLayout {
      * that is not in a window yet has no view root to ask.
      */
     private void applyBackdrop() {
-        if (mBlurred) {
+        if (mBlurred || mLive) {
+            return;
+        }
+        if (GlassBackdrop.possible()) {
+            // The real thing: the live screen behind this window, frosted and bent at the rim.
+            // Its own first child, under everything the pane holds.
+            mLive = true;
+            mGlass = new GlassBackdrop(getContext(), mMaterial, mRadius, 0f,
+                    LiquidGlass.tintFor(isDark(mTint)), 0, 16L);
+            addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
+                    LayoutParams.MATCH_PARENT));
+            mGlass.setLive(true, () -> {
+                // The device said no: back to the system blur, with the painted rim.
+                removeView(mGlass);
+                mGlass = null;
+                mLive = false;
+                applyBackdrop();
+                invalidate();
+            });
+            setBackground(null);
             return;
         }
         Drawable backdrop = Blur.backdrop(this, Ui.dp(getContext(), BLUR_RADIUS_DP),
@@ -81,6 +109,13 @@ public class GlassSurface extends FrameLayout {
         }
         // No blur on this build: the layered translucency is the honest second best.
         setBackground(Glass.pill(getContext(), (int) mRadius, fallbackTint()));
+    }
+
+    private static boolean isDark(int argb) {
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 128;
     }
 
     /** With no blur behind it, a pane this faint would be a smear, so it darkens to stay legible. */
@@ -107,7 +142,8 @@ public class GlassSurface extends FrameLayout {
         super.onDrawForeground(canvas);
         float w = getWidth();
         float h = getHeight();
-        if (w <= 0 || h <= 0) {
+        if (w <= 0 || h <= 0 || mLive) {
+            // Live glass lights its own rim; a painted one on top would double it.
             return;
         }
         float inset = mEdge.getStrokeWidth() / 2f;

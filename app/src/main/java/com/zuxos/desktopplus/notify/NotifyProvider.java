@@ -31,6 +31,10 @@ public final class NotifyProvider extends ContentProvider {
 
     public static final String AUTHORITY = "com.zuxos.desktopplus.notifications";
     public static final Uri URI = Uri.parse("content://" + AUTHORITY + "/active");
+    /** The picture chosen for the account bar on the desktop's app drawer. */
+    public static final Uri AVATAR = Uri.parse("content://" + AUTHORITY + "/avatar");
+    /** Where the module keeps that picture, in its own files. */
+    public static final String AVATAR_FILE = "avatar.png";
 
     /** What a row carries. Icons are not here: the launcher draws the app's own, which it has. */
     public static final String COL_KEY = "key";
@@ -217,8 +221,31 @@ public final class NotifyProvider extends ContentProvider {
         return split;
     }
 
+    /**
+     * The account picture, read-only, to the same callers as everything else here.
+     *
+     * <p>The picture is chosen in the module's own activity, which is the only app that can open
+     * Android's photo picker and keep what it returns; this is how the launcher gets to see it.
+     */
+    @Override
+    public android.os.ParcelFileDescriptor openFile(Uri uri, String mode)
+            throws java.io.FileNotFoundException {
+        if (!"/avatar".equals(uri.getPath()) || !allowed() || getContext() == null) {
+            throw new java.io.FileNotFoundException(uri.toString());
+        }
+        java.io.File file = new java.io.File(getContext().getFilesDir(), AVATAR_FILE);
+        if (!file.exists()) {
+            throw new java.io.FileNotFoundException("no picture chosen");
+        }
+        return android.os.ParcelFileDescriptor.open(file,
+                android.os.ParcelFileDescriptor.MODE_READ_ONLY);
+    }
+
     @Override
     public String getType(Uri uri) {
+        if (uri != null && "/avatar".equals(uri.getPath())) {
+            return "image/png";
+        }
         return "vnd.android.cursor.dir/vnd.zuxos.notification";
     }
 

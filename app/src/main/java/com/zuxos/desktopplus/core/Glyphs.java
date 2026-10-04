@@ -40,6 +40,9 @@ public final class Glyphs {
     public static final int SHORTCUT = 17;
     public static final int RESIZE = 18;
     public static final int WALLPAPER = 19;
+    public static final int POWER = 20;
+    public static final int SLEEP = 21;
+    public static final int RESTART = 22;
 
     private Glyphs() {
     }
@@ -104,6 +107,12 @@ public final class Glyphs {
             glyph = EXPORT;
         } else if (t.contains("shortcut")) {
             glyph = SHORTCUT;
+        } else if (t.startsWith("power off") || t.startsWith("shut")) {
+            glyph = POWER;
+        } else if (t.startsWith("sleep") || t.startsWith("lock")) {
+            glyph = SLEEP;
+        } else if (t.startsWith("restart") || t.startsWith("reboot")) {
+            glyph = RESTART;
         } else if (t.contains("wallpaper")) {
             glyph = WALLPAPER;
         } else if (t.contains("apps") || t.contains("drawer")) {
@@ -289,6 +298,28 @@ public final class Glyphs {
                 p.lineTo(15, 13);
                 p.lineTo(19.5f, 17.5f);
                 p.addCircle(15.5f, 9, 1.4f, Path.Direction.CW);
+                return p;
+            case POWER:
+                // The power symbol: a ring broken at the top, a stroke through the gap.
+                p.addArc(new RectF(4.5f, 5, 19.5f, 20), -55, 290);
+                p.moveTo(12, 3.5f);
+                p.lineTo(12, 11.5f);
+                return p;
+            case SLEEP:
+                // A crescent moon.
+                p.moveTo(15.5f, 4.5f);
+                p.cubicTo(9.5f, 4.5f, 6, 8.5f, 6, 12.5f);
+                p.cubicTo(6, 17, 9.5f, 20, 13.5f, 20);
+                p.cubicTo(16.5f, 20, 18.8f, 18.4f, 20, 16);
+                p.cubicTo(14.5f, 16.5f, 11, 12, 15.5f, 4.5f);
+                p.close();
+                return p;
+            case RESTART:
+                // A circular arrow, open at the top right.
+                p.addArc(new RectF(4.5f, 4.5f, 19.5f, 19.5f), -60, 300);
+                p.moveTo(15.8f, 3.5f);
+                p.lineTo(16.2f, 6.6f);
+                p.lineTo(13, 7.2f);
                 return p;
             default:
                 return null;

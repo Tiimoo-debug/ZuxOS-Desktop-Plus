@@ -12,7 +12,9 @@ import android.view.ViewTreeObserver;
 import com.zuxos.desktopplus.core.Blur;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Glass;
+import com.zuxos.desktopplus.core.GlassBackdrop;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.LiquidGlass;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.logic.GlassPick;
@@ -554,6 +556,12 @@ final class DrawerGlass {
             boolean toTheEdge = bottomOf(sheet, window) >= window.getHeight() - Ui.dp(
                     sheet.getContext(), 2);
             float bottom = toTheEdge ? 0f : corner;
+            if (GlassBackdrop.possible() && sheet instanceof ViewGroup) {
+                liquid((ViewGroup) sheet, corner, toTheEdge, best.colour);
+                clearWhatIsDrawnOver(candidates, best, (long) window.getWidth()
+                        * window.getHeight());
+                return true;
+            }
             Drawable backdrop = Blur.backdrop(sheet, Ui.dp(sheet.getContext(), 40),
                     corner, corner, bottom, bottom, tint);
             if (backdrop != null) {
@@ -576,6 +584,29 @@ final class DrawerGlass {
             L.d("drawer glass: could not apply (" + t + ")");
             return false;
         }
+    }
+
+    /**
+     * Real liquid glass under the sheet: the screen behind the drawer's window, live, frosted
+     * and bent at the rim - as the sheet's first child, under ZUI's own content.
+     */
+    private static void liquid(ViewGroup sheet, float corner, boolean toTheEdge, int colour) {
+        GlassBackdrop glass = new GlassBackdrop(sheet.getContext(), LiquidGlass.THICK, corner,
+                toTheEdge ? corner : 0f, LiquidGlass.tintFor(!ToneMath.isLight(colour)), 0, 16L);
+        sheet.addView(glass, 0, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        sheet.setBackground(null);
+        glass.setLive(true, () -> {
+            // Refused: the system blur, as before.
+            sheet.removeView(glass);
+            Drawable backdrop = Blur.backdrop(sheet, Ui.dp(sheet.getContext(), 60), corner,
+                    corner, toTheEdge ? 0f : corner, toTheEdge ? 0f : corner, tintFor(colour));
+            if (backdrop != null) {
+                sheet.setBackground(backdrop);
+            }
+        });
+        L.i("drawer glass: liquid glass over the live screen on "
+                + sheet.getClass().getSimpleName());
     }
 
     /**
@@ -639,6 +670,10 @@ final class DrawerGlass {
             window.setClipBounds(null);
         }
         restoreWindowBlur(window);
+        View glass = window.findViewWithTag(GlassBackdrop.TAG);
+        if (glass != null && glass.getParent() instanceof ViewGroup) {
+            ((ViewGroup) glass.getParent()).removeView(glass);
+        }
         if (ORIGINALS.isEmpty()) {
             // Nothing was ever repainted, and this runs for every window the launcher opens -
             // walking each of their trees to find nothing would be the expensive way to do that.

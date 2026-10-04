@@ -68,6 +68,13 @@ public final class Probe {
         } catch (Throwable t) {
             sb.append("widgets : provider list unavailable (").append(t).append(")\n");
         }
+        sb.append("glass   : shaders ")
+                .append(com.zuxos.desktopplus.core.LiquidGlass.isSupported() ? "on" : "off")
+                .append(", live screen capture ")
+                .append(com.zuxos.desktopplus.core.ScreenBackdrop.refused()
+                        ? "refused (" + com.zuxos.desktopplus.core.ScreenBackdrop.reason() + ")"
+                        : "allowed or not tried yet")
+                .append('\n');
         sb.append("\nview tree\n");
         if (content != null) {
             appendTree(sb, content, 0);

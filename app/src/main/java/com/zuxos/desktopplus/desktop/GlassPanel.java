@@ -2,72 +2,75 @@ package com.zuxos.desktopplus.desktop;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
-import android.graphics.RenderEffect;
 import android.view.View;
 import android.widget.FrameLayout;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Glass;
+import com.zuxos.desktopplus.core.GlassBackdrop;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.LiquidGlass;
+import com.zuxos.desktopplus.core.ScreenBackdrop;
+import com.zuxos.desktopplus.core.Snapshot;
 import com.zuxos.desktopplus.core.Ui;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A panel whose background is the view behind it, bent through the liquid-glass lens.
+ * A panel of liquid glass: whatever is behind it, frosted, with its rim bending the backdrop.
  *
- * <p>The backdrop is captured into a bitmap when the panel opens rather than re-sampled every
- * frame: what is behind these panels does not move while they are open, so a per-frame capture
- * would burn a lot of GPU for an identical picture.
+ * <p>What is behind it comes in two parts. Everything on screen under the panel's window -
+ * wallpaper, apps, other windows - is captured live ({@link ScreenBackdrop}). What is under the
+ * panel inside its own window - the desktop's icons and widgets, a folder's scrim - is drawn once
+ * when the panel opens ({@link Snapshot}), stopping at the panel so nothing in front of it shows
+ * up inside it. {@link GlassBackdrop} lays the two together and runs the shaders.
  *
- * <p>The wallpaper is not part of any view tree, so it cannot be captured and is not refracted -
- * the panel stays translucent where nothing was captured and the wallpaper shows through as
- * itself. Windows the module owns additionally ask the system for real blur behind them.
+ * <p>Where the device will not capture the screen, the panel keeps the in-window part and its own
+ * tint shows through where that has nothing - the wallpaper, mostly - which is how it looked
+ * before. Without AGSL at all it asks the compositor for a plain blur.
  */
 public class GlassPanel extends FrameLayout {
 
-    /**
-     * Capture resolution.
-     *
-     * <p>Half resolution, not quarter: the backdrop is only lightly blurred now, so the lens has
-     * to have real detail to bend. Quarter-res behind a 6dp blur is what made the panels look
-     * like frosted plastic rather than glass.
-     */
+    /** The in-window picture's size against the panel's: it is frosted anyway. */
     private static final float CAPTURE_SCALE = 0.5f;
 
-    /** How far the backdrop is softened before the lens bends it. */
-    private static final float BLUR_DP = 6f;
-
-    /** Width of the refracting rim. */
-    private static final float RIM_DP = 26f;
-
-    /** The white veil across the pane; see {@link LiquidGlass#lens}. */
-    private static final float SHEEN = 0.10f;
-
-    private final BackdropView mBackdrop;
+    private final GlassBackdrop mBackdrop;
     private final float mRadiusPx;
     private final int mTint;
+    private final LiquidGlass.Material mMaterial;
 
     private final List<View> mSources = new ArrayList<>(2);
-    private int mEffectWidth;
-    private int mEffectHeight;
+    private boolean mRealBlur;
+    private static boolean sSaidPath;
 
     public GlassPanel(Context ctx, float radiusPx, int tint) {
+        this(ctx, radiusPx, tint, LiquidGlass.REGULAR);
+    }
+
+    /**
+     * @param tint ARGB shown where nothing is behind the panel at all; its lightness also picks
+     *             light or dark glass
+     */
+    public GlassPanel(Context ctx, float radiusPx, int tint, LiquidGlass.Material material) {
         super(ctx);
         mRadiusPx = radiusPx;
         mTint = tint;
-        mBackdrop = new BackdropView(ctx);
+        mMaterial = material;
+        mBackdrop = new GlassBackdrop(ctx, material, radiusPx, 0f,
+                LiquidGlass.tintFor(isDark(tint)), tint, 16L);
         addView(mBackdrop, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         if (!LiquidGlass.isSupported()) {
             // No AGSL: the panel keeps the layered-translucency look.
             setBackground(Glass.panel(ctx, (int) radiusPx));
         }
+    }
+
+    private static boolean isDark(int argb) {
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 128;
     }
 
     /** The view to capture from - usually the activity's content root. */
@@ -76,13 +79,7 @@ public class GlassPanel extends FrameLayout {
         addSource(source);
     }
 
-    /**
-     * Adds another view to capture, drawn on top of the ones already added.
-     *
-     * <p>Used to reach across windows: a panel floating over the stock app drawer captures that
-     * drawer's root as its first source and its own scrim second, so the lens has the real thing
-     * behind it to bend rather than a flat colour.
-     */
+    /** Adds another view to capture, drawn on top of the ones already added. */
     public void addSource(View source) {
         if (source != null && !mSources.contains(source)) {
             mSources.add(source);
@@ -90,76 +87,74 @@ public class GlassPanel extends FrameLayout {
     }
 
     /**
-     * Captures what is behind the panel and points the lens at it.
-     *
-     * <p>Where the capture cannot work - see {@link #sCaptureWorks} - the panel asks the
-     * compositor for a real blur of what is behind its own window instead, which is both better
-     * looking and free. Only if that is unavailable too does it fall back to a flat pane.
+     * Takes the in-window picture and starts the live part. Called once the panel has settled
+     * where it will stay - a picture taken mid-animation is of the wrong place.
      */
     public void refresh() {
         if (getWidth() <= 0 || getHeight() <= 0) {
             return;
         }
         if (getScaleX() != 1f || getScaleY() != 1f) {
-            // Mid-animation: a capture now is sized and placed for a panel that is about to be
-            // somewhere else. Whoever is animating it refreshes it when it settles.
+            // Mid-animation; whoever is animating it refreshes it when it settles.
             return;
         }
-        if (!LiquidGlass.isSupported() || mCaptureFailed) {
+        if (!LiquidGlass.isSupported()) {
             useRealBlur();
             return;
         }
-        applyEffect();
-        mBackdrop.capture();
+        boolean live = !ScreenBackdrop.refused();
+        mBackdrop.setLive(live, () -> {
+            // Refused: the in-window picture is all there is, with the tint for the rest.
+            L.d("glass: panel stays on its in-window backdrop");
+        });
+        mBackdrop.setWindowLayer(windowPicture(live));
+        if (!sSaidPath) {
+            sSaidPath = true;
+            L.i("glass: panels use the liquid glass shaders, "
+                    + (live ? "with the live screen behind them" : "over the in-window picture only"));
+        }
     }
 
     /**
-     * Whether capturing has failed for this panel.
+     * What is behind the panel inside its own window.
      *
-     * <p>This panel's, not the process's. It used to be one flag for every panel, so a single
-     * panel whose sources could not be drawn - the stock drawer's, say - turned the lens off on
-     * every other panel too, until the launcher restarted. Capturing goes through the GPU now,
-     * which takes what the software path could not, so this should rarely be set at all.
+     * <p>With the screen captured live, only this window's own views are drawn: another window
+     * handed in as a source - the stock drawer behind a folder - is already in the capture, and
+     * would show twice.
      */
-    private boolean mCaptureFailed;
-
-    /** Whether the log has heard which capture path this device takes. */
-    private static boolean sSaidGpu;
+    private Bitmap windowPicture(boolean live) {
+        List<View> sources = new ArrayList<>();
+        for (View source : mSources) {
+            if (!live || source.getRootView() == getRootView()) {
+                sources.add(source);
+            }
+        }
+        if (sources.isEmpty()) {
+            return null;
+        }
+        int width = Math.max(1, (int) (getWidth() * CAPTURE_SCALE));
+        int height = Math.max(1, (int) (getHeight() * CAPTURE_SCALE));
+        int[] origin = new int[2];
+        getLocationOnScreen(origin);
+        try {
+            return Snapshot.capture(sources, this, origin, width, height, CAPTURE_SCALE);
+        } catch (Throwable t) {
+            L.d("glass: the in-window picture failed (" + t + ")");
+            if (!live) {
+                post(this::useRealBlur);
+            }
+            return null;
+        }
+    }
 
     private void useRealBlur() {
         if (mRealBlur) {
             return;
         }
         mRealBlur = true;
-        android.graphics.drawable.Drawable backdrop = com.zuxos.desktopplus.core.Blur.backdrop(
-                this, Ui.dp(getContext(), BLUR_DP), mRadiusPx, mTint);
-        setBackground(backdrop != null ? backdrop
-                : Glass.panel(getContext(), (int) mRadiusPx));
-    }
-
-    private boolean mRealBlur;
-
-    private void applyEffect() {
-        if (mEffectWidth == getWidth() && mEffectHeight == getHeight()) {
-            return;
-        }
-        RenderEffect effect = LiquidGlass.lens(getWidth(), getHeight(), mRadiusPx,
-                Ui.dp(getContext(), BLUR_DP), mTint, Ui.dp(getContext(), RIM_DP), SHEEN);
-        if (effect == null) {
-            effect = LiquidGlass.blurOnly(Ui.dp(getContext(), 18));
-            if (effect == null) {
-                setBackground(Glass.panel(getContext(), (int) mRadiusPx));
-                return;
-            }
-        }
-        try {
-            mBackdrop.setRenderEffect(effect);
-            mEffectWidth = getWidth();
-            mEffectHeight = getHeight();
-        } catch (Throwable t) {
-            L.e("could not apply the glass effect", t);
-            setBackground(Glass.panel(getContext(), (int) mRadiusPx));
-        }
+        android.graphics.drawable.Drawable backdrop = GlassBackdrop.fallback(this, mMaterial,
+                mRadiusPx, mTint);
+        setBackground(backdrop != null ? backdrop : Glass.panel(getContext(), (int) mRadiusPx));
     }
 
     /**
@@ -234,131 +229,7 @@ public class GlassPanel extends FrameLayout {
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         if (w != oldw || h != oldh) {
-            mEffectWidth = 0;
             post(this::refresh);
-        }
-    }
-
-    /** Draws the captured backdrop; the lens effect is attached to this view alone. */
-    private final class BackdropView extends View {
-
-        private final Paint mPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
-        private Bitmap mCapture;
-
-        BackdropView(Context ctx) {
-            super(ctx);
-        }
-
-        void capture() {
-            if (mSources.isEmpty()) {
-                return;
-            }
-            int width = Math.max(1, (int) (GlassPanel.this.getWidth() * CAPTURE_SCALE));
-            int height = Math.max(1, (int) (GlassPanel.this.getHeight() * CAPTURE_SCALE));
-            int[] origin = new int[2];
-            GlassPanel.this.getLocationOnScreen(origin);
-            try {
-                Bitmap gpu = com.zuxos.desktopplus.core.Snapshot.capture(mSources,
-                        GlassPanel.this, origin, width, height, CAPTURE_SCALE);
-                if (gpu != null) {
-                    if (!sSaidGpu) {
-                        sSaidGpu = true;
-                        L.i("glass: backdrops are captured through the GPU");
-                    }
-                    keep(gpu);
-                    return;
-                }
-            } catch (Throwable t) {
-                if (!sSaidGpu) {
-                    sSaidGpu = true;
-                    L.i("glass: the GPU capture failed, trying the software one (" + t + ")");
-                }
-            }
-            Bitmap bitmap;
-            try {
-                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            } catch (Throwable t) {
-                L.d("backdrop capture skipped: " + t);
-                return;
-            }
-
-            int[] mine = new int[2];
-            int[] src = new int[2];
-            GlassPanel.this.getLocationOnScreen(mine);
-
-            Canvas canvas = new Canvas(bitmap);
-            canvas.scale(CAPTURE_SCALE, CAPTURE_SCALE);
-
-            // Hide the panel for the duration, or it would capture itself.
-            int previous = GlassPanel.this.getVisibility();
-            setPanelVisibility(INVISIBLE);
-            try {
-                for (View source : mSources) {
-                    if (source.getWidth() == 0 || source.getHeight() == 0) {
-                        continue;
-                    }
-                    source.getLocationOnScreen(src);
-                    int saved = canvas.save();
-                    canvas.translate(src[0] - mine[0], src[1] - mine[1]);
-                    source.draw(canvas);
-                    canvas.restoreToCount(saved);
-                }
-            } catch (Throwable t) {
-                // Not attempted again for this panel: retrying costs a bitmap and a frame every
-                // time, for the same answer.
-                mCaptureFailed = true;
-                L.i("glass: this panel's backdrop cannot be captured (" + t
-                        + "), so it uses a real blur instead");
-                bitmap.recycle();
-                GlassPanel.this.post(GlassPanel.this::useRealBlur);
-                return;
-            } finally {
-                setPanelVisibility(previous);
-            }
-
-            keep(bitmap);
-        }
-
-        private void keep(Bitmap bitmap) {
-            Bitmap old = mCapture;
-            mCapture = bitmap;
-            if (old != null) {
-                old.recycle();
-            }
-            invalidate();
-        }
-
-        /**
-         * Uses the framework's transition visibility where it is reachable: unlike
-         * {@code setVisibility} it does not invalidate, so hiding and re-showing the panel inside
-         * one capture cannot cause a redraw storm.
-         */
-        private void setPanelVisibility(int value) {
-            try {
-                Method m = View.class.getMethod("setTransitionVisibility", int.class);
-                m.invoke(GlassPanel.this, value);
-            } catch (Throwable t) {
-                GlassPanel.this.setVisibility(value);
-            }
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            Bitmap capture = mCapture;
-            if (capture == null || capture.isRecycled()) {
-                return;
-            }
-            canvas.drawBitmap(capture, new Rect(0, 0, capture.getWidth(), capture.getHeight()),
-                    new Rect(0, 0, getWidth(), getHeight()), mPaint);
-        }
-
-        @Override
-        protected void onDetachedFromWindow() {
-            super.onDetachedFromWindow();
-            if (mCapture != null) {
-                mCapture.recycle();
-                mCapture = null;
-            }
         }
     }
 
