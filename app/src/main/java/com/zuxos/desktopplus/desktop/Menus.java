@@ -72,8 +72,34 @@ public final class Menus {
         }
     }
 
+    /**
+     * A menu whose bottom-right corner sits at {@code rightX}/{@code bottomY} in {@code root} -
+     * for a button at the bottom of something, whose menu has to open upwards and to the left.
+     *
+     * <p>Placed by gravity and margins from the root's own size, so where it lands does not wait
+     * on the menu being measured. The power button on the drawer needed exactly that: its menu
+     * opened downwards into the part of the drawer cut off at the taskbar, and all that showed
+     * was a sliver.
+     */
+    public static void showAbove(Context ctx, FrameLayout root, float rightX, float bottomY,
+            List<Entry> entries) {
+        if (entries.isEmpty()) {
+            return;
+        }
+        try {
+            showInPlace(ctx, root, rightX, bottomY, entries, true);
+        } catch (Throwable t) {
+            L.e("menu could not be shown", t);
+        }
+    }
+
     private static void showInPlace(Context ctx, FrameLayout root, float x, float y,
             List<Entry> entries) {
+        showInPlace(ctx, root, x, y, entries, false);
+    }
+
+    private static void showInPlace(Context ctx, FrameLayout root, float x, float y,
+            List<Entry> entries, boolean above) {
         final FrameLayout shade = new FrameLayout(ctx);
         // Catches the tap that dismisses the menu, and stops it reaching whatever is underneath.
         shade.setClickable(true);
@@ -123,13 +149,23 @@ public final class Menus {
 
         FrameLayout.LayoutParams mlp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
-        mlp.gravity = Gravity.TOP | Gravity.START;
-        mlp.leftMargin = (int) x;
-        mlp.topMargin = (int) y;
+        if (above) {
+            mlp.gravity = Gravity.BOTTOM | Gravity.END;
+            mlp.rightMargin = Math.max(0, root.getWidth() - (int) x);
+            mlp.bottomMargin = Math.max(0, root.getHeight() - (int) y);
+        } else {
+            mlp.gravity = Gravity.TOP | Gravity.START;
+            mlp.leftMargin = (int) x;
+            mlp.topMargin = (int) y;
+        }
         shade.addView(pane, mlp);
         root.addView(shade, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         shade.requestFocus();
+        if (above) {
+            MenuRows.popIn(pane, true, pane::refresh);
+            return;
+        }
 
         // Keep it on screen: the size is only known once it has been measured. Opening upwards
         // when it would run off the bottom, the way a menu by the taskbar has to.

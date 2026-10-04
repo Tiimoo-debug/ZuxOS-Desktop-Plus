@@ -150,6 +150,29 @@ public class GlassBackdrop extends FrameLayout {
         }
     }
 
+    /**
+     * Never asks for room of its own.
+     *
+     * <p>It is the background of a pane that sizes itself to its content. Asked "how big can you
+     * be" it answered "as big as you let me", and a wrap-content pane grew to the whole window -
+     * menus and panels running off to the screen's edges. Given an exact size it takes it; any
+     * other time it is nothing, and the pane, once it knows its own size, measures it again to
+     * match.
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int w = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY
+                ? MeasureSpec.getSize(widthMeasureSpec) : 0;
+        int h = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY
+                ? MeasureSpec.getSize(heightMeasureSpec) : 0;
+        setMeasuredDimension(w, h);
+        int cw = MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY);
+        int ch = MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY);
+        for (int i = 0; i < getChildCount(); i++) {
+            getChildAt(i).measure(cw, ch);
+        }
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);

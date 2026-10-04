@@ -156,11 +156,7 @@ final class DrawerAccountBar {
             setGravity(Gravity.CENTER_VERTICAL);
             int pad = Ui.dp(ctx, 10);
             setPadding(pad, 0, pad, 0);
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(Ui.dp(ctx, 18));
-            bg.setColor(mDark ? 0x1FFFFFFF : 0x12000000);
-            bg.setStroke(Math.max(1, Ui.dp(ctx, 1) / 2), mDark ? 0x26FFFFFF : 0x14000000);
-            setBackground(bg);
+            // No strip behind them: the picture, the name and the button sit on the drawer's glass.
 
             int avatar = Ui.dp(ctx, 40);
             mAvatar = new ImageView(ctx);
@@ -441,8 +437,11 @@ final class DrawerAccountBar {
             int[] root = new int[2];
             mPower.getLocationInWindow(at);
             mWindow.getLocationInWindow(root);
-            Menus.showAt(getContext(), (FrameLayout) mWindow, at[0] - root[0],
-                    at[1] - root[1], entries);
+            // Opening up and to the left of the button, its corner just above the button's own:
+            // below it is the taskbar, where the drawer is cut off.
+            Menus.showAbove(getContext(), (FrameLayout) mWindow,
+                    at[0] - root[0] + mPower.getWidth(),
+                    at[1] - root[1] - Ui.dp(getContext(), 8), entries);
         }
 
         private void power(String what, String command) {
