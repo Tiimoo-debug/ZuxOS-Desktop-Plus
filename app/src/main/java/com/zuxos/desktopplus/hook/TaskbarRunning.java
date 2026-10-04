@@ -253,6 +253,41 @@ final class TaskbarRunning {
 
     private static final Map<View, Runnable> REREAD = new WeakHashMap<>();
 
+    private static final android.os.Handler MAIN =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Pending re-reads for {@link #soon}, so a burst of task events makes one read, not ten. */
+    private static Runnable sSoonFast;
+    private static Runnable sSoonSettle;
+
+    /**
+     * Something opened, closed or moved: read what is open on every taskbar now, not at the next
+     * tick.
+     *
+     * <p>The bar used to learn about a new app from ZUI rebuilding its own row, which every launch
+     * did. With ZUI's recents kept off the bar that rebuild no longer happens, and a new app sat
+     * waiting for the three-second tick. Read twice: once almost at once, and once more after the
+     * system has finished moving the task, since a launch is still settling when it is announced.
+     * Safe from any thread.
+     */
+    static void soon() {
+        MAIN.removeCallbacks(sSoonFast);
+        MAIN.removeCallbacks(sSoonSettle);
+        sSoonFast = TaskbarRunning::applyEverywhere;
+        sSoonSettle = TaskbarRunning::applyEverywhere;
+        MAIN.postDelayed(sSoonFast, 80L);
+        MAIN.postDelayed(sSoonSettle, 500L);
+    }
+
+    private static void applyEverywhere() {
+        for (View root : Windows.roots()) {
+            if (root instanceof ViewGroup && root.isAttachedToWindow()
+                    && TaskbarTray.isTaskbar(root)) {
+                apply((ViewGroup) root);
+            }
+        }
+    }
+
     /**
      * The row of app icons, by name.
      *

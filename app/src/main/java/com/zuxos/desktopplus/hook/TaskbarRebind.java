@@ -106,6 +106,7 @@ final class TaskbarRebind {
             L.d("taskbar rebind: could not hook onLayout (" + t + ")");
         }
         blockRecents(loader);
+        listenToTasks(loader);
         hideOnAdd();
         sTaskbarView = cls;
         keepStartShowing();
@@ -189,6 +190,74 @@ final class TaskbarRebind {
         }
     }
 
+    private static final String TASK_LISTENERS =
+            "com.android.systemui.shared.system.TaskStackChangeListeners";
+    private static final String TASK_LISTENER =
+            "com.android.systemui.shared.system.TaskStackChangeListener";
+
+    /** Task events that mean the set of open apps may have changed. */
+    private static final java.util.Set<String> TASK_EVENTS = new java.util.HashSet<>(
+            java.util.Arrays.asList("onTaskStackChanged", "onTaskCreated", "onTaskRemoved",
+                    "onTaskMovedToFront", "onTaskDisplayChanged", "onActivityRestartAttempt",
+                    "onTaskAppeared", "onTaskVanished"));
+
+    /** Held so the listener is not collected; the launcher keeps it only weakly on some builds. */
+    private static Object sTaskListener;
+
+    /**
+     * Hears straight from the system when a task opens, closes or comes to the front.
+     *
+     * <p>The launcher's own shared library already listens to the system's task stack for
+     * Overview; our listener joins it, so an app opened on the desktop is on the bar a moment
+     * later instead of at the next three-second read. The listener is an interface, answered by a
+     * proxy: every method it declares has a default, and only the ones that matter do anything.
+     */
+    private static void listenToTasks(ClassLoader loader) {
+        try {
+            Class<?> listeners = Reflect.findClass(TASK_LISTENERS, loader);
+            Class<?> listener = Reflect.findClass(TASK_LISTENER, loader);
+            if (listeners == null || listener == null || !listener.isInterface()) {
+                L.i("taskbar rebind: no task stack listener on this build - open apps are read "
+                        + "every few seconds and whenever the launcher rebinds");
+                return;
+            }
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(loader,
+                    new Class<?>[]{listener}, (self, method, args) -> {
+                        String name = method.getName();
+                        if (TASK_EVENTS.contains(name)) {
+                            TaskbarRunning.soon();
+                        }
+                        switch (name) {
+                            case "equals":
+                                return self == (args != null && args.length > 0 ? args[0] : null);
+                            case "hashCode":
+                                return System.identityHashCode(self);
+                            case "toString":
+                                return "ZuxDesktopPlus task listener";
+                            default:
+                                break;
+                        }
+                        Class<?> type = method.getReturnType();
+                        if (type == boolean.class) {
+                            return false;
+                        }
+                        if (type == int.class || type == long.class || type == short.class
+                                || type == byte.class || type == float.class
+                                || type == double.class || type == char.class) {
+                            return 0;
+                        }
+                        return null;
+                    });
+            Object instance = listeners.getMethod("getInstance").invoke(null);
+            listeners.getMethod("registerTaskStackListener", listener).invoke(instance, proxy);
+            sTaskListener = proxy;
+            L.i("taskbar rebind: listening to the system's task stack - open apps show at once");
+        } catch (Throwable t) {
+            L.i("taskbar rebind: could not listen to the task stack (" + t + ") - open apps are "
+                    + "read every few seconds and whenever the launcher rebinds");
+        }
+    }
+
     private static final String MODEL_CALLBACKS =
             "com.android.launcher3.taskbar.TaskbarModelCallbacks";
     private static boolean sSaidBlocked;
@@ -217,6 +286,9 @@ final class TaskbarRebind {
                                 return;
                             }
                             param.setResult(null);
+                            // This call is how the bar used to hear that an app opened or
+                            // closed; skipping it must not also skip finding out.
+                            TaskbarRunning.soon();
                             if (!sSaidBlocked) {
                                 sSaidBlocked = true;
                                 L.i("taskbar rebind: the launcher's recent and recommended apps "
