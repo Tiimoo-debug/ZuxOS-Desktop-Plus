@@ -112,11 +112,12 @@ public class FolderOverlay extends FrameLayout {
 
         mEmpty = new TextView(ctx);
         mEmpty.setText("Empty - drag apps in from the desktop or the app drawer");
-        mEmpty.setTextColor(Ui.COLOR_TEXT_DIM);
+        mEmpty.setTextColor(FolderStyle.TITLE);
         mEmpty.setVisibility(GONE);
         panel.addView(mEmpty);
 
-        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP), 0x4D1C1C22);
+        GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP),
+                FolderStyle.PANEL_TINT);
         glass.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
@@ -173,6 +174,7 @@ public class FolderOverlay extends FrameLayout {
         for (final Item child : mFolder.children) {
             ItemView iv = new ItemView(getContext(), iconSizePx, showLabels, labelShadow);
             iv.bind(child, mRepo);
+            iv.setLabelColor(FolderStyle.LABEL);
             iv.setGestures(new ItemView.Gestures() {
                 @Override
                 public void onItemTap(ItemView view) {

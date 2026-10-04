@@ -20,7 +20,7 @@ public class FolderIconDrawable extends Drawable {
     public FolderIconDrawable(List<Drawable> previews, int sizePx) {
         mPreviews = previews;
         mSize = sizePx;
-        mBg.setColor(0x66FFFFFF);
+        mBg.setColor(FolderStyle.TILE);
     }
 
     @Override

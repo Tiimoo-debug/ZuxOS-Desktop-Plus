@@ -26,6 +26,18 @@ public final class FolderStyle {
     public static final float PADDING_DP = 16;
     /** What a cell adds to the icon's width for its label. */
     public static final float CELL_EXTRA_DP = 28;
+    /**
+     * The folder's material, closed and open. The icon is a pale frosted tile and the open
+     * folder is the same thing, grown: it used to open as dark glass, so it changed colour as it
+     * grew and the two looks cross-faded as it closed back into its icon.
+     */
+    public static final int TILE = 0x66FFFFFF;
+    /** The open panel's tint: light, so it is the tile's glass at full size. */
+    public static final int PANEL_TINT = 0x8CF4F4F8;
+    /** Labels and the name on that light glass. */
+    public static final int LABEL = 0xFF1C1C1E;
+    public static final int TITLE = 0x991C1C1E;
+
     /** Behind the panel: enough to set it apart, not enough to black the screen out. */
     public static final int SCRIM = 0x40000000;
 
@@ -49,7 +61,8 @@ public final class FolderStyle {
     /** The folder's name: small, top-left, a little dimmer than the labels under it. */
     public static void styleTitle(TextView title) {
         title.setTextSize(14);
-        title.setTextColor(Ui.COLOR_TEXT_DIM);
+        title.setTextColor(TITLE);
+        title.setShadowLayer(0f, 0f, 0f, 0);
         title.setSingleLine(true);
         title.setIncludeFontPadding(false);
         title.setPadding(Ui.dp(title.getContext(), 4), 0, 0, 0);

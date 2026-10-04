@@ -72,7 +72,7 @@ public final class DrawerFolderWindow {
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
             GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP),
-                    0x4D1C1C22);
+                    FolderStyle.PANEL_TINT);
             glass.addView(panel, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
             int pad = Ui.dp(ctx, FolderStyle.PADDING_DP);
@@ -187,6 +187,7 @@ public final class DrawerFolderWindow {
         for (Item child : folder.children) {
             ItemView iv = new ItemView(ctx, sIconSize, true, false);
             iv.bind(child, sRepo);
+            iv.setLabelColor(FolderStyle.LABEL);
             iv.setGestures(new ItemView.Gestures() {
                 @Override
                 public void onItemTap(ItemView view) {

@@ -241,6 +241,12 @@ public class ItemView extends LinearLayout {
         mIcon.setImageDrawable(d != null ? d : Ui.roundRect(0x55FFFFFF, Ui.dp(getContext(), 12)));
     }
 
+    /** For an icon on a light surface - an open folder: dark label, no shadow. */
+    public void setLabelColor(int color) {
+        mLabel.setTextColor(color);
+        mLabel.setShadowLayer(0f, 0f, 0f, 0);
+    }
+
     /** Drag shadow that matches what the user grabbed, slightly enlarged like stock launchers. */
     public View.DragShadowBuilder shadow() {
         return new DragShadowBuilder(this) {
