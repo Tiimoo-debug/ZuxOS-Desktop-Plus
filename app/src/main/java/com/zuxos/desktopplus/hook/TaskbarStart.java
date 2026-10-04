@@ -180,7 +180,11 @@ final class TaskbarStart {
             return;
         }
         ORIGINAL_ICONS.put(button, icons.clone());
-        AndroidRobot robot = new AndroidRobot();
+        AndroidRobot robot = ROBOTS.get(button);
+        if (robot == null) {
+            robot = new AndroidRobot();
+            ROBOTS.put(button, robot);
+        }
         robot.setBounds(icons[at].getBounds());
         android.graphics.drawable.Drawable[] next = icons.clone();
         next[at] = robot;
@@ -189,6 +193,72 @@ final class TaskbarStart {
             sSaidRobot = true;
             L.i("taskbar start: the Android robot is on the drawer button");
         }
+    }
+
+    private static final String BUTTON_CLASS =
+            "com.android.launcher3.taskbar.customization.TaskbarAllAppsButtonContainer";
+    /** The button's class, compared by identity: the hook below sees every text view. */
+    private static Class<?> sButtonClass;
+    /** One robot per button, so a re-set icon keeps its blink rather than starting over. */
+    private static final Map<View, AndroidRobot> ROBOTS = new WeakHashMap<>();
+    private static boolean sSaidGuard;
+
+    /**
+     * Keeps the robot on the button through ZUI setting its own icon again.
+     *
+     * <p>Rotating the tablet - any configuration change - makes ZUI rebuild the button's icon,
+     * and its own showed for a moment until the next taskbar refresh put the robot back. Here the
+     * icon is swapped as ZUI hands it over, before it is ever drawn.
+     */
+    static void guardIcon(ClassLoader loader) {
+        sButtonClass = Reflect.findClass(BUTTON_CLASS, loader);
+        if (sButtonClass == null) {
+            L.d("taskbar start: no " + BUTTON_CLASS + " to guard");
+            return;
+        }
+        try {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.widget.TextView.class,
+                    "setCompoundDrawables", new de.robv.android.xposed.XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            Object view = param.thisObject;
+                            if (view == null || view.getClass() != sButtonClass
+                                    || param.args.length != 4 || !Cfg.startButtonRobot()) {
+                                return;
+                            }
+                            for (int i = 0; i < 4; i++) {
+                                Object d = param.args[i];
+                                if (d instanceof android.graphics.drawable.Drawable
+                                        && !(d instanceof AndroidRobot)) {
+                                    param.args[i] = robotFor((View) view, i,
+                                            (android.graphics.drawable.Drawable) d);
+                                    if (!sSaidGuard) {
+                                        sSaidGuard = true;
+                                        L.i("taskbar start: kept the robot on the button through"
+                                                + " the launcher re-setting its icon");
+                                    }
+                                }
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            L.d("taskbar start: could not guard the button's icon (" + t + ")");
+        }
+    }
+
+    /** The button's robot, at the bounds ZUI gave its own icon; ZUI's icon kept for later. */
+    private static AndroidRobot robotFor(View button, int slot,
+            android.graphics.drawable.Drawable zui) {
+        android.graphics.drawable.Drawable[] original = new android.graphics.drawable.Drawable[4];
+        original[slot] = zui;
+        ORIGINAL_ICONS.put(button, original);
+        AndroidRobot robot = ROBOTS.get(button);
+        if (robot == null) {
+            robot = new AndroidRobot();
+            ROBOTS.put(button, robot);
+        }
+        robot.setBounds(zui.getBounds());
+        return robot;
     }
 
     /**

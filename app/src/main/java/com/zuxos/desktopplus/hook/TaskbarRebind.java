@@ -109,6 +109,7 @@ final class TaskbarRebind {
         listenToTasks(loader);
         hideOnAdd();
         sTaskbarView = cls;
+        TaskbarStart.guardIcon(loader);
         keepStartShowing();
         keepStartOpaque();
     }
