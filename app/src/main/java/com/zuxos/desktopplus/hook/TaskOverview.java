@@ -729,6 +729,67 @@ final class TaskOverview {
         }
     }
 
+    /**
+     * Brings a task forward on a display, the way recents does - for the taskbar's Minimize,
+     * which shows the task that was under the minimised one.
+     */
+    static boolean bringToFront(int taskId, int display) {
+        try {
+            ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(display);
+            Object atm = activityTaskManager();
+            atm.getClass().getMethod("startActivityFromRecents", int.class,
+                    android.os.Bundle.class).invoke(atm, taskId, options.toBundle());
+            return true;
+        } catch (Throwable t) {
+            L.d("task overview: could not bring task " + taskId + " forward (" + t + ")");
+            return false;
+        }
+    }
+
+    /**
+     * Something in the launcher is starting an app - the drawer, a taskbar icon, a menu. Recents
+     * gets out of its way, or the app opens behind it: an overlay stays above every app.
+     *
+     * @param tapDisplay the screen the tap that caused it was on, -1 if not known
+     */
+    static void onLaunch(int tapDisplay) {
+        if (sRoot == null || (tapDisplay >= 0 && tapDisplay != sDisplay)) {
+            return;
+        }
+        MAIN.post(() -> {
+            if (sRoot != null) {
+                record("closed: an app was launched from the launcher");
+                closeForLaunch();
+            }
+        });
+    }
+
+    /** Closes as the app opens: fading out and growing a little, as if handing over to it. */
+    private static void closeForLaunch() {
+        FrameLayout root = sRoot;
+        WindowManager wm = sWm;
+        sRoot = null;
+        sWm = null;
+        if (root == null || wm == null) {
+            return;
+        }
+        View content = root.getChildCount() > 0 ? root.getChildAt(root.getChildCount() - 1)
+                : null;
+        if (content != null) {
+            content.animate().scaleX(1.04f).scaleY(1.04f).setDuration(Motion.MEDIUM)
+                    .setInterpolator(Motion.EASE).start();
+        }
+        root.animate().alpha(0f).setDuration(Motion.MEDIUM).setInterpolator(Motion.EASE)
+                .withEndAction(() -> {
+                    try {
+                        wm.removeViewImmediate(root);
+                    } catch (Throwable ignored) {
+                        // Already gone.
+                    }
+                }).start();
+    }
+
     /** Closes the app's task, and takes its card away. */
     private static void remove(Context ctx, Card card, List<Card> all) {
         boolean removed = false;

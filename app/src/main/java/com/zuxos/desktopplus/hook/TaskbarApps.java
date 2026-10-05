@@ -318,6 +318,10 @@ final class TaskbarApps {
             int displayId) {
         List<TaskbarMenu.Entry> entries = new ArrayList<>();
         entries.add(new TaskbarMenu.Entry("Open", () -> TaskbarMenu.launch(ctx, pkg, displayId)));
+        entries.add(new TaskbarMenu.Entry("New window", () -> newWindow(ctx, pkg, displayId)));
+        if (taskOf(ctx, pkg, displayId) != null) {
+            entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
+        }
         entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
         entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, pkg, displayId)));
         for (ShortcutInfo shortcut : shortcuts(ctx, pkg, user)) {
@@ -410,6 +414,95 @@ final class TaskbarApps {
      * which is precisely not the one you are looking at in the taskbar. Force-stopping is a
      * privileged thing to do, so it goes the same way as the other privileged things here.
      */
+    /** The app's tasks on a display, front first, from the running list. */
+    private static List<android.app.ActivityManager.RunningTaskInfo> tasksOn(Context ctx,
+            int display) {
+        List<android.app.ActivityManager.RunningTaskInfo> out = new ArrayList<>();
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager)
+                    ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(40)) {
+                Object d = Reflect.field(task, "displayId");
+                if (d instanceof Integer && (Integer) d == display) {
+                    out.add(task);
+                }
+            }
+        } catch (Throwable t) {
+            L.d("taskbar apps: could not list tasks (" + t + ")");
+        }
+        return out;
+    }
+
+    private static String packageOf(android.app.ActivityManager.RunningTaskInfo task) {
+        android.content.ComponentName c = task.baseIntent != null
+                && task.baseIntent.getComponent() != null ? task.baseIntent.getComponent()
+                : task.topActivity != null ? task.topActivity : task.baseActivity;
+        return c == null ? null : c.getPackageName();
+    }
+
+    private static android.app.ActivityManager.RunningTaskInfo taskOf(Context ctx, String pkg,
+            int display) {
+        for (android.app.ActivityManager.RunningTaskInfo task : tasksOn(ctx, display)) {
+            if (pkg.equals(packageOf(task))) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sends the app to the back of its screen, still running: whatever was under it comes
+     * forward - the previous app, or the desktop. Nothing is stopped; an app on the monitor is
+     * only ever closed by the user.
+     */
+    static void minimize(Context ctx, String pkg, int display) {
+        List<android.app.ActivityManager.RunningTaskInfo> tasks = tasksOn(ctx, display);
+        if (tasks.isEmpty() || !pkg.equals(packageOf(tasks.get(0)))) {
+            L.i("taskbar apps: " + pkg + " is already out of sight on display " + display);
+            return;
+        }
+        android.app.ActivityManager.RunningTaskInfo next = null;
+        for (int i = 1; i < tasks.size(); i++) {
+            if (!pkg.equals(packageOf(tasks.get(i)))) {
+                next = tasks.get(i);
+                break;
+            }
+        }
+        String nextPkg = next == null ? null : packageOf(next);
+        if (next == null || ctx.getPackageName().equals(nextPkg)) {
+            // The desktop is next: home on that screen.
+            String route = TaskbarNav.key(ctx, android.view.KeyEvent.KEYCODE_HOME, display, null);
+            L.i("taskbar apps: minimized " + pkg + " to the desktop (" + route + ")");
+            return;
+        }
+        if (TaskOverview.bringToFront(next.taskId, display)) {
+            L.i("taskbar apps: minimized " + pkg + ", " + nextPkg + " is in front now");
+        } else {
+            TaskbarNav.key(ctx, android.view.KeyEvent.KEYCODE_HOME, display, null);
+            L.i("taskbar apps: minimized " + pkg + " to the desktop (could not bring "
+                    + nextPkg + " forward)");
+        }
+    }
+
+    /**
+     * Another window of the app, beside the one already open. Apps that allow it open a second
+     * one; an app that only ever has one just comes forward.
+     */
+    static void newWindow(Context ctx, String pkg, int display) {
+        try {
+            Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (intent == null) {
+                return;
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                    | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+            ctx.startActivity(intent, TaskbarMenu.launchOptions(display));
+            L.i("taskbar apps: new window of " + pkg + " on display " + display);
+        } catch (Throwable t) {
+            L.e("taskbar apps: could not open a new window of " + pkg, t);
+        }
+    }
+
     static void close(Context ctx, String pkg) {
         Su.run(outcome -> {
             if (outcome.ok()) {

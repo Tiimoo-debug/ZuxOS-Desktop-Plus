@@ -44,6 +44,8 @@ public final class Glyphs {
     public static final int SLEEP = 21;
     public static final int RESTART = 22;
     public static final int MEMORY = 23;
+    public static final int MINIMIZE = 24;
+    public static final int NEW_WINDOW = 25;
 
     private Glyphs() {
     }
@@ -85,6 +87,10 @@ public final class Glyphs {
         } else if (t.startsWith("hide") || t.startsWith("un-hide") || t.startsWith("unhide")
                 || t.startsWith("show hidden")) {
             glyph = HIDE;
+        } else if (t.startsWith("minimi")) {
+            glyph = MINIMIZE;
+        } else if (t.contains("new window")) {
+            glyph = NEW_WINDOW;
         } else if (t.startsWith("open") || t.startsWith("launch")) {
             glyph = OPEN;
         } else if (t.contains("folder")) {
@@ -338,6 +344,19 @@ public final class Glyphs {
                     p.moveTo(17, at);
                     p.lineTo(20, at);
                 }
+                return p;
+            case MINIMIZE:
+                // A window going down to a bar.
+                p.addRoundRect(new RectF(5, 5, 19, 14), 2f, 2f, Path.Direction.CW);
+                p.moveTo(7, 19);
+                p.lineTo(17, 19);
+                return p;
+            case NEW_WINDOW:
+                // A window, and another opening in front of it.
+                p.moveTo(8, 5);
+                p.lineTo(19, 5);
+                p.lineTo(19, 15);
+                p.addRoundRect(new RectF(5, 9, 15, 19), 2f, 2f, Path.Direction.CW);
                 return p;
             default:
                 return null;

@@ -71,9 +71,36 @@ final class LaunchDisplay {
             hooked += XposedBridge.hookAllMethods(instrumentation, "execStartActivity",
                     OPTIONS).size();
             L.i("launch display: watching " + hooked + " launch path(s)");
+            watchRecentsLaunches(loader);
             TaskbarRebind.install(loader);
         } catch (Throwable t) {
             L.e("launch display: could not watch the launch paths", t);
+        }
+    }
+
+    /**
+     * The taskbar brings a running app forward from recents, not through a start: that skips
+     * Instrumentation, so it is watched on its own - only to close our recents for it.
+     */
+    private static void watchRecentsLaunches(ClassLoader loader) {
+        try {
+            Class<?> wrapper = Class.forName(
+                    "com.android.systemui.shared.system.ActivityManagerWrapper", false, loader);
+            int hooked = 0;
+            for (java.lang.reflect.Method m : wrapper.getDeclaredMethods()) {
+                if (m.getName().startsWith("startActivityFromRecents")) {
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            TaskOverview.onLaunch(freshTapDisplay());
+                        }
+                    });
+                    hooked++;
+                }
+            }
+            L.i("launch display: also watching " + hooked + " launch(es) from recents");
+        } catch (Throwable t) {
+            L.i("launch display: no recents launch path to watch (" + t + ")");
         }
     }
 
@@ -93,6 +120,8 @@ final class LaunchDisplay {
     private static final XC_MethodHook OPTIONS = new XC_MethodHook() {
         @Override
         protected void beforeHookedMethod(MethodHookParam param) {
+            // Whatever is being opened, recents must not be left over it.
+            TaskOverview.onLaunch(freshTapDisplay());
             if (!Cfg.launchOnTappedDisplay()) {
                 return;
             }

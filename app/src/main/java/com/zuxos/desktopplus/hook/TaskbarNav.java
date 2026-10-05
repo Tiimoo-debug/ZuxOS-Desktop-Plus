@@ -270,7 +270,7 @@ final class TaskbarNav {
      *
      * @return the route taken, for the record
      */
-    private static String key(Context ctx, int keyCode, int display, Runnable onFail) {
+    static String key(Context ctx, int keyCode, int display, Runnable onFail) {
         String id = display + ":" + keyCode;
         long now = SystemClock.uptimeMillis();
         synchronized (LAST) {
