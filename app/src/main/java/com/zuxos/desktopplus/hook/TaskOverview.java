@@ -133,7 +133,16 @@ final class TaskOverview {
             title.setText(cards.isEmpty() ? "No recent apps" : "Recent apps");
             title.setTextColor(0xFFFFFFFF);
             title.setTextSize(22);
-            header.addView(title, new LinearLayout.LayoutParams(0,
+            LinearLayout titles = new LinearLayout(ctx);
+            titles.setOrientation(LinearLayout.VERTICAL);
+            titles.addView(title);
+            TextView memory = new TextView(ctx);
+            memory.setText(memoryLine(ctx));
+            memory.setTextColor(0xB3FFFFFF);
+            memory.setTextSize(13);
+            memory.setPadding(0, Ui.dp(ctx, 4), 0, 0);
+            titles.addView(memory);
+            header.addView(titles, new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             if (!cards.isEmpty()) {
                 TextView clear = new TextView(ctx);
@@ -271,6 +280,21 @@ final class TaskOverview {
 
         thumb.setOnClickListener(v -> launch(ctx, card));
         swipeToClose(thumb, box, () -> remove(ctx, card, all));
+        // Held, or right-clicked: the same menu an app's icon has, with what it is using.
+        View.OnLongClickListener menu = v -> {
+            showMenu(ctx, v, card, all);
+            return true;
+        };
+        thumb.setOnLongClickListener(menu);
+        header.setOnLongClickListener(menu);
+        thumb.setOnContextClickListener(v -> {
+            showMenu(ctx, v, card, all);
+            return true;
+        });
+        header.setOnContextClickListener(v -> {
+            showMenu(ctx, v, card, all);
+            return true;
+        });
         return box;
     }
 
@@ -290,6 +314,9 @@ final class TaskOverview {
                     if (!dragging[0] && dy < -Ui.dp(v.getContext(), 12)
                             && Math.abs(dy) > Math.abs(e.getRawX() - down[0])) {
                         dragging[0] = true;
+                        // A swipe is not a hold: the menu must not open under the finger.
+                        v.cancelLongPress();
+                        v.setPressed(false);
                         v.getParent().requestDisallowInterceptTouchEvent(true);
                     }
                     if (dragging[0]) {
@@ -326,10 +353,23 @@ final class TaskOverview {
         try {
             ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
             PackageManager pm = ctx.getPackageManager();
+            int here = 0;
+            int idle = 0;
+            int elsewhere = 0;
             for (ActivityManager.RecentTaskInfo task
                     : am.getRecentTasks(40, ActivityManager.RECENT_IGNORE_UNAVAILABLE)) {
+                // This screen's tasks, and recent ones that are not running anywhere (they have
+                // no display): the log showed only one or none listed while the second kind
+                // were left out. Apps running on the tablet are the tablet's.
                 Object d = Reflect.field(task, "displayId");
-                if (!(d instanceof Integer) || (Integer) d != display) {
+                int on = d instanceof Integer ? (Integer) d : -1;
+                boolean running = Boolean.TRUE.equals(Reflect.field(task, "isRunning"));
+                if (on == display) {
+                    here++;
+                } else if (on < 0 || !running) {
+                    idle++;
+                } else {
+                    elsewhere++;
                     continue;
                 }
                 Intent base = task.baseIntent;
@@ -353,6 +393,8 @@ final class TaskOverview {
                 }
                 out.add(card);
             }
+            record("tasks: " + here + " here, " + idle + " not running, " + elsewhere
+                    + " on other screens skipped");
         } catch (Throwable t) {
             L.d("task overview: could not list tasks (" + t + ")");
         }
@@ -362,6 +404,7 @@ final class TaskOverview {
     /** Each app's last picture, fetched off the main thread and dropped in as it arrives. */
     private static void loadThumbnails(List<Card> cards) {
         IO.execute(() -> {
+            sFresh = 0;
             int got = 0;
             for (Card card : cards) {
                 Bitmap b = snapshot(card.taskId);
@@ -380,22 +423,43 @@ final class TaskOverview {
                     }
                 });
             }
-            record("thumbnails: " + got + " of " + cards.size());
+            record("thumbnails: got " + got + " of " + cards.size() + " (" + sFresh
+                    + " taken fresh)");
         });
     }
 
+    private static volatile int sFresh;
+
+    /**
+     * The task's picture: the one the system kept, or - for a window still on screen, which has
+     * none kept yet (most cards had no picture in the log) - one taken now.
+     */
     private static Bitmap snapshot(int taskId) {
+        Bitmap kept = snapshot(taskId, "getTaskSnapshot");
+        if (kept != null) {
+            return kept;
+        }
+        Bitmap fresh = snapshot(taskId, "takeTaskSnapshot");
+        if (fresh != null) {
+            sFresh++;
+        }
+        return fresh;
+    }
+
+    private static Bitmap snapshot(int taskId, String name) {
         try {
             Object atm = activityTaskManager();
             for (Method m : atm.getClass().getMethods()) {
                 Class<?>[] p = m.getParameterTypes();
-                if (m.getName().equals("getTaskSnapshot") && p.length >= 2
+                if (m.getName().equals(name) && p.length >= 2
                         && p[0] == int.class && p[1] == boolean.class) {
                     Object[] args = new Object[p.length];
                     args[0] = taskId;
-                    args[1] = false;
+                    // getTaskSnapshot(id, lowResolution=false); takeTaskSnapshot(id, updateCache)
+                    args[1] = name.startsWith("take");
                     for (int i = 2; i < p.length; i++) {
-                        args[i] = p[i] == boolean.class ? Boolean.FALSE : null;
+                        args[i] = p[i] == boolean.class ? Boolean.FALSE
+                                : p[i] == int.class ? Integer.valueOf(0) : null;
                     }
                     Object snap = m.invoke(atm, args);
                     if (snap == null) {
@@ -414,7 +478,7 @@ final class TaskOverview {
             }
         } catch (Throwable t) {
             Throwable cause = t.getCause() != null ? t.getCause() : t;
-            record("no snapshot for task " + taskId + " (" + cause + ")");
+            record("no " + name + " for task " + taskId + " (" + cause + ")");
         }
         return null;
     }
@@ -479,6 +543,127 @@ final class TaskOverview {
         if (all.isEmpty()) {
             MAIN.postDelayed(TaskOverview::close, Motion.SHORT);
         }
+    }
+
+    /** Open, close, app info - and how much memory the app is using, read off the main thread. */
+    private static void showMenu(Context ctx, View anchor, Card card, List<Card> all) {
+        int display = sDisplay;
+        IO.execute(() -> {
+            String ram = appMemory(ctx, card.pkg);
+            MAIN.post(() -> {
+                if (sRoot == null) {
+                    return;
+                }
+                List<TaskbarMenu.Entry> entries = new ArrayList<>();
+                entries.add(new TaskbarMenu.Entry("Open", () -> launch(ctx, card)));
+                entries.add(new TaskbarMenu.Entry("Close", () -> remove(ctx, card, all)));
+                entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, card)));
+                entries.add(new TaskbarMenu.Entry(ram, () -> { }));
+                int[] at = new int[2];
+                anchor.getLocationOnScreen(at);
+                TaskbarMenu.showEntries(anchor, display, at[0] + anchor.getWidth() / 2f,
+                        at[1] + Ui.dp(ctx, 24), entries);
+            });
+        });
+    }
+
+    private static void appInfo(Context ctx, Card card) {
+        int display = sDisplay;
+        close();
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.fromParts("package", card.pkg, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(display);
+            ctx.startActivity(intent, options.toBundle());
+        } catch (Throwable t) {
+            record("could not open app info for " + card.pkg + " (" + t + ")");
+        }
+    }
+
+    /** The app's memory: the proportional share of every process it is running. */
+    private static String appMemory(Context ctx, String pkg) {
+        try {
+            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            List<Integer> pids = new ArrayList<>();
+            List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
+            if (procs != null) {
+                for (ActivityManager.RunningAppProcessInfo p : procs) {
+                    if (p.processName != null && (p.processName.equals(pkg)
+                            || p.processName.startsWith(pkg + ":"))) {
+                        pids.add(p.pid);
+                    }
+                }
+            }
+            if (pids.isEmpty()) {
+                return "Memory: not running";
+            }
+            int[] arr = new int[pids.size()];
+            for (int i = 0; i < arr.length; i++) {
+                arr[i] = pids.get(i);
+            }
+            long kb = 0;
+            for (android.os.Debug.MemoryInfo info : am.getProcessMemoryInfo(arr)) {
+                kb += info.getTotalPss();
+            }
+            return kb > 0 ? "Memory: " + formatKb(kb) : "Memory: not readable";
+        } catch (Throwable t) {
+            record("app memory for " + pkg + " unreadable (" + t + ")");
+            return "Memory: not readable";
+        }
+    }
+
+    /** RAM in use and ZRAM (compressed swap) in use, for the header. */
+    private static String memoryLine(Context ctx) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long used = mi.totalMem - mi.availMem;
+            sb.append("RAM ").append(Math.round(100f * used / Math.max(1, mi.totalMem)))
+                    .append("% \u00b7 ").append(formatKb(used / 1024)).append(" of ")
+                    .append(formatKb(mi.totalMem / 1024));
+        } catch (Throwable ignored) {
+            // No RAM line; the swap one may still read.
+        }
+        long swapTotal = -1;
+        long swapFree = -1;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(
+                new java.io.FileReader("/proc/meminfo"))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("SwapTotal:")) {
+                    swapTotal = kbOf(line);
+                } else if (line.startsWith("SwapFree:")) {
+                    swapFree = kbOf(line);
+                }
+            }
+        } catch (Throwable ignored) {
+            // Not readable here; the line just has no ZRAM part.
+        }
+        if (swapTotal > 0 && swapFree >= 0) {
+            long used = swapTotal - swapFree;
+            if (sb.length() > 0) {
+                sb.append("     ");
+            }
+            sb.append("ZRAM ").append(Math.round(100f * used / swapTotal)).append("% \u00b7 ")
+                    .append(formatKb(used)).append(" of ").append(formatKb(swapTotal));
+        }
+        return sb.toString();
+    }
+
+    private static long kbOf(String line) {
+        String digits = line.replaceAll("[^0-9]", "");
+        return digits.isEmpty() ? -1 : Long.parseLong(digits);
+    }
+
+    private static String formatKb(long kb) {
+        if (kb >= 1024L * 1024L) {
+            return String.format(java.util.Locale.US, "%.1f GB", kb / (1024f * 1024f));
+        }
+        return (kb / 1024) + " MB";
     }
 
     private static void clearAll(Context ctx, List<Card> cards) {

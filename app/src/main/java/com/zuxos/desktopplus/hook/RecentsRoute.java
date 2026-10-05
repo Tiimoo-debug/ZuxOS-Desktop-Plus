@@ -95,9 +95,12 @@ final class RecentsRoute {
         if (!Cfg.recentsRoute()) {
             return;
         }
-        // A copy on another screen would turn this press into "close recents".
+        // A copy left on the monitor would turn a tablet press into "close recents". The
+        // tablet's own one is never touched from the monitor: the monitor has its own recents,
+        // and closing the tablet's from there left quickstep thinking it was still up.
         Activity live = sLive.get();
-        if (live != null && !live.isFinishing() && displayOf(live) != display) {
+        if (live != null && !live.isFinishing() && displayOf(live) != display
+                && displayOf(live) != Display.DEFAULT_DISPLAY) {
             note("closed a copy left on display " + displayOf(live));
             live.finish();
         }
@@ -385,20 +388,8 @@ final class RecentsRoute {
                 note("was in a window (mode " + mode + ") - made full screen");
             }
         }
-        // In front: a window started behind the open apps has no focus a moment later.
-        MAIN.postDelayed(() -> {
-            if (activity.isFinishing() || activity.hasWindowFocus()) {
-                return;
-            }
-            try {
-                ActivityManager am = (ActivityManager)
-                        activity.getSystemService(Context.ACTIVITY_SERVICE);
-                am.moveTaskToFront(task, 0);
-                note("was behind the apps - brought to the front");
-            } catch (Throwable t) {
-                note("could not bring it to the front (" + t + ")");
-            }
-        }, 180L);
+        // No move to the front here: this firmware refuses the launcher REORDER_TASKS, and a
+        // recents without focus is only the other screen having it.
     }
 
     /** {@code setTaskWindowingMode}, which a recents provider may call. */
