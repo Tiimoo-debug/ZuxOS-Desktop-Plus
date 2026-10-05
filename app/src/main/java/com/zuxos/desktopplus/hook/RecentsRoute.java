@@ -58,6 +58,12 @@ final class RecentsRoute {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static volatile int sTarget = Display.DEFAULT_DISPLAY;
+    /** When recents last showed, either kind, and whether it was open when the button went. */
+    private static volatile long sShownAt;
+    private static volatile boolean sWasOpen;
+    /** Until when every SystemUiProxy call is written down: the trace after a press. */
+    private static volatile long sTraceUntil;
+    private static final Set<String> TRACED = new HashSet<>();
     private static volatile long sPressedAt;
     private static Runnable sAgain;
     private static boolean sRetried;
@@ -79,7 +85,12 @@ final class RecentsRoute {
         sPressedAt = SystemClock.uptimeMillis();
         sAgain = again;
         sRetried = false;
-        note("pressed on display " + display);
+        sWasOpen = openOn(display);
+        sTraceUntil = sPressedAt + 3000L;
+        synchronized (TRACED) {
+            TRACED.clear();
+        }
+        note("pressed on display " + display + (sWasOpen ? " (recents was open)" : ""));
         if (!Cfg.recentsRoute()) {
             return;
         }
@@ -145,6 +156,7 @@ final class RecentsRoute {
         if (proxy == null) {
             return 0;
         }
+        traceAll(proxy);
         int hooked = 0;
         for (Method m : proxy.getDeclaredMethods()) {
             boolean intent = false;
@@ -169,6 +181,98 @@ final class RecentsRoute {
             }
         }
         return hooked;
+    }
+
+    /**
+     * Writes down every SystemUiProxy call in the seconds after a recents press - which is how the
+     * next log says what ZUI's own button actually does, instead of anyone guessing.
+     */
+    private static void traceAll(Class<?> proxy) {
+        for (Method m : proxy.getDeclaredMethods()) {
+            if (java.lang.reflect.Modifier.isAbstract(m.getModifiers())) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (SystemClock.uptimeMillis() > sTraceUntil) {
+                            return;
+                        }
+                        String call = m.getName() + "(" + summary(param.args) + ")";
+                        synchronized (TRACED) {
+                            if (TRACED.size() > 16 || !TRACED.add(call)) {
+                                return;
+                            }
+                        }
+                        note("trace: SystemUiProxy." + call);
+                    }
+                });
+            } catch (Throwable ignored) {
+                // A method that cannot be hooked is simply not traced.
+            }
+        }
+    }
+
+    private static String summary(Object[] args) {
+        StringBuilder sb = new StringBuilder();
+        for (Object a : args) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            if (a instanceof Intent) {
+                ComponentName c = ((Intent) a).getComponent();
+                sb.append("Intent ").append(c != null ? c.getShortClassName() : "?");
+            } else if (a instanceof Integer || a instanceof Boolean) {
+                sb.append(a);
+            } else {
+                sb.append(a == null ? "null" : a.getClass().getSimpleName());
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Whether recents - either kind - is up on this display now. */
+    private static boolean openOn(int display) {
+        Activity live = sLive.get();
+        if (live != null && !live.isFinishing() && displayOf(live) == display
+                && !Boolean.TRUE.equals(Reflect.field(live, "mStopped"))) {
+            return true;
+        }
+        Object zui = com.zuxos.desktopplus.desktop.DesktopHost.activityOn(display);
+        return Boolean.TRUE.equals(Reflect.call(zui, "isRecentsViewVisible"));
+    }
+
+    /**
+     * If the press opened nothing, open it here.
+     *
+     * <p>Started directly - the fallback recents is an activity of this very process - on the
+     * pressed display, full screen, as a task of its own. Skipped when the press was closing
+     * recents, or when either recents showed in the meantime.
+     */
+    static void backstop(Context ctx, int display) {
+        if (!Cfg.recentsRoute()) {
+            return;
+        }
+        final long pressed = sPressedAt;
+        final boolean closing = sWasOpen;
+        MAIN.postDelayed(() -> {
+            if (closing || sPressedAt != pressed || sShownAt >= pressed) {
+                return;
+            }
+            try {
+                Intent intent = new Intent().setComponent(
+                        new ComponentName(ctx.getPackageName(), RECENTS))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ActivityOptions options = ActivityOptions.makeBasic();
+                options.setLaunchDisplayId(display);
+                Reflect.call(options, "setLaunchWindowingMode", FULLSCREEN);
+                ctx.startActivity(intent, options.toBundle());
+                note("nothing opened in 800ms - started it ourselves on display " + display);
+            } catch (Throwable t) {
+                note("could not start it ourselves (" + t + ")");
+            }
+        }, 800L);
     }
 
     private static void steer(Object[] args, String method) {
@@ -207,6 +311,7 @@ final class RecentsRoute {
     /** The fallback is on screen: make sure it is where it was asked for, full, and in front. */
     private static void appeared(Activity activity) {
         sLive = new WeakReference<>(activity);
+        sShownAt = SystemClock.uptimeMillis();
         if (!Cfg.recentsRoute()) {
             return;
         }
@@ -281,6 +386,9 @@ final class RecentsRoute {
                 n += XposedBridge.hookAllMethods(home, name, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
+                        if (!"hideRecentsView".equals(name)) {
+                            sShownAt = SystemClock.uptimeMillis();
+                        }
                         note("ZUI's monitor recents: " + name);
                     }
                 }).size();

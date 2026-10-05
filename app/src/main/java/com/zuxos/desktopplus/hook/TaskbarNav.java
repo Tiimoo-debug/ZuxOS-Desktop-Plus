@@ -14,9 +14,11 @@ import android.view.ViewGroup;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
-import com.zuxos.desktopplus.core.Su;
+import com.zuxos.desktopplus.desktop.DesktopHost;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Back, home and recents on the monitor's taskbar, acting on the monitor.
@@ -94,7 +96,7 @@ final class TaskbarNav {
         @Override
         public void onClick(View v) {
             if ("recent_apps".equals(mId)) {
-                RecentsRoute.pressed(mDisplay, () -> act(v));
+                RecentsRoute.pressed(mDisplay, () -> mOriginal.onClick(v));
             }
             act(v);
         }
@@ -102,48 +104,183 @@ final class TaskbarNav {
         private void act(View v) {
             if (mDisplay == Display.DEFAULT_DISPLAY || !Cfg.navKeysOwnScreen()) {
                 mOriginal.onClick(v);
+                record(mId, "ZUI's own");
                 return;
             }
             try {
                 switch (mId) {
                     case "back":
-                        key(v.getContext(), KeyEvent.KEYCODE_BACK, mDisplay);
+                        back(v);
                         return;
                     case "home":
-                        key(v.getContext(), KeyEvent.KEYCODE_HOME, mDisplay);
-                        closeDrawer();
+                        home(v);
                         return;
                     default:
-                        key(v.getContext(), KeyEvent.KEYCODE_APP_SWITCH, mDisplay);
+                        // Sending the recents key to this screen was measured to do nothing: the
+                        // system raised the home screen and put it straight back. ZUI's own button
+                        // is used, and RecentsRoute steers what it opens - or opens it itself.
+                        mOriginal.onClick(v);
+                        record(mId, "ZUI's own, steered");
+                        RecentsRoute.backstop(v.getContext(), mDisplay);
                 }
             } catch (Throwable t) {
                 L.d("taskbar nav: " + mId + " fell back to the launcher's own (" + t + ")");
                 mOriginal.onClick(v);
             }
         }
+
+        /**
+         * Back, without ever sending it to a screen with no window to take it.
+         *
+         * <p>With our desktop in front the launcher's window there can be without focus, and a
+         * back key sent to it waits five seconds for a window that never comes - the log showed
+         * exactly that ANR, and the launcher being killed for it. So with the desktop in front,
+         * back is done here: it closes what our desktop and our windows have open.
+         */
+        private void back(View v) {
+            if (homeInFront(v.getContext(), mDisplay)) {
+                boolean closed = closeOurWindows(mDisplay) || DesktopHost.backOn(mDisplay);
+                record("back", closed ? "closed a panel here (desktop in front)"
+                        : "nothing to close (desktop in front)");
+                return;
+            }
+            key(v, KeyEvent.KEYCODE_BACK);
+        }
+
+        /** Home, sent once - and not at all when the desktop is already in front. */
+        private void home(View v) {
+            closeDrawer();
+            if (homeInFront(v.getContext(), mDisplay)) {
+                closeOurWindows(mDisplay);
+                DesktopHost.backOn(mDisplay);
+                record("home", "desktop already in front");
+                return;
+            }
+            key(v, KeyEvent.KEYCODE_HOME);
+        }
+
+        private void key(View v, int code) {
+            String route = TaskbarNav.key(v.getContext(), code, mDisplay,
+                    () -> v.post(() -> mOriginal.onClick(v)));
+            record(mId, route);
+        }
     }
+
+    /** Our own windows that back should close first: menus, panels, a drawer folder. */
+    private static boolean closeOurWindows(int display) {
+        boolean drawer = false;
+        try {
+            drawer = TaskbarBridge.closeStockDrawer(display);
+        } catch (Throwable ignored) {
+            // Not reachable; the rest still close.
+        }
+        TaskbarMenu.dismiss();
+        QuickPanel.dismiss();
+        NotifyPanel.dismiss();
+        DrawerFolderWindow.close();
+        return drawer;
+    }
+
+    /**
+     * Whether a back or home key sent to this display would land on the launcher's own home -
+     * our desktop - rather than on an app.
+     *
+     * <p>Read from the task list: the task the system calls focused on this display, or, failing
+     * that, the first one listed there. No task at all on the display counts as the desktop, since
+     * a key sent there would have nothing to go to either. The display id and the focus flag are
+     * fields the framework keeps but does not publish, read by name as the probe does.
+     */
+    static boolean homeInFront(Context ctx, int display) {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager)
+                    ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            android.app.ActivityManager.RunningTaskInfo first = null;
+            android.app.ActivityManager.RunningTaskInfo focused = null;
+            for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(24)) {
+                Object d = Reflect.field(task, "displayId");
+                if (!(d instanceof Integer) || (Integer) d != display) {
+                    continue;
+                }
+                if (first == null) {
+                    first = task;
+                }
+                if (Boolean.TRUE.equals(Reflect.field(task, "isFocused"))) {
+                    focused = task;
+                    break;
+                }
+            }
+            android.app.ActivityManager.RunningTaskInfo front = focused != null ? focused : first;
+            if (front == null) {
+                return true;
+            }
+            android.content.ComponentName top = front.topActivity != null
+                    ? front.topActivity : front.baseActivity;
+            return top != null && top.getPackageName().equals(ctx.getPackageName())
+                    && top.getClassName().contains("Launcher");
+        } catch (Throwable t) {
+            L.d("taskbar nav: could not read the front task (" + t + ")");
+            return false;
+        }
+    }
+
+    // --- what happened, for the probe -----------------------------------------------------------
+
+    private static final java.util.ArrayDeque<String> HISTORY = new java.util.ArrayDeque<>();
+    private static final Set<String> SAID = new HashSet<>();
+
+    private static synchronized void record(String key, String route) {
+        HISTORY.addLast(SystemClock.uptimeMillis() / 1000 + "s " + key + ": " + route);
+        while (HISTORY.size() > 12) {
+            HISTORY.removeFirst();
+        }
+        if (SAID.size() < 40 && SAID.add(key + route)) {
+            L.i("taskbar nav: " + key + " -> " + route);
+        }
+    }
+
+    static synchronized String describe() {
+        StringBuilder sb = new StringBuilder("\nnavigation\n  ")
+                .append(KeyShell.describe()).append('\n');
+        for (String h : HISTORY) {
+            sb.append("  - ").append(h).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** Last press of each key per display, so a quick repeat counts once. */
+    private static final java.util.Map<String, Long> LAST = new java.util.HashMap<>();
+    private static final long REPEAT_MS = 300L;
 
     /**
      * A navigation key, pressed on this display.
      *
-     * <p>Sent as the key itself rather than acted out: the system already knows what back, home
-     * and recents mean on a second screen, and only needs to be told which screen they were
-     * pressed on. Home used to bring our desktop forward by starting its activity directly, and
-     * the system quietly ignores that for a home activity - which is why it did nothing.
+     * <p>Sent as the key itself rather than acted out: the system already knows what back and
+     * home mean on a second screen, and only needs to be told which screen they were pressed on.
+     * In-process if the launcher may inject keys; through the key shell if not (this firmware
+     * refuses the launcher {@code INJECT_EVENTS}). A repeat within {@link #REPEAT_MS} counts once:
+     * five homes in a second used to restart the home screen five times.
+     *
+     * @return the route taken, for the record
      */
-    private static void key(Context ctx, int keyCode, int display) {
+    private static String key(Context ctx, int keyCode, int display, Runnable onFail) {
+        String id = display + ":" + keyCode;
+        long now = SystemClock.uptimeMillis();
+        synchronized (LAST) {
+            Long last = LAST.get(id);
+            LAST.put(id, now);
+            if (last != null && now - last < REPEAT_MS) {
+                return "skipped as a repeat";
+            }
+        }
         if (!sInjectRefused && inject(ctx, keyCode, display)) {
-            return;
+            return "key sent in-process";
         }
         if (!sSaidRoot) {
             sSaidRoot = true;
             L.i("taskbar nav: the launcher may not send keys itself, so the keys go through root");
         }
-        Su.run(outcome -> {
-            if (outcome != Su.Outcome.OK) {
-                L.w("taskbar nav: key " + keyCode + " through root failed (" + outcome + ")");
-            }
-        }, "input -d " + display + " keyevent " + keyCode);
+        KeyShell.send(display, keyCode, onFail);
+        return "key sent through the key shell";
     }
 
     /**

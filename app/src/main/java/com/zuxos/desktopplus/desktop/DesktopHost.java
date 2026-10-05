@@ -246,6 +246,23 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         return false;
     }
 
+    /**
+     * Back, on this display's desktop: closes what is open on it - resize, a folder, the drawer.
+     *
+     * @return whether anything was closed
+     */
+    public static boolean backOn(int displayId) {
+        DesktopHost found = null;
+        synchronized (DesktopHost.class) {
+            for (DesktopHost host : ACTIVE.values()) {
+                if (host.mDisplayId == displayId) {
+                    found = host;
+                }
+            }
+        }
+        return found != null && found.onBackPressed();
+    }
+
     /** The activity our desktop lives in on this display, or null. */
     public static synchronized Activity activityOn(int displayId) {
         for (DesktopHost host : ACTIVE.values()) {

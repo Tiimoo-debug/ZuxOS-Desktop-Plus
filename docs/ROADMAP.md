@@ -28,6 +28,8 @@ in a fresh session: it is the project's memory.
 
 | Since | What | Status |
 |-------|------|--------|
+| 2026-10-05 | **Navigation keys that never drop a press and never freeze the launcher.** The 2026-10-05 log proved: presses lost to our one-at-a-time root (`BUSY`); back sent to the desktop with no focused window → 5 s ANR → launcher killed; recents key to the monitor does nothing. Now: one persistent key shell, back/home handled in-process when the desktop is in front, ZUI's own recents button traced and backed up. | Built, testing |
+| 2026-10-05 | **Launcher crash on replug** (NullPointerException while the monitor's home screen relaunches, in ZUI's view tree). Evidence kept for roadmap item 1. | Open |
 | 2026-10-05 | **Recents opens on the screen whose button was pressed, full screen, in front of every app, on the first press.** The tablet's home is Lawnchair, so recents is quickstep's fallback `RecentsActivity`; `hook/RecentsRoute` steers its launch options, corrects it when it appears wrong, and clears stale copies. | Built, testing |
 
 ## Planned, in order
