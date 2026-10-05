@@ -45,7 +45,10 @@ final class TaskbarNav {
     static void apply(ViewGroup dragLayer) {
         int display = TaskbarTray.displayIdOf(dragLayer);
         if (display == Display.DEFAULT_DISPLAY) {
-            // The tablet's own bar. The system's idea of "in front" is the tablet's anyway.
+            // The tablet's own bar. The system's idea of "in front" is the tablet's anyway, so
+            // its keys stay ZUI's - but its recents button still says it was pressed here, or
+            // recents cannot know which screen it is for.
+            wrap(dragLayer, "recent_apps", display);
             return;
         }
         wrap(dragLayer, "back", display);
@@ -90,7 +93,14 @@ final class TaskbarNav {
 
         @Override
         public void onClick(View v) {
-            if (!Cfg.navKeysOwnScreen()) {
+            if ("recent_apps".equals(mId)) {
+                RecentsRoute.pressed(mDisplay, () -> act(v));
+            }
+            act(v);
+        }
+
+        private void act(View v) {
+            if (mDisplay == Display.DEFAULT_DISPLAY || !Cfg.navKeysOwnScreen()) {
                 mOriginal.onClick(v);
                 return;
             }

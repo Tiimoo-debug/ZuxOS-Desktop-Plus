@@ -24,6 +24,12 @@ in a fresh session: it is the project's memory.
 | 2026-10 | Live liquid glass (blur + real refraction) on everything translucent, CPU-tuned, there from the first frame |
 | 2026-10 | iOS folder morph: folders grow out of their icon and back, icon hidden while open, one material closed and open |
 
+## In progress
+
+| Since | What | Status |
+|-------|------|--------|
+| 2026-10-05 | **Recents opens on the screen whose button was pressed, full screen, in front of every app, on the first press.** The tablet's home is Lawnchair, so recents is quickstep's fallback `RecentsActivity`; `hook/RecentsRoute` steers its launch options, corrects it when it appears wrong, and clears stale copies. | Built, testing |
+
 ## Planned, in order
 
 Risk is about where the code has to run: our launcher views are low risk; the system interface

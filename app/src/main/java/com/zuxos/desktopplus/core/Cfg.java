@@ -213,6 +213,11 @@ public final class Cfg {
         return getBool(Const.KEY_NAV_OWN_SCREEN, true);
     }
 
+    /** Recents opens on the screen whose button was pressed, full screen, in front of apps. */
+    public static boolean recentsRoute() {
+        return getBool(Const.KEY_RECENTS_ROUTE, true);
+    }
+
     /** The Android robot as the drawer button's icon, in place of ZUI's own. */
     public static boolean startButtonRobot() {
         return getBool(Const.KEY_START_ROBOT, true);

@@ -145,6 +145,10 @@ public class MainActivity extends Activity {
                 "Back, home and recents on the monitor's taskbar act on the monitor - not on "
                         + "the tablet, which is where the launcher sends them on its own",
                 Const.KEY_NAV_OWN_SCREEN, true);
+        addSwitch("Recents on the screen you pressed",
+                "The recents button opens recents on its own screen - tablet or monitor - full "
+                        + "screen and in front of every app, on the first press",
+                Const.KEY_RECENTS_ROUTE, true);
         addSwitch("Drawer button on the left",
                 "Moves the launcher's own all-apps button to the left of the taskbar, beside the "
                         + "navigation keys, instead of leaving it in the middle of the icons",

@@ -84,6 +84,8 @@ public final class Const {
     /** Keep ZUI's overview down during the moment an app is opening. */
     public static final String KEY_HIDE_RECENTS_FLASH = "hide_recents_flash";
     public static final String KEY_NAV_OWN_SCREEN = "nav_keys_own_screen";
+    /** Recents on the screen whose button was pressed, full screen and in front. */
+    public static final String KEY_RECENTS_ROUTE = "recents_route";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */

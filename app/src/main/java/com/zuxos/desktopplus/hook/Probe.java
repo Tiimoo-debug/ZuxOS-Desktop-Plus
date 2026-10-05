@@ -121,6 +121,11 @@ public final class Probe {
             sb.append("\nrunning tasks\n  (unreadable: ").append(t).append(")\n");
         }
         try {
+            sb.append(RecentsRoute.describe());
+        } catch (Throwable t) {
+            sb.append("\nrecents\n  (unreadable: ").append(t).append(")\n");
+        }
+        try {
             sb.append(describeGates(activity));
         } catch (Throwable t) {
             sb.append("\ngate methods\n  (unreadable: ").append(t).append(")\n");
