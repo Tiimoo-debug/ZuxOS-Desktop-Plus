@@ -122,6 +122,7 @@ public final class Probe {
         }
         try {
             sb.append(TaskbarNav.describe());
+            sb.append(TaskOverview.describe());
             sb.append(RecentsRoute.describe());
         } catch (Throwable t) {
             sb.append("\nrecents\n  (unreadable: ").append(t).append(")\n");

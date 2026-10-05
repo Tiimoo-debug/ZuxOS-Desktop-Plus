@@ -124,8 +124,8 @@ final class TaskbarNav {
                             record(mId, "ZUI's own (route off)");
                             return;
                         }
-                        RecentsRoute.openOn(v.getContext(), mDisplay);
-                        record(mId, "opened by the module");
+                        TaskOverview.toggle(v, mDisplay);
+                        record(mId, "the module's recents");
                 }
             } catch (Throwable t) {
                 L.d("taskbar nav: " + mId + " fell back to the launcher's own (" + t + ")");
@@ -177,6 +177,10 @@ final class TaskbarNav {
             drawer = TaskbarBridge.closeStockDrawer(display);
         } catch (Throwable ignored) {
             // Not reachable; the rest still close.
+        }
+        if (TaskOverview.isOpen()) {
+            TaskOverview.close();
+            drawer = true;
         }
         TaskbarMenu.dismiss();
         QuickPanel.dismiss();

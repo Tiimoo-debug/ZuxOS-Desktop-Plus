@@ -60,6 +60,7 @@ final class RecentsRoute {
     private static volatile int sTarget = Display.DEFAULT_DISPLAY;
     /** When recents last showed, either kind, and whether it was open when the button went. */
     private static volatile long sShownAt;
+    private static long sReopenedAt;
     private static volatile boolean sWasOpen;
     /** Until when every SystemUiProxy call is written down: the trace after a press. */
     private static volatile long sTraceUntil;
@@ -172,6 +173,9 @@ final class RecentsRoute {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
+                        if (keepOffTheMonitor(param, m)) {
+                            return;
+                        }
                         steer(param.args, m.getName());
                     }
                 });
@@ -247,90 +251,6 @@ final class RecentsRoute {
         return Boolean.TRUE.equals(Reflect.call(home, "isRecentsViewVisible"));
     }
 
-    /** The task that had focus on this display before recents, given back when it closes. */
-    private static volatile int sPrevTask = -1;
-
-    /**
-     * Opens ZUI's recents on this display, for real.
-     *
-     * <p>ZUI's button and the recents key both open it as a transient launch, which the system
-     * undid 14 ms later on this screen - the event log shows the home task brought forward and
-     * put straight back. A real move to the front stays, as the home key does. So: note what was
-     * in front, move the home screen forward, open its recents, and step our desktop out of the
-     * way. A second press closes it and gives the previous app its place back. If ZUI's recents
-     * is not up 400 ms later, quickstep's own recents is started there instead.
-     */
-    static void openOn(Context ctx, int display) {
-        Activity home = com.zuxos.desktopplus.desktop.DesktopHost.activityOn(display);
-        if (home == null) {
-            note("no home screen on display " + display + " - using quickstep's recents");
-            startFallback(ctx, display);
-            return;
-        }
-        if (recentsVisible(home)) {
-            Reflect.call(home, "hideRecentsView");
-            int prev = sPrevTask;
-            if (prev > 0) {
-                moveToFront(ctx, prev);
-            }
-            note("closed on display " + display + (prev > 0 ? ", previous app back" : ""));
-            return;
-        }
-        sPrevTask = focusedTask(ctx, display, home.getTaskId());
-        boolean moved = moveToFront(ctx, home.getTaskId());
-        if (!moved) {
-            KeyShell.send(display, android.view.KeyEvent.KEYCODE_HOME, null);
-        }
-        note("opening on display " + display + ": home "
-                + (moved ? "moved to the front" : "brought by the home key")
-                + ", previous task " + sPrevTask);
-        MAIN.postDelayed(() -> {
-            Reflect.call(home, "openRecentsView");
-            boolean visible = recentsVisible(home);
-            com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, visible);
-            MAIN.postDelayed(() -> {
-                if (recentsVisible(home) && TaskbarNav.homeInFront(ctx, display)) {
-                    sShownAt = SystemClock.uptimeMillis();
-                    note("open on display " + display);
-                    return;
-                }
-                note("ZUI's recents did not stay up on display " + display
-                        + " (visible=" + recentsVisible(home) + ", home in front="
-                        + TaskbarNav.homeInFront(ctx, display) + ") - using quickstep's");
-                com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, false);
-                startFallback(ctx, display);
-            }, 400L);
-        }, 120L);
-    }
-
-    private static boolean moveToFront(Context ctx, int task) {
-        try {
-            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
-            am.moveTaskToFront(task, 0);
-            return true;
-        } catch (Throwable t) {
-            note("could not move task " + task + " to the front (" + t + ")");
-            return false;
-        }
-    }
-
-    /** The task with focus on this display, other than {@code except}; -1 for none. */
-    private static int focusedTask(Context ctx, int display, int except) {
-        try {
-            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
-            for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(24)) {
-                Object d = Reflect.field(task, "displayId");
-                if (d instanceof Integer && (Integer) d == display && task.taskId != except
-                        && Boolean.TRUE.equals(Reflect.field(task, "isFocused"))) {
-                    return task.taskId;
-                }
-            }
-        } catch (Throwable ignored) {
-            // Nothing to give back later; recents still opens.
-        }
-        return -1;
-    }
-
     /** Quickstep's own recents, started here as a real task of its own on this display. */
     private static void startFallback(Context ctx, int display) {
         try {
@@ -348,35 +268,37 @@ final class RecentsRoute {
     }
 
     /**
-     * If the press opened nothing, open it here.
-     *
-     * <p>Started directly - the fallback recents is an activity of this very process - on the
-     * pressed display, full screen, as a task of its own. Skipped when the press was closing
-     * recents, or when either recents showed in the meantime.
+     * Quickstep sometimes answers a recents request on the tablet by launching into ZUI's home on
+     * the monitor ({@code startRecentsActivity(Intent SecondaryDisplayLauncher ...)}): the event
+     * log showed the monitor's home raised while the tablet showed nothing. The monitor has its
+     * own recents now, so such a launch is only ever the tablet's: it is refused - quickstep takes
+     * a failed start as one and cleans up - and the tablet's recents is started on the tablet.
      */
-    static void backstop(Context ctx, int display) {
+    private static boolean keepOffTheMonitor(XC_MethodHook.MethodHookParam param, Method m) {
         if (!Cfg.recentsRoute()) {
-            return;
+            return false;
         }
-        final long pressed = sPressedAt;
-        final boolean closing = sWasOpen;
-        MAIN.postDelayed(() -> {
-            if (closing || sPressedAt != pressed || sShownAt >= pressed) {
-                return;
+        Intent intent = null;
+        for (Object a : param.args) {
+            if (a instanceof Intent) {
+                intent = (Intent) a;
             }
-            try {
-                Intent intent = new Intent().setComponent(
-                        new ComponentName(ctx.getPackageName(), RECENTS))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                ActivityOptions options = ActivityOptions.makeBasic();
-                options.setLaunchDisplayId(display);
-                Reflect.call(options, "setLaunchWindowingMode", FULLSCREEN);
-                ctx.startActivity(intent, options.toBundle());
-                note("nothing opened in 800ms - started it ourselves on display " + display);
-            } catch (Throwable t) {
-                note("could not start it ourselves (" + t + ")");
-            }
-        }, 800L);
+        }
+        ComponentName c = intent == null ? null : intent.getComponent();
+        if (c == null || !c.getClassName().endsWith("SecondaryDisplayLauncher")) {
+            return false;
+        }
+        if (fresh() && sTarget != Display.DEFAULT_DISPLAY) {
+            return false;
+        }
+        Class<?> type = m.getReturnType();
+        param.setResult(type == boolean.class ? Boolean.FALSE : null);
+        Context ctx = com.zuxos.desktopplus.core.AppCtx.get();
+        if (ctx != null) {
+            MAIN.post(() -> startFallback(ctx, Display.DEFAULT_DISPLAY));
+        }
+        note("kept quickstep off the monitor's home - recents opened on the tablet");
+        return true;
     }
 
     private static void steer(Object[] args, String method) {
@@ -422,6 +344,21 @@ final class RecentsRoute {
         int display = displayOf(activity);
         int mode = windowingMode(activity);
         note("appeared on display " + display + ", mode " + mode);
+        if (display != Display.DEFAULT_DISPLAY && display != -1) {
+            // The monitor has the module's recents. A copy of this one there is the tablet's,
+            // lost - and while it lives there the tablet's next press only closes it.
+            note("closed the tablet's recents found on display " + display
+                    + " - opening it on the tablet");
+            activity.finish();
+            long now = SystemClock.uptimeMillis();
+            if (now - sReopenedAt > 3000L) {
+                // Once: if the system put it back on the monitor again, a loop helps nobody.
+                sReopenedAt = now;
+                Context ctx = activity.getApplicationContext();
+                MAIN.postDelayed(() -> startFallback(ctx, Display.DEFAULT_DISPLAY), 300L);
+            }
+            return;
+        }
         if (fresh() && display != sTarget) {
             note("was on display " + display + ", not " + sTarget + " - corrected");
             activity.finish();

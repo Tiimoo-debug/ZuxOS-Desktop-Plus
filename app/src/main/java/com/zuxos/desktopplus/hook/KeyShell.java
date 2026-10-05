@@ -58,6 +58,17 @@ final class KeyShell {
         });
     }
 
+    /** Any one command as root, through the same shell, in order with the keys. */
+    static void run(String command) {
+        QUEUE.execute(() -> {
+            String line = command + "\n";
+            if (!write(line)) {
+                restart();
+                write(line);
+            }
+        });
+    }
+
     private static boolean write(String line) {
         try {
             if (!alive() && !start()) {
