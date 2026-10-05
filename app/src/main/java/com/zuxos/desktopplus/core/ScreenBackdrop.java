@@ -532,7 +532,7 @@ public final class ScreenBackdrop {
     // --- the capture itself, on the worker thread ------------------------------------------------
 
     /** One capture, waited for; null if it failed. Worker thread only. */
-    private static Object grab(int display, Rect crop, SurfaceControl own, float scale) {
+    public static Object grab(int display, Rect crop, SurfaceControl own, float scale) {
         Object[] got = new Object[1];
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicBoolean late =
@@ -641,7 +641,7 @@ public final class ScreenBackdrop {
         L.i("liquid glass: capture refused (" + why + ") - using the system blur");
     }
 
-    private static Bitmap toBitmap(Object shot) {
+    public static Bitmap toBitmap(Object shot) {
         try {
             HardwareBuffer buffer = (HardwareBuffer) shot.getClass()
                     .getMethod("getHardwareBuffer").invoke(shot);

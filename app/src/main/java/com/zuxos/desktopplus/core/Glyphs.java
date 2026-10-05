@@ -43,6 +43,7 @@ public final class Glyphs {
     public static final int POWER = 20;
     public static final int SLEEP = 21;
     public static final int RESTART = 22;
+    public static final int MEMORY = 23;
 
     private Glyphs() {
     }
@@ -111,6 +112,8 @@ public final class Glyphs {
             glyph = POWER;
         } else if (t.startsWith("sleep") || t.startsWith("lock")) {
             glyph = SLEEP;
+        } else if (t.startsWith("memory") || t.startsWith("ram")) {
+            glyph = MEMORY;
         } else if (t.startsWith("restart") || t.startsWith("reboot")) {
             glyph = RESTART;
         } else if (t.contains("wallpaper")) {
@@ -320,6 +323,21 @@ public final class Glyphs {
                 p.moveTo(15.8f, 3.5f);
                 p.lineTo(16.2f, 6.6f);
                 p.lineTo(13, 7.2f);
+                return p;
+            case MEMORY:
+                // A RAM chip: the package, the die in it, and three pins on every side.
+                p.addRoundRect(new RectF(7, 7, 17, 17), 1.5f, 1.5f, Path.Direction.CW);
+                p.addRect(new RectF(10, 10, 14, 14), Path.Direction.CW);
+                for (float at : new float[]{9.5f, 12, 14.5f}) {
+                    p.moveTo(at, 4);
+                    p.lineTo(at, 7);
+                    p.moveTo(at, 17);
+                    p.lineTo(at, 20);
+                    p.moveTo(4, at);
+                    p.lineTo(7, at);
+                    p.moveTo(17, at);
+                    p.lineTo(20, at);
+                }
                 return p;
             default:
                 return null;

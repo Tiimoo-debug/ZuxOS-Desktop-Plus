@@ -65,6 +65,9 @@ final class TaskOverview {
         return t;
     });
 
+    /** Cards on liquid glass; past this many, plain - each pane is a live capture of its own. */
+    private static final int GLASS_CARDS = 8;
+
     private static FrameLayout sRoot;
     private static WindowManager sWm;
     private static int sDisplay = -1;
@@ -98,6 +101,10 @@ final class TaskOverview {
         int taskId;
         /** Running now: its card is a live tile. */
         boolean running;
+        /** On screen now, and where: its tile is cut straight out of a screen capture. */
+        boolean visible;
+        android.graphics.Rect bounds;
+        CropDrawable crop;
         Intent baseIntent;
         String pkg;
         CharSequence label;
@@ -172,9 +179,13 @@ final class TaskOverview {
                 int ph = Ui.dp(ctx, 18);
                 int pv = Ui.dp(ctx, 9);
                 clear.setPadding(ph, pv, ph, pv);
-                clear.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 20)));
+                clear.setBackground(null);
                 clear.setOnClickListener(v -> clearAll(ctx, cards));
-                header.addView(clear);
+                com.zuxos.desktopplus.core.GlassSurface pill =
+                        new com.zuxos.desktopplus.core.GlassSurface(ctx, Ui.dp(ctx, 20),
+                                0x401C1C22, com.zuxos.desktopplus.core.LiquidGlass.MENU);
+                pill.addView(clear);
+                header.addView(pill);
             }
             column.addView(header);
 
@@ -200,10 +211,24 @@ final class TaskOverview {
                     rows.addView(row, rlp);
                 }
                 Card card = cards.get(i);
-                View view = cardView(ctx, card, cards, cardW, thumbH);
+                View inner = cardView(ctx, card, cards, cardW, thumbH);
+                View view = inner;
+                int glassPad = 0;
+                if (i < GLASS_CARDS) {
+                    // Each card on its own pane of liquid glass: what is behind it frosted, its
+                    // rim bending it - the same glass as the menus and the bar.
+                    glassPad = Ui.dp(ctx, 14);
+                    com.zuxos.desktopplus.core.GlassSurface glass =
+                            new com.zuxos.desktopplus.core.GlassSurface(ctx, Ui.dp(ctx, 24),
+                                    0x401C1C22, com.zuxos.desktopplus.core.LiquidGlass.MENU);
+                    glass.setPadding(glassPad, glassPad, glassPad, glassPad);
+                    glass.addView(inner, new FrameLayout.LayoutParams(cardW,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+                    view = glass;
+                }
                 card.view = view;
-                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(cardW,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                        cardW + 2 * glassPad, ViewGroup.LayoutParams.WRAP_CONTENT);
                 clp.leftMargin = gap / 2;
                 clp.rightMargin = gap / 2;
                 row.addView(view, clp);
@@ -303,7 +328,7 @@ final class TaskOverview {
         box.addView(thumb, tlp);
 
         thumb.setOnClickListener(v -> launch(ctx, card));
-        swipeToClose(thumb, box, () -> remove(ctx, card, all));
+        swipeToClose(thumb, card, box, () -> remove(ctx, card, all));
         // Held, or right-clicked: the same menu an app's icon has, with what it is using.
         View.OnLongClickListener menu = v -> {
             showMenu(ctx, v, card, all);
@@ -323,10 +348,12 @@ final class TaskOverview {
     }
 
     /** Up and away closes the app, as in any recents; anything shorter springs back. */
-    private static void swipeToClose(View handle, View card, Runnable onClose) {
+    private static void swipeToClose(View handle, Card owner, View box, Runnable onClose) {
         final float[] down = new float[2];
         final boolean[] dragging = new boolean[1];
         handle.setOnTouchListener((v, e) -> {
+            // The whole card moves - its glass pane with it - not just what is inside it.
+            View card = owner.view != null ? owner.view : box;
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     down[0] = e.getRawX();
@@ -390,6 +417,10 @@ final class TaskOverview {
                 }
                 Card card = cardFor(ctx, pm, task.taskId, task.baseIntent,
                         task.topActivity != null ? task.topActivity : task.baseActivity, true);
+                if (card != null) {
+                    card.visible = Boolean.TRUE.equals(Reflect.field(task, "isVisible"));
+                    card.bounds = boundsOf(task);
+                }
                 if (card != null && seen.add(card.taskId)) {
                     out.add(card);
                     here++;
@@ -423,6 +454,22 @@ final class TaskOverview {
             L.d("task overview: could not list tasks (" + t + ")");
         }
         return out;
+    }
+
+    /** Where the task's window is on its screen; null if it cannot be read. */
+    private static android.graphics.Rect boundsOf(Object task) {
+        try {
+            Object config = Reflect.call(task, "getConfiguration");
+            if (config == null) {
+                config = Reflect.field(task, "configuration");
+            }
+            Object window = config == null ? null : Reflect.field(config, "windowConfiguration");
+            Object rect = window == null ? null : Reflect.call(window, "getBounds");
+            return rect instanceof android.graphics.Rect && !((android.graphics.Rect) rect).isEmpty()
+                    ? new android.graphics.Rect((android.graphics.Rect) rect) : null;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static Card cardFor(Context ctx, PackageManager pm, int taskId, Intent base,
@@ -464,7 +511,7 @@ final class TaskOverview {
                 MAIN.post(() -> {
                     View view = card.view;
                     View thumb = view == null ? null : view.findViewWithTag("thumb");
-                    if (thumb instanceof ImageView) {
+                    if (thumb instanceof ImageView && card.crop == null) {
                         // Whole, not cropped: a window's picture has the window's shape.
                         ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
                         ((ImageView) thumb).setImageBitmap(b);
@@ -742,7 +789,9 @@ final class TaskOverview {
                 }
                 List<Card> live = new ArrayList<>();
                 for (Card c : cards) {
-                    if (c.running && c.view != null) {
+                    // Cards fed from the screen capture are already live at frame rate.
+                    if (c.running && c.view != null && !(sScreenFed && c.visible
+                            && c.bounds != null)) {
                         live.add(c);
                     }
                 }
@@ -758,7 +807,7 @@ final class TaskOverview {
                             return;
                         }
                         View thumb = card.view.findViewWithTag("thumb");
-                        if (thumb instanceof ImageView) {
+                        if (thumb instanceof ImageView && card.crop == null) {
                             Bitmap old = card.thumb;
                             card.thumb = b;
                             ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -774,7 +823,144 @@ final class TaskOverview {
             }
         };
         MAIN.postDelayed(step, 600L);
-        record("live tiles: running apps refresh in turn every " + LIVE_STEP_MS + "ms");
+        startScreenFeed(cards, root);
+    }
+
+    private static volatile boolean sScreenFed;
+
+    /** About 30 pictures a second for the tiles of apps that are on screen. */
+    private static final long FRAME_MS = 33L;
+    private static final float FEED_SCALE = 0.4f;
+
+    /**
+     * Live tiles at frame rate. One capture of the whole screen behind recents - the way the
+     * liquid glass captures, our own window left out - and every visible app's tile is cut out of
+     * it. A system snapshot per app, one at a time, managed about one picture a second per tile;
+     * this is one capture per frame for all of them.
+     */
+    private static void startScreenFeed(List<Card> cards, FrameLayout root) {
+        boolean any = false;
+        for (Card c : cards) {
+            any |= c.running && c.visible && c.bounds != null;
+        }
+        if (!any || com.zuxos.desktopplus.core.ScreenBackdrop.refused()) {
+            sScreenFed = false;
+            record("live tiles: snapshots only (" + (any ? "capture refused" : "nothing on screen")
+                    + ")");
+            return;
+        }
+        sScreenFed = true;
+        final int display = sDisplay;
+        final DisplayMetrics dm = root.getContext().getResources().getDisplayMetrics();
+        final android.graphics.Rect screen = new android.graphics.Rect(0, 0, dm.widthPixels,
+                dm.heightPixels);
+        final long startedAt = android.os.SystemClock.uptimeMillis();
+        final int[] frames = {0};
+        final ArrayDeque<Bitmap> retired = new ArrayDeque<>();
+        Runnable capture = new Runnable() {
+            @Override
+            public void run() {
+                if (sRoot != root) {
+                    return;
+                }
+                long t0 = android.os.SystemClock.uptimeMillis();
+                android.view.SurfaceControl own =
+                        com.zuxos.desktopplus.core.ScreenBackdrop.surfaceOf(root);
+                Object shot = own == null ? null : com.zuxos.desktopplus.core.ScreenBackdrop
+                        .grab(display, screen, own, FEED_SCALE);
+                Bitmap frame = shot == null ? null
+                        : com.zuxos.desktopplus.core.ScreenBackdrop.toBitmap(shot);
+                if (frame != null) {
+                    MAIN.post(() -> {
+                        if (sRoot != root) {
+                            frame.recycle();
+                            return;
+                        }
+                        for (Card c : cards) {
+                            if (!(c.running && c.visible && c.bounds != null) || c.view == null) {
+                                continue;
+                            }
+                            View thumb = c.view.findViewWithTag("thumb");
+                            if (!(thumb instanceof ImageView)) {
+                                continue;
+                            }
+                            if (c.crop == null) {
+                                c.crop = new CropDrawable(c.bounds, FEED_SCALE);
+                                ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
+                                ((ImageView) thumb).setImageDrawable(c.crop);
+                            }
+                            c.crop.setFrame(frame);
+                        }
+                        retired.addLast(frame);
+                        while (retired.size() > 2) {
+                            Bitmap old = retired.removeFirst();
+                            old.recycle();
+                        }
+                        frames[0]++;
+                        if (frames[0] == 60) {
+                            long ms = android.os.SystemClock.uptimeMillis() - startedAt;
+                            record("live tiles: from the screen at ~"
+                                    + Math.round(60000f / Math.max(1, ms)) + " fps");
+                        }
+                    });
+                }
+                long wait = Math.max(0L, FRAME_MS - (android.os.SystemClock.uptimeMillis() - t0));
+                MAIN.postDelayed(() -> IO.execute(this), wait);
+            }
+        };
+        IO.execute(capture);
+    }
+
+    /** A tile cut out of the shared screen picture: the app window's own rectangle. */
+    private static final class CropDrawable extends Drawable {
+        private final android.graphics.Rect mSrc;
+        private final android.graphics.Paint mPaint =
+                new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        private Bitmap mFrame;
+
+        CropDrawable(android.graphics.Rect bounds, float scale) {
+            mSrc = new android.graphics.Rect(Math.round(bounds.left * scale),
+                    Math.round(bounds.top * scale), Math.round(bounds.right * scale),
+                    Math.round(bounds.bottom * scale));
+        }
+
+        void setFrame(Bitmap frame) {
+            mFrame = frame;
+            invalidateSelf();
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            Bitmap f = mFrame;
+            if (f != null && !f.isRecycled()) {
+                canvas.drawBitmap(f, mSrc, getBounds(), mPaint);
+            }
+        }
+
+        @Override
+        public int getIntrinsicWidth() {
+            return Math.max(1, mSrc.width());
+        }
+
+        @Override
+        public int getIntrinsicHeight() {
+            return Math.max(1, mSrc.height());
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            mPaint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter filter) {
+            mPaint.setColorFilter(filter);
+        }
+
+        @Override
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
     }
 
     static void close() {
