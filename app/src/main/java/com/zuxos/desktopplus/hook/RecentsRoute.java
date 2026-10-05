@@ -109,6 +109,11 @@ final class RecentsRoute {
                 ? sTarget : Display.DEFAULT_DISPLAY;
     }
 
+    /** A recents press on the tablet's own taskbar, just now. */
+    private static boolean tabletPressed() {
+        return fresh() && sTarget == Display.DEFAULT_DISPLAY;
+    }
+
     private static boolean fresh() {
         return SystemClock.uptimeMillis() - sPressedAt < PRESS_MS;
     }
@@ -288,7 +293,10 @@ final class RecentsRoute {
         if (c == null || !c.getClassName().endsWith("SecondaryDisplayLauncher")) {
             return false;
         }
-        if (fresh() && sTarget != Display.DEFAULT_DISPLAY) {
+        // Only for a recents press on the tablet. Going home on the monitor goes through this
+        // same launch - blocking that left the monitor's home unanswered and opened an empty
+        // recents on the tablet, which is exactly what was seen.
+        if (!tabletPressed()) {
             return false;
         }
         Class<?> type = m.getReturnType();
@@ -351,7 +359,9 @@ final class RecentsRoute {
                     + " - opening it on the tablet");
             activity.finish();
             long now = SystemClock.uptimeMillis();
-            if (now - sReopenedAt > 3000L) {
+            // Reopened on the tablet only if the tablet's recents was what was pressed; never
+            // on its own, or the tablet gets a recents nobody asked for.
+            if (tabletPressed() && now - sReopenedAt > 3000L) {
                 // Once: if the system put it back on the monitor again, a loop helps nobody.
                 sReopenedAt = now;
                 Context ctx = activity.getApplicationContext();
