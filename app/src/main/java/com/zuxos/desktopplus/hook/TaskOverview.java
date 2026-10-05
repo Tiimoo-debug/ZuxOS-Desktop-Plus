@@ -89,6 +89,8 @@ final class TaskOverview {
     /** One task as shown: what it is and where its picture comes from. */
     private static final class Card {
         int taskId;
+        /** Running now: its card is a live tile. */
+        boolean running;
         Intent baseIntent;
         String pkg;
         CharSequence label;
@@ -223,6 +225,7 @@ final class TaskOverview {
             sWm = wm;
             sDisplay = display;
             loadThumbnails(cards);
+            startLive(cards, root);
             record("opened on display " + display + " (" + cards.size() + " tasks)");
         } catch (Throwable t) {
             L.e("task overview: could not open", t);
@@ -382,6 +385,7 @@ final class TaskOverview {
                     continue;
                 }
                 Card card = new Card();
+                card.running = running || on == display;
                 card.taskId = task.taskId;
                 card.baseIntent = base;
                 card.pkg = c.getPackageName();
@@ -447,6 +451,10 @@ final class TaskOverview {
     }
 
     private static Bitmap snapshot(int taskId, String name) {
+        return snapshot(taskId, name, name.startsWith("take"));
+    }
+
+    private static Bitmap snapshot(int taskId, String name, boolean updateCache) {
         try {
             Object atm = activityTaskManager();
             for (Method m : atm.getClass().getMethods()) {
@@ -456,7 +464,7 @@ final class TaskOverview {
                     Object[] args = new Object[p.length];
                     args[0] = taskId;
                     // getTaskSnapshot(id, lowResolution=false); takeTaskSnapshot(id, updateCache)
-                    args[1] = name.startsWith("take");
+                    args[1] = updateCache;
                     for (int i = 2; i < p.length; i++) {
                         args[i] = p[i] == boolean.class ? Boolean.FALSE
                                 : p[i] == int.class ? Integer.valueOf(0) : null;
@@ -670,6 +678,59 @@ final class TaskOverview {
         for (Card card : new ArrayList<>(cards)) {
             remove(ctx, card, cards);
         }
+    }
+
+    /** One live picture every this often, taking the running apps in turn. */
+    private static final long LIVE_STEP_MS = 350L;
+
+    /**
+     * Live tiles: while recents is open, each running app's card is re-pictured in turn, so it
+     * shows what the app is doing now rather than when it was last hidden. One picture at a time,
+     * off the main thread, and it stops the moment recents closes.
+     */
+    private static void startLive(List<Card> cards, FrameLayout root) {
+        final int[] next = {0};
+        Runnable step = new Runnable() {
+            @Override
+            public void run() {
+                if (sRoot != root) {
+                    return;
+                }
+                List<Card> live = new ArrayList<>();
+                for (Card c : cards) {
+                    if (c.running && c.view != null) {
+                        live.add(c);
+                    }
+                }
+                if (live.isEmpty()) {
+                    return;
+                }
+                Card card = live.get(next[0]++ % live.size());
+                IO.execute(() -> {
+                    // Not into the system's cache: these are for this view only.
+                    Bitmap b = snapshot(card.taskId, "takeTaskSnapshot", false);
+                    MAIN.post(() -> {
+                        if (b == null || sRoot != root) {
+                            return;
+                        }
+                        View thumb = card.view.findViewWithTag("thumb");
+                        if (thumb instanceof ImageView) {
+                            Bitmap old = card.thumb;
+                            card.thumb = b;
+                            ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
+                            ((ImageView) thumb).setImageBitmap(b);
+                            if (old != null && old != b) {
+                                // Freed a frame later, once nothing is drawing it.
+                                thumb.postOnAnimation(old::recycle);
+                            }
+                        }
+                    });
+                    MAIN.postDelayed(this, LIVE_STEP_MS);
+                });
+            }
+        };
+        MAIN.postDelayed(step, 600L);
+        record("live tiles: running apps refresh in turn every " + LIVE_STEP_MS + "ms");
     }
 
     static void close() {
