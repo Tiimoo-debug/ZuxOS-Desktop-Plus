@@ -124,7 +124,17 @@ final class TaskOverview {
         final List<Card> cards = tasksOn(ctx, display);
         try {
             FrameLayout root = new FrameLayout(ctx);
-            root.setBackgroundColor(0xA60A0A0E);
+            root.setBackgroundColor(0x400A0A0E);
+            // The whole background is one sheet of liquid glass: the screen behind frosted, and
+            // bent at its rim all the way round - not only the cards.
+            int sheetInset = Ui.dp(ctx, 12);
+            com.zuxos.desktopplus.core.GlassSurface sheet =
+                    new com.zuxos.desktopplus.core.GlassSurface(ctx, Ui.dp(ctx, 32),
+                            0x8C0A0A0E, com.zuxos.desktopplus.core.LiquidGlass.THICK);
+            FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            slp.setMargins(sheetInset, sheetInset, sheetInset, sheetInset);
+            root.addView(sheet, slp);
             root.setOnClickListener(v -> close());
             // A touch on the taskbar - the one part of the screen this does not cover - means
             // the user has moved on: opened a folder, an app, a menu. The recordings showed

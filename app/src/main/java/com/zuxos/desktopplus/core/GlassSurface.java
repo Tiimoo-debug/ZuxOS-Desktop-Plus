@@ -156,6 +156,13 @@ public class GlassSurface extends FrameLayout {
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         super.onLayout(changed, l, t, r, b);
+        if (mGlass != null) {
+            // The glass is the whole pane, edge to edge. Laid out like any child it started at
+            // the padding and ran past the far side by as much: a padded pane - the recents
+            // cards - had round corners on the left and cut-off square ones on the right, with
+            // its content against that edge.
+            mGlass.layout(0, 0, r - l, b - t);
+        }
         if (mGlass != null && !sSaidSize && getWidth() > 0) {
             sSaidSize = true;
             L.d("glass: surface " + getWidth() + "x" + getHeight() + ", backdrop "
