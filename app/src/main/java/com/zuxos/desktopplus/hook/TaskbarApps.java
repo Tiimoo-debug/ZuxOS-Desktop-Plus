@@ -325,8 +325,10 @@ final class TaskbarApps {
         if (taskOf(ctx, pkg, displayId) != null) {
             // Only for an app that is open here: a second window of something with no first one
             // is just opening it, and there is nothing to minimise.
-            entries.add(new TaskbarMenu.Entry("New window",
-                    () -> newWindow(ctx, pkg, displayId)));
+            if (allowsWindows(ctx, pkg)) {
+                entries.add(new TaskbarMenu.Entry("New window",
+                        () -> newWindow(ctx, pkg, displayId)));
+            }
             entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
         }
         entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
@@ -463,31 +465,96 @@ final class TaskbarApps {
      * only ever closed by the user.
      */
     static void minimize(Context ctx, String pkg, int display) {
-        List<android.app.ActivityManager.RunningTaskInfo> tasks = tasksOn(ctx, display);
-        if (tasks.isEmpty() || !pkg.equals(packageOf(tasks.get(0)))) {
-            L.i("taskbar apps: " + pkg + " is already out of sight on display " + display);
+        android.app.ActivityManager.RunningTaskInfo task = taskOf(ctx, pkg, display);
+        if (task == null) {
+            L.i("taskbar apps: " + pkg + " has no window on display " + display);
             return;
         }
-        android.app.ActivityManager.RunningTaskInfo next = null;
-        for (int i = 1; i < tasks.size(); i++) {
-            if (!pkg.equals(packageOf(tasks.get(i)))) {
-                next = tasks.get(i);
-                break;
+        // The window itself goes to the back - under the desktop - and stays running. The
+        // monitor's windows are free-floating (the probe lists them as freeform), so bringing
+        // another app forward, as this used to, left the "minimised" one in sight.
+        String refused = sendToBack(task);
+        if (refused == null) {
+            L.i("taskbar apps: minimized " + pkg + " (task " + task.taskId + ")");
+            return;
+        }
+        // Not ours to reorder: the system half does it, if System Framework is ticked.
+        int taskId = task.taskId;
+        try {
+            Intent intent = new Intent(SystemBridge.ACTION_MINIMIZE).setPackage("android")
+                    .putExtra(SystemBridge.EXTRA_TASK, taskId);
+            android.app.BroadcastOptions options = android.app.BroadcastOptions.makeBasic();
+            options.setShareIdentityEnabled(true);
+            ctx.sendBroadcast(intent, null, options.toBundle());
+        } catch (Throwable t) {
+            L.d("taskbar apps: could not ask the system to minimise (" + t + ")");
+        }
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            android.app.ActivityManager.RunningTaskInfo still = null;
+            for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+                if (t.taskId == taskId) {
+                    still = t;
+                }
             }
-        }
-        String nextPkg = next == null ? null : packageOf(next);
-        if (next == null || ctx.getPackageName().equals(nextPkg)) {
-            // The desktop is next: home on that screen.
+            if (still == null || !Boolean.TRUE.equals(Reflect.field(still, "isVisible"))) {
+                L.i("taskbar apps: minimized " + pkg + " through the system");
+                return;
+            }
+            // Neither could: the desktop in front of everything, by home on that screen.
             String route = TaskbarNav.key(ctx, android.view.KeyEvent.KEYCODE_HOME, display, null);
-            L.i("taskbar apps: minimized " + pkg + " to the desktop (" + route + ")");
-            return;
+            L.i("taskbar apps: could not send " + pkg + " back (" + refused
+                    + "); showed the desktop instead (" + route + ")");
+        }, 400L);
+    }
+
+    /**
+     * Moves a task to the bottom of its screen, the way a minimise button does. Null when done,
+     * else why not.
+     */
+    private static String sendToBack(android.app.ActivityManager.RunningTaskInfo task) {
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null) {
+                return "no window token";
+            }
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("reorder", Class.forName("android.window.WindowContainerToken"),
+                    boolean.class).invoke(wct, token, false);
+            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+            organizer.getMethod("applyTransaction", wctClass)
+                    .invoke(organizer.getConstructor().newInstance(), wct);
+            return null;
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            return cause.getClass().getSimpleName() + ": " + cause.getMessage();
+        } catch (Throwable t) {
+            return t.toString();
         }
-        if (TaskOverview.bringToFront(next.taskId, display)) {
-            L.i("taskbar apps: minimized " + pkg + ", " + nextPkg + " is in front now");
-        } else {
-            TaskbarNav.key(ctx, android.view.KeyEvent.KEYCODE_HOME, display, null);
-            L.i("taskbar apps: minimized " + pkg + " to the desktop (could not bring "
-                    + nextPkg + " forward)");
+    }
+
+    /**
+     * Whether the app can have a second window at all. An app whose main screen is single-task
+     * or single-instance is always brought back to its one window, whatever the
+     * launch asks for; offering it a "new window" only reopened it.
+     */
+    static boolean allowsWindows(Context ctx, String pkg) {
+        try {
+            Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+            android.content.pm.ResolveInfo ri = intent == null ? null
+                    : ctx.getPackageManager().resolveActivity(intent, 0);
+            if (ri == null || ri.activityInfo == null) {
+                return false;
+            }
+            android.content.pm.ActivityInfo ai = ri.activityInfo;
+            if (ai.launchMode == android.content.pm.ActivityInfo.LAUNCH_SINGLE_TASK
+                    || ai.launchMode == android.content.pm.ActivityInfo.LAUNCH_SINGLE_INSTANCE) {
+                return false;
+            }
+            return ai.documentLaunchMode
+                    != android.content.pm.ActivityInfo.DOCUMENT_LAUNCH_NEVER;
+        } catch (Throwable t) {
+            return true;
         }
     }
 
@@ -495,6 +562,16 @@ final class TaskbarApps {
      * Another window of the app, beside the one already open. Apps that allow it open a second
      * one; an app that only ever has one just comes forward.
      */
+    private static int windowsOf(Context ctx, String pkg, int display) {
+        int n = 0;
+        for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+            if (pkg.equals(packageOf(t))) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     static void newWindow(Context ctx, String pkg, int display) {
         try {
             Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
@@ -503,8 +580,19 @@ final class TaskbarApps {
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+            int before = windowsOf(ctx, pkg, display);
             ctx.startActivity(intent, TaskbarMenu.launchOptions(display));
-            L.i("taskbar apps: new window of " + pkg + " on display " + display);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                int after = windowsOf(ctx, pkg, display);
+                if (after > before) {
+                    L.i("taskbar apps: new window of " + pkg + " on display " + display
+                            + " (" + after + " now)");
+                    return;
+                }
+                // The app took the launch into the window it already had.
+                L.i("taskbar apps: " + pkg + " reopened its one window instead of a new one");
+                TaskbarMenu.toast(ctx, "This app only allows one window");
+            }, 1500L);
         } catch (Throwable t) {
             L.e("taskbar apps: could not open a new window of " + pkg, t);
         }
