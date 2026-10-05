@@ -121,6 +121,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mActivity = activity;
         AppCtx.set(activity);
         mExternal = external;
+        com.zuxos.desktopplus.hook.KeepAlive.start(activity);
         mDisplayId = displayIdOf(activity);
         mSortMode = Cfg.drawerSort();
 

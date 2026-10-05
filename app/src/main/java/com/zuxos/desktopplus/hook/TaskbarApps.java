@@ -246,6 +246,9 @@ final class TaskbarApps {
             // Every walk, not once per view. ZUI rebinds the icon of the app open in front and
             // hands it a listener of its own in the process; remembering that we had already set
             // ours is exactly how that one icon was left with no menu.
+            // The hover - lift, jiggle, window preview - on the launcher's icons as on ours.
+            TaskbarPreview.attach(icon, IconInfo.packageOf(icon.getTag()),
+                    TaskbarTray.displayIdOf(icon));
             Object current = longClickListenerOf(icon);
             if (current == ROW_MENU) {
                 continue;
@@ -278,6 +281,7 @@ final class TaskbarApps {
         for (int i = 0; i < icons.getChildCount(); i++) {
             View icon = icons.getChildAt(i);
             if (MENUS.remove(icon) != null) {
+                icon.setOnHoverListener(null);
                 icon.setOnLongClickListener(null);
                 icon.setLongClickable(false);
             }
@@ -318,8 +322,11 @@ final class TaskbarApps {
             int displayId) {
         List<TaskbarMenu.Entry> entries = new ArrayList<>();
         entries.add(new TaskbarMenu.Entry("Open", () -> TaskbarMenu.launch(ctx, pkg, displayId)));
-        entries.add(new TaskbarMenu.Entry("New window", () -> newWindow(ctx, pkg, displayId)));
         if (taskOf(ctx, pkg, displayId) != null) {
+            // Only for an app that is open here: a second window of something with no first one
+            // is just opening it, and there is nothing to minimise.
+            entries.add(new TaskbarMenu.Entry("New window",
+                    () -> newWindow(ctx, pkg, displayId)));
             entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
         }
         entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
@@ -415,7 +422,7 @@ final class TaskbarApps {
      * privileged thing to do, so it goes the same way as the other privileged things here.
      */
     /** The app's tasks on a display, front first, from the running list. */
-    private static List<android.app.ActivityManager.RunningTaskInfo> tasksOn(Context ctx,
+    static List<android.app.ActivityManager.RunningTaskInfo> tasksOn(Context ctx,
             int display) {
         List<android.app.ActivityManager.RunningTaskInfo> out = new ArrayList<>();
         try {
@@ -433,7 +440,7 @@ final class TaskbarApps {
         return out;
     }
 
-    private static String packageOf(android.app.ActivityManager.RunningTaskInfo task) {
+    static String packageOf(android.app.ActivityManager.RunningTaskInfo task) {
         android.content.ComponentName c = task.baseIntent != null
                 && task.baseIntent.getComponent() != null ? task.baseIntent.getComponent()
                 : task.topActivity != null ? task.topActivity : task.baseActivity;

@@ -14,5 +14,7 @@
         <item>com.lenovo.launcher</item>
         <item>com.android.launcher3</item>
         <item>com.android.systemui</item>
+        <!-- System Framework: only for keeping apps on the monitor alive. -->
+        <item>android</item>
     </string-array>
 </resources>

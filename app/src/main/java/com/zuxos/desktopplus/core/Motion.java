@@ -25,10 +25,15 @@ public final class Motion {
     /** A firmer spring, no visible overshoot - for things that move but must not wobble. */
     public static final TimeInterpolator SPRING_FIRM = spring(0.9f);
 
+    /** iOS's default spring: damping 0.82 - one soft settle, no wobble. */
+    public static final TimeInterpolator IOS = spring(0.82f);
+
     /** Durations. Springs need a little longer than eases to settle. */
     public static final long SHORT = 160L;
     public static final long MEDIUM = 280L;
     public static final long SPRING_MS = 420L;
+    /** How long {@link #IOS} takes to land: iOS's response of about 0.38s. */
+    public static final long IOS_MS = 380L;
 
     private Motion() {
     }

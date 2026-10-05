@@ -430,8 +430,16 @@ final class TaskbarRunning {
         int gap = spacing(icons);
         // Not trimmed to the room any more - the row scrolls now. The cap is only so that a
         // machine with eighty things open does not build eighty views every three seconds.
-        List<String> wanted = RunningOrder.trimToFit(
-                RunningOrder.inOrder(row.mRunning, missing), MOST_ICONS * (size + gap), size, gap);
+        int displayId = TaskbarTray.displayIdOf(dragLayer);
+        List<String> plain = new ArrayList<>();
+        for (String key : row.mRunning) {
+            if (key.indexOf(WINDOW_MARK) < 0) {
+                plain.add(key);
+            }
+        }
+        List<String> wanted = withWindows(RunningOrder.trimToFit(
+                RunningOrder.inOrder(plain, missing), MOST_ICONS * (size + gap), size, gap),
+                running, displayId, dragLayer.getContext().getPackageName());
         List<String> pinKeys = new ArrayList<>();
         for (Item pin : pins) {
             pinKeys.add(pin.key());
@@ -440,7 +448,6 @@ final class TaskbarRunning {
             return;
         }
         Context ctx = dragLayer.getContext();
-        int displayId = TaskbarTray.displayIdOf(dragLayer);
         if (pinKeys.equals(row.mPins)
                 && reconcile(row, wanted, ctx, size, gap, displayId)) {
             return;
@@ -1026,6 +1033,13 @@ final class TaskbarRunning {
             setWillNotDraw(false);
         }
 
+        /** Between icons: the nearest one still counts as under the pointer. */
+        @Override
+        public boolean onHoverEvent(android.view.MotionEvent event) {
+            TaskbarPreview.rowHover(this, event);
+            return true;
+        }
+
         void setOpen(Set<String> open) {
             if (!open.equals(mOpen)) {
                 mOpen = new LinkedHashSet<>(open);
@@ -1143,6 +1157,7 @@ final class TaskbarRunning {
             if (tasks == null) {
                 return out;
             }
+            Map<String, List<Integer>> windows = new java.util.LinkedHashMap<>();
             for (ActivityManager.RunningTaskInfo task : tasks) {
                 if (task.baseActivity == null) {
                     continue;
@@ -1152,8 +1167,15 @@ final class TaskbarRunning {
                 everything.add(pkg);
                 if (isOpen(task) && onDisplay(task, displayId)) {
                     out.add(pkg);
+                    List<Integer> ids = windows.get(pkg);
+                    if (ids == null) {
+                        ids = new ArrayList<>();
+                        windows.put(pkg, ids);
+                    }
+                    ids.add(task.taskId);
                 }
             }
+            WINDOWS.put(displayId, windows);
             if (everything.size() <= 1) {
                 return new LinkedHashSet<>();
             }
@@ -1174,6 +1196,46 @@ final class TaskbarRunning {
     }
 
     private static final Set<String> sSaidUnfiltered = new LinkedHashSet<>();
+
+    /** Per display: each open app's windows (task ids), the front one first. */
+    private static final Map<Integer, Map<String, List<Integer>>> WINDOWS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** An extra window's key in the row: the app, and which of its tasks. */
+    private static final char WINDOW_MARK = '#';
+
+    /**
+     * The row's keys with one more icon for every extra window: an app opened twice is two
+     * icons, the second right after the first - or, when the first is a pin or one of the
+     * launcher's own icons, at the end.
+     */
+    private static List<String> withWindows(List<String> wanted, Set<String> running,
+            int displayId, String launcher) {
+        Map<String, List<Integer>> windows = WINDOWS.get(displayId);
+        if (windows == null || windows.isEmpty()) {
+            return wanted;
+        }
+        List<String> out = new ArrayList<>();
+        for (String pkg : wanted) {
+            out.add(pkg);
+            addExtra(out, windows.get(pkg), pkg);
+        }
+        for (String pkg : running) {
+            if (!wanted.contains(pkg) && !pkg.equals(launcher)) {
+                addExtra(out, windows.get(pkg), pkg);
+            }
+        }
+        return out;
+    }
+
+    private static void addExtra(List<String> out, List<Integer> ids, String pkg) {
+        if (ids == null) {
+            return;
+        }
+        for (int i = 1; i < ids.size(); i++) {
+            out.add(pkg + WINDOW_MARK + ids.get(i));
+        }
+    }
     private static boolean sSaidFields;
 
     /** Which of the task list's unpublished fields this build actually lets us read. */
@@ -1392,6 +1454,7 @@ final class TaskbarRunning {
         public boolean onTouch(View v, android.view.MotionEvent e) {
             switch (e.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN: {
+                    TaskbarPreview.pressed(v);
                     if (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
                             && (e.getButtonState()
                             & android.view.MotionEvent.BUTTON_SECONDARY) != 0) {
@@ -1488,6 +1551,7 @@ final class TaskbarRunning {
     static final class Press implements View.OnTouchListener {
 
         static void down(View v) {
+            TaskbarPreview.pressed(v);
             v.animate().cancel();
             v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT - 40)
                     .setInterpolator(Motion.EASE).start();
@@ -1526,7 +1590,18 @@ final class TaskbarRunning {
         }
     }
 
-    private static View iconFor(Context ctx, String pkg, int size, int displayId) {
+    private static View iconFor(Context ctx, String key, int size, int displayId) {
+        int mark = key.indexOf(WINDOW_MARK);
+        String pkg = mark < 0 ? key : key.substring(0, mark);
+        int window = -1;
+        if (mark >= 0) {
+            try {
+                window = Integer.parseInt(key.substring(mark + 1));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        final int taskId = window;
         try {
             PackageManager pm = ctx.getPackageManager();
             Drawable art = pm.getApplicationIcon(pkg);
@@ -1541,6 +1616,19 @@ final class TaskbarRunning {
             view.setTag(pkg);
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
             view.setOnClickListener(v -> {
+                // A window icon is that window; the app's own icon, when it has several, is its
+                // front one - not the app opened again.
+                int target = taskId;
+                if (target < 0) {
+                    Map<String, List<Integer>> windows = WINDOWS.get(displayId);
+                    List<Integer> ids = windows == null ? null : windows.get(pkg);
+                    if (ids != null && ids.size() > 1) {
+                        target = ids.get(0);
+                    }
+                }
+                if (target >= 0 && TaskOverview.bringToFront(target, displayId)) {
+                    return;
+                }
                 try {
                     Intent intent = pm.getLaunchIntentForPackage(pkg);
                     if (intent == null) {
@@ -1557,6 +1645,7 @@ final class TaskbarRunning {
             view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
                     android.os.Process.myUserHandle(), displayId));
             view.setOnTouchListener(new Press());
+            TaskbarPreview.attach(view, pkg, displayId);
             return view;
         } catch (Throwable t) {
             // An app we cannot draw is an app we leave out.

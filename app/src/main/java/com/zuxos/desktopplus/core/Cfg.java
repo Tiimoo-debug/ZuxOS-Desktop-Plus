@@ -218,6 +218,11 @@ public final class Cfg {
         return getBool(Const.KEY_RECENTS_ROUTE, true);
     }
 
+    /** Apps open on the monitor stay alive until the user closes them. */
+    public static boolean keepAlive() {
+        return getBool(Const.KEY_KEEP_ALIVE, true);
+    }
+
     /** The Android robot as the drawer button's icon, in place of ZUI's own. */
     public static boolean startButtonRobot() {
         return getBool(Const.KEY_START_ROBOT, true);

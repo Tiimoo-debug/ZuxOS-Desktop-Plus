@@ -20,6 +20,15 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 markSelfActive(lpparam.classLoader);
                 return;
             }
+            if ("android".equals(lpparam.packageName)) {
+                // The system itself - ticked as System Framework in LSPosed. Only the keep-alive
+                // runs here; nothing of the launcher's belongs in system_server.
+                Cfg.reload();
+                if (Cfg.enabled()) {
+                    SystemKeepAlive.install(lpparam.classLoader);
+                }
+                return;
+            }
             if (!Targets.isCandidate(lpparam.packageName)) {
                 return;
             }

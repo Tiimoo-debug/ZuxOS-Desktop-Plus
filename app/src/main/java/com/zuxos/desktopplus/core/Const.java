@@ -86,6 +86,8 @@ public final class Const {
     public static final String KEY_NAV_OWN_SCREEN = "nav_keys_own_screen";
     /** Recents on the screen whose button was pressed, full screen and in front. */
     public static final String KEY_RECENTS_ROUTE = "recents_route";
+    /** Apps open on the monitor are never killed by the system, only by the user. */
+    public static final String KEY_KEEP_ALIVE = "keep_alive";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
     /** Allow shell commands as root for the things a launcher may not do itself. */

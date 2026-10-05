@@ -149,6 +149,11 @@ public class MainActivity extends Activity {
                 "The recents button opens recents on its own screen - tablet or monitor - full "
                         + "screen and in front of every app, on the first press",
                 Const.KEY_RECENTS_ROUTE, true);
+        addSwitch("Never kill apps on the monitor",
+                "Apps open on the external screen are only closed when you close them. Root "
+                        + "keeps battery limits off them; for memory, also tick System Framework "
+                        + "for this module in LSPosed and reboot once",
+                Const.KEY_KEEP_ALIVE, true);
         addSwitch("Drawer button on the left",
                 "Moves the launcher's own all-apps button to the left of the taskbar, beside the "
                         + "navigation keys, instead of leaving it in the middle of the icons",

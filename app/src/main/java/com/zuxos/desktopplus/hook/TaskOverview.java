@@ -641,7 +641,7 @@ final class TaskOverview {
      * The task's picture: the one the system kept, or - for a window still on screen, which has
      * none kept yet (most cards had no picture in the log) - one taken now.
      */
-    private static Bitmap snapshot(int taskId) {
+    static Bitmap snapshot(int taskId) {
         Bitmap kept = snapshot(taskId, "getTaskSnapshot");
         if (kept != null) {
             return kept;
@@ -792,19 +792,7 @@ final class TaskOverview {
 
     /** Closes the app's task, and takes its card away. */
     private static void remove(Context ctx, Card card, List<Card> all) {
-        boolean removed = false;
-        try {
-            Object atm = activityTaskManager();
-            Object r = atm.getClass().getMethod("removeTask", int.class).invoke(atm, card.taskId);
-            removed = !Boolean.FALSE.equals(r);
-            record("closed task " + card.taskId);
-        } catch (Throwable t) {
-            Throwable cause = t.getCause() != null ? t.getCause() : t;
-            record("removeTask refused (" + cause + ") - force-stopping " + card.pkg);
-        }
-        if (!removed) {
-            KeyShell.run("am force-stop " + card.pkg);
-        }
+        closeTask(card.taskId, card.pkg);
         all.remove(card);
         View view = card.view;
         if (view != null && view.getParent() instanceof ViewGroup) {
@@ -814,6 +802,23 @@ final class TaskOverview {
         }
         if (all.isEmpty()) {
             MAIN.postDelayed(TaskOverview::close, Motion.SHORT);
+        }
+    }
+
+    /** Closes one window of an app - its task - or, if the system says no, the whole app. */
+    static void closeTask(int taskId, String pkg) {
+        boolean removed = false;
+        try {
+            Object atm = activityTaskManager();
+            Object r = atm.getClass().getMethod("removeTask", int.class).invoke(atm, taskId);
+            removed = !Boolean.FALSE.equals(r);
+            record("closed task " + taskId);
+        } catch (Throwable t) {
+            Throwable cause = t.getCause() != null ? t.getCause() : t;
+            record("removeTask refused (" + cause + ") - force-stopping " + pkg);
+        }
+        if (!removed) {
+            KeyShell.run("am force-stop " + pkg);
         }
     }
 
@@ -1189,7 +1194,7 @@ final class TaskOverview {
      * Where something is drawn in an app-only capture: the box around its opaque pixels, empty if
      * there are none, null if the picture could not be read.
      */
-    private static android.graphics.Rect contentBox(Bitmap frame) {
+    static android.graphics.Rect contentBox(Bitmap frame) {
         Bitmap soft = null;
         try {
             soft = frame.copy(Bitmap.Config.ARGB_8888, false);
@@ -1240,7 +1245,7 @@ final class TaskOverview {
     }
 
     /** A tile: the part of its app's picture where the window is. */
-    private static final class CropDrawable extends Drawable {
+    static final class CropDrawable extends Drawable {
         private final android.graphics.Rect mSrc;
         private final android.graphics.Paint mPaint =
                 new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
