@@ -227,24 +227,13 @@ final class TaskOverview {
                     rows.addView(row, rlp);
                 }
                 Card card = cards.get(i);
-                View inner = cardView(ctx, card, cards, cardW, thumbH);
-                View view = inner;
-                int glassPad = 0;
-                if (i < GLASS_CARDS) {
-                    // Each card on its own pane of liquid glass: what is behind it frosted, its
-                    // rim bending it - the same glass as the menus and the bar.
-                    glassPad = Ui.dp(ctx, 14);
-                    com.zuxos.desktopplus.core.GlassSurface glass =
-                            new com.zuxos.desktopplus.core.GlassSurface(ctx, Ui.dp(ctx, 24),
-                                    0x401C1C22, com.zuxos.desktopplus.core.LiquidGlass.MENU);
-                    glass.setPadding(glassPad, glassPad, glassPad, glassPad);
-                    glass.addView(inner, new FrameLayout.LayoutParams(cardW,
-                            ViewGroup.LayoutParams.WRAP_CONTENT));
-                    view = glass;
-                }
+                // The picture and a title bar of liquid glass over it; no pane round the whole
+                // card - it showed as a band under the picture with a pointed corner.
+                View view = cardView(ctx, card, cards, cardW, thumbH, i < GLASS_CARDS,
+                        i * 25L);
                 card.view = view;
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                        cardW + 2 * glassPad, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
                 clp.leftMargin = gap / 2;
                 clp.rightMargin = gap / 2;
                 row.addView(view, clp);
@@ -295,13 +284,16 @@ final class TaskOverview {
     }
 
     /** One card: icon and name over the app's last picture, with an X; tap, X or swipe up. */
-    private static View cardView(Context ctx, Card card, List<Card> all, int width, int thumbH) {
+    private static View cardView(Context ctx, Card card, List<Card> all, int width, int thumbH,
+            boolean glass, long delay) {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        int barV = Ui.dp(ctx, 6);
+        header.setPadding(Ui.dp(ctx, 10), barV, Ui.dp(ctx, 6), barV);
         ImageView icon = new ImageView(ctx);
         icon.setImageDrawable(card.icon);
         int iconPx = Ui.dp(ctx, 26);
@@ -315,16 +307,23 @@ final class TaskOverview {
         name.setPadding(Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8), 0);
         header.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView x = new TextView(ctx);
-        x.setText("✕");
-        x.setTextColor(0xFFFFFFFF);
-        x.setTextSize(14);
-        x.setGravity(Gravity.CENTER);
-        x.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 14)));
         int xPx = Ui.dp(ctx, 28);
-        x.setOnClickListener(v -> remove(ctx, card, all));
-        header.addView(x, new LinearLayout.LayoutParams(xPx, xPx));
-        box.addView(header);
+        header.addView(closeButton(ctx, xPx, glass, delay, () -> remove(ctx, card, all)),
+                new LinearLayout.LayoutParams(xPx, xPx));
+        int barRadius = Ui.dp(ctx, 18);
+        if (glass) {
+            // The title bar is a pane of liquid glass of its own, round at all four corners.
+            com.zuxos.desktopplus.core.GlassSurface bar =
+                    new com.zuxos.desktopplus.core.GlassSurface(ctx, barRadius, 0x401C1C22,
+                            com.zuxos.desktopplus.core.LiquidGlass.MENU);
+            bar.addView(header, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            box.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            header.setBackground(Ui.roundRect(0x33FFFFFF, barRadius));
+            box.addView(header);
+        }
 
         ImageView thumb = new ImageView(ctx);
         thumb.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -364,6 +363,101 @@ final class TaskOverview {
     }
 
     /** Up and away closes the app, as in any recents; anything shorter springs back. */
+    /**
+     * The close button: a circle of white liquid glass with a wheel of colour turning in it, and
+     * a black X. The wheel turns slowly all the time and fast while the X spins - in when the card
+     * appears, a quarter turn under the mouse, half a turn when pressed, before the card closes.
+     */
+    private static View closeButton(Context ctx, int size, boolean glass, long delay,
+            Runnable onClose) {
+        FrameLayout circle;
+        if (glass) {
+            circle = new com.zuxos.desktopplus.core.GlassSurface(ctx, size / 2f, 0x66F4F4F8,
+                    com.zuxos.desktopplus.core.LiquidGlass.MENU);
+        } else {
+            circle = new FrameLayout(ctx);
+            circle.setBackground(Ui.roundRect(0x66F4F4F8, size / 2));
+        }
+        ColorWheel wheel = new ColorWheel(ctx);
+        circle.addView(wheel, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        TextView x = new TextView(ctx);
+        x.setText("✕");
+        x.setTextColor(0xFF1C1C1E);
+        x.setTextSize(14);
+        x.setGravity(Gravity.CENTER);
+        circle.addView(x, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // The wheel follows the X at twice its turn, on top of its own slow one.
+        android.animation.ValueAnimator idle = android.animation.ValueAnimator.ofFloat(0f, 360f);
+        idle.setDuration(6000L);
+        idle.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        idle.setInterpolator(new android.view.animation.LinearInterpolator());
+        idle.addUpdateListener(a ->
+                wheel.setRotation((Float) a.getAnimatedValue() + x.getRotation() * 2f));
+        circle.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                idle.start();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                idle.cancel();
+            }
+        });
+
+        x.setRotation(-180f);
+        x.animate().rotation(0f).setStartDelay(delay + 80L).setDuration(Motion.SPRING_MS * 2)
+                .setInterpolator(Motion.SPRING).start();
+        circle.setOnHoverListener((v, e) -> {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                x.animate().rotation(90f).setStartDelay(0).setDuration(Motion.SPRING_MS)
+                        .setInterpolator(Motion.SPRING).start();
+            } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                x.animate().rotation(0f).setStartDelay(0).setDuration(Motion.SPRING_MS)
+                        .setInterpolator(Motion.SPRING).start();
+            }
+            return false;
+        });
+        boolean[] closing = {false};
+        circle.setOnClickListener(v -> {
+            if (closing[0]) {
+                return;
+            }
+            closing[0] = true;
+            x.animate().rotation(x.getRotation() + 180f).setStartDelay(0).setDuration(200L)
+                    .setInterpolator(Motion.EASE).withEndAction(onClose).start();
+        });
+        return circle;
+    }
+
+    /** A disc of every hue, round the centre, see-through enough to let the glass show. */
+    private static final class ColorWheel extends View {
+        private static final int[] HUES = {0x8CFF4FA3, 0x8CFF9F3A, 0x8CFFE14D, 0x8C4CD964,
+                0x8C38D6F0, 0x8C8E6CFF, 0x8CFF4FA3};
+        private final android.graphics.Paint mPaint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        ColorWheel(Context ctx) {
+            super(ctx);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            mPaint.setShader(new android.graphics.SweepGradient(w / 2f, h / 2f, HUES, null));
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            float r = Math.min(getWidth(), getHeight()) / 2f;
+            canvas.drawCircle(getWidth() / 2f, getHeight() / 2f, r, mPaint);
+        }
+    }
+
     private static void swipeToClose(View handle, Card owner, View box, Runnable onClose) {
         final float[] down = new float[2];
         final boolean[] dragging = new boolean[1];
