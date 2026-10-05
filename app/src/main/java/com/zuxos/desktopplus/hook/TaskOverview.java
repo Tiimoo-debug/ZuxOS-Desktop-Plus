@@ -74,9 +74,16 @@ final class TaskOverview {
     }
 
     /** Opens it on the display of {@code anchor}, or closes it if it is already up there. */
+    /** When a touch outside last closed it: the recents button's own press is one of those. */
+    private static long sOutsideAt;
+
     static void toggle(View anchor, int display) {
         if (sRoot != null) {
             close();
+            return;
+        }
+        if (android.os.SystemClock.uptimeMillis() - sOutsideAt < 600L) {
+            // The press on the recents button already closed it, as a touch outside.
             return;
         }
         open(anchor, display);
@@ -106,6 +113,17 @@ final class TaskOverview {
             FrameLayout root = new FrameLayout(ctx);
             root.setBackgroundColor(0xA60A0A0E);
             root.setOnClickListener(v -> close());
+            // A touch on the taskbar - the one part of the screen this does not cover - means
+            // the user has moved on: opened a folder, an app, a menu. The recordings showed
+            // recents left open over the app launched from there.
+            root.setOnTouchListener((v, e) -> {
+                if (e.getActionMasked() == MotionEvent.ACTION_OUTSIDE) {
+                    sOutsideAt = android.os.SystemClock.uptimeMillis();
+                    close();
+                    return true;
+                }
+                return false;
+            });
             root.setFocusableInTouchMode(true);
             root.setOnKeyListener((v, keyCode, event) -> {
                 if (event.getAction() == KeyEvent.ACTION_UP
@@ -162,7 +180,9 @@ final class TaskOverview {
 
             // The cards: rows sized to this screen, the newest first.
             int gap = Ui.dp(ctx, 28);
-            int cardW = Math.max(Ui.dp(ctx, 220), (int) (screenW * 0.22f));
+            // Fewer apps, bigger cards: one or two open apps should not be postage stamps.
+            float share = cards.size() <= 2 ? 0.34f : cards.size() <= 6 ? 0.27f : 0.22f;
+            int cardW = Math.max(Ui.dp(ctx, 220), (int) (screenW * share));
             int perRow = Math.max(1, (screenW - 2 * pad + gap) / (cardW + gap));
             int thumbH = Math.round(cardW * (float) screenH / screenW);
             LinearLayout rows = new LinearLayout(ctx);
@@ -210,7 +230,8 @@ final class TaskOverview {
                     WindowManager.LayoutParams.MATCH_PARENT,
                     Math.max(1, screenH - inset),
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                            | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             // Above the taskbar, never over it: its recents button is how this is closed.
             lp.gravity = Gravity.TOP;
@@ -353,56 +374,79 @@ final class TaskOverview {
     /** This display's tasks, newest first - not the launcher's own, not ours. */
     private static List<Card> tasksOn(Context ctx, int display) {
         List<Card> out = new ArrayList<>();
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
         try {
             ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
             PackageManager pm = ctx.getPackageManager();
+            // What is open on this screen, from the running list: the recent list left out
+            // windows that were plainly on screen ("No recent apps" over an open Termux and an
+            // open browser in the recordings). The running list is the one the probe proves
+            // carries every task with its display.
             int here = 0;
+            for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(40)) {
+                Object d = Reflect.field(task, "displayId");
+                if (!(d instanceof Integer) || (Integer) d != display) {
+                    continue;
+                }
+                Card card = cardFor(ctx, pm, task.taskId, task.baseIntent,
+                        task.topActivity != null ? task.topActivity : task.baseActivity, true);
+                if (card != null && seen.add(card.taskId)) {
+                    out.add(card);
+                    here++;
+                }
+            }
+            // Then recent apps that are not running anywhere any more, newest first.
             int idle = 0;
             int elsewhere = 0;
             for (ActivityManager.RecentTaskInfo task
                     : am.getRecentTasks(40, ActivityManager.RECENT_IGNORE_UNAVAILABLE)) {
-                // This screen's tasks, and recent ones that are not running anywhere (they have
-                // no display): the log showed only one or none listed while the second kind
-                // were left out. Apps running on the tablet are the tablet's.
+                if (seen.contains(task.taskId)) {
+                    continue;
+                }
                 Object d = Reflect.field(task, "displayId");
                 int on = d instanceof Integer ? (Integer) d : -1;
                 boolean running = Boolean.TRUE.equals(Reflect.field(task, "isRunning"));
-                if (on == display) {
-                    here++;
-                } else if (on < 0 || !running) {
-                    idle++;
-                } else {
+                if (on >= 0 && running) {
                     elsewhere++;
                     continue;
                 }
-                Intent base = task.baseIntent;
-                ComponentName c = base != null ? base.getComponent() : null;
-                if (c == null && task.baseActivity != null) {
-                    c = task.baseActivity;
+                Card card = cardFor(ctx, pm, task.taskId, task.baseIntent, task.baseActivity,
+                        false);
+                if (card != null && seen.add(card.taskId)) {
+                    out.add(card);
+                    idle++;
                 }
-                if (c == null || c.getPackageName().equals(ctx.getPackageName())
-                        || c.getPackageName().equals("com.zuxos.desktopplus")) {
-                    continue;
-                }
-                Card card = new Card();
-                card.running = running || on == display;
-                card.taskId = task.taskId;
-                card.baseIntent = base;
-                card.pkg = c.getPackageName();
-                try {
-                    card.label = pm.getApplicationLabel(pm.getApplicationInfo(card.pkg, 0));
-                    card.icon = pm.getApplicationIcon(card.pkg);
-                } catch (Throwable missing) {
-                    card.label = card.pkg;
-                }
-                out.add(card);
             }
-            record("tasks: " + here + " here, " + idle + " not running, " + elsewhere
+            record("tasks: " + here + " open here, " + idle + " not running, " + elsewhere
                     + " on other screens skipped");
         } catch (Throwable t) {
             L.d("task overview: could not list tasks (" + t + ")");
         }
         return out;
+    }
+
+    private static Card cardFor(Context ctx, PackageManager pm, int taskId, Intent base,
+            ComponentName fallback, boolean running) {
+        ComponentName c = base != null ? base.getComponent() : null;
+        if (c == null) {
+            c = fallback;
+        }
+        if (c == null || c.getPackageName().equals(ctx.getPackageName())
+                || c.getPackageName().equals("com.zuxos.desktopplus")) {
+            return null;
+        }
+        Card card = new Card();
+        card.running = running;
+        card.taskId = taskId;
+        card.baseIntent = base;
+        card.pkg = c.getPackageName();
+        try {
+            card.label = pm.getApplicationLabel(pm.getApplicationInfo(card.pkg, 0));
+            card.icon = pm.getApplicationIcon(card.pkg);
+        } catch (Throwable missing) {
+            card.label = card.pkg;
+        }
+        return card;
     }
 
     /** Each app's last picture, fetched off the main thread and dropped in as it arrives. */
