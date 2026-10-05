@@ -85,7 +85,7 @@ final class RecentsRoute {
         sPressedAt = SystemClock.uptimeMillis();
         sAgain = again;
         sRetried = false;
-        sWasOpen = openOn(display);
+        sWasOpen = isOpenOn(display);
         sTraceUntil = sPressedAt + 3000L;
         synchronized (TRACED) {
             TRACED.clear();
@@ -233,7 +233,7 @@ final class RecentsRoute {
     }
 
     /** Whether recents - either kind - is up on this display now. */
-    private static boolean openOn(int display) {
+    private static boolean isOpenOn(int display) {
         Activity live = sLive.get();
         if (live != null && !live.isFinishing() && displayOf(live) == display
                 && !Boolean.TRUE.equals(Reflect.field(live, "mStopped"))) {
@@ -241,6 +241,110 @@ final class RecentsRoute {
         }
         Object zui = com.zuxos.desktopplus.desktop.DesktopHost.activityOn(display);
         return Boolean.TRUE.equals(Reflect.call(zui, "isRecentsViewVisible"));
+    }
+
+    private static boolean recentsVisible(Object home) {
+        return Boolean.TRUE.equals(Reflect.call(home, "isRecentsViewVisible"));
+    }
+
+    /** The task that had focus on this display before recents, given back when it closes. */
+    private static volatile int sPrevTask = -1;
+
+    /**
+     * Opens ZUI's recents on this display, for real.
+     *
+     * <p>ZUI's button and the recents key both open it as a transient launch, which the system
+     * undid 14 ms later on this screen - the event log shows the home task brought forward and
+     * put straight back. A real move to the front stays, as the home key does. So: note what was
+     * in front, move the home screen forward, open its recents, and step our desktop out of the
+     * way. A second press closes it and gives the previous app its place back. If ZUI's recents
+     * is not up 400 ms later, quickstep's own recents is started there instead.
+     */
+    static void openOn(Context ctx, int display) {
+        Activity home = com.zuxos.desktopplus.desktop.DesktopHost.activityOn(display);
+        if (home == null) {
+            note("no home screen on display " + display + " - using quickstep's recents");
+            startFallback(ctx, display);
+            return;
+        }
+        if (recentsVisible(home)) {
+            Reflect.call(home, "hideRecentsView");
+            int prev = sPrevTask;
+            if (prev > 0) {
+                moveToFront(ctx, prev);
+            }
+            note("closed on display " + display + (prev > 0 ? ", previous app back" : ""));
+            return;
+        }
+        sPrevTask = focusedTask(ctx, display, home.getTaskId());
+        boolean moved = moveToFront(ctx, home.getTaskId());
+        if (!moved) {
+            KeyShell.send(display, android.view.KeyEvent.KEYCODE_HOME, null);
+        }
+        note("opening on display " + display + ": home "
+                + (moved ? "moved to the front" : "brought by the home key")
+                + ", previous task " + sPrevTask);
+        MAIN.postDelayed(() -> {
+            Reflect.call(home, "openRecentsView");
+            boolean visible = recentsVisible(home);
+            com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, visible);
+            MAIN.postDelayed(() -> {
+                if (recentsVisible(home) && TaskbarNav.homeInFront(ctx, display)) {
+                    sShownAt = SystemClock.uptimeMillis();
+                    note("open on display " + display);
+                    return;
+                }
+                note("ZUI's recents did not stay up on display " + display
+                        + " (visible=" + recentsVisible(home) + ", home in front="
+                        + TaskbarNav.homeInFront(ctx, display) + ") - using quickstep's");
+                com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, false);
+                startFallback(ctx, display);
+            }, 400L);
+        }, 120L);
+    }
+
+    private static boolean moveToFront(Context ctx, int task) {
+        try {
+            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            am.moveTaskToFront(task, 0);
+            return true;
+        } catch (Throwable t) {
+            note("could not move task " + task + " to the front (" + t + ")");
+            return false;
+        }
+    }
+
+    /** The task with focus on this display, other than {@code except}; -1 for none. */
+    private static int focusedTask(Context ctx, int display, int except) {
+        try {
+            ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(24)) {
+                Object d = Reflect.field(task, "displayId");
+                if (d instanceof Integer && (Integer) d == display && task.taskId != except
+                        && Boolean.TRUE.equals(Reflect.field(task, "isFocused"))) {
+                    return task.taskId;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Nothing to give back later; recents still opens.
+        }
+        return -1;
+    }
+
+    /** Quickstep's own recents, started here as a real task of its own on this display. */
+    private static void startFallback(Context ctx, int display) {
+        try {
+            Intent intent = new Intent().setComponent(
+                    new ComponentName(ctx.getPackageName(), RECENTS))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(display);
+            Reflect.call(options, "setLaunchWindowingMode", FULLSCREEN);
+            ctx.startActivity(intent, options.toBundle());
+            note("started quickstep's recents ourselves on display " + display);
+        } catch (Throwable t) {
+            note("could not start quickstep's recents (" + t + ")");
+        }
     }
 
     /**
@@ -386,10 +490,16 @@ final class RecentsRoute {
                 n += XposedBridge.hookAllMethods(home, name, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
-                        if (!"hideRecentsView".equals(name)) {
+                        // A call is not proof: only what is actually visible counts.
+                        Activity home = (Activity) param.thisObject;
+                        boolean visible = recentsVisible(home);
+                        int display = displayOf(home);
+                        if (visible) {
                             sShownAt = SystemClock.uptimeMillis();
                         }
-                        note("ZUI's monitor recents: " + name);
+                        com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, visible);
+                        note("ZUI's recents on display " + display + ": " + name
+                                + (visible ? " - visible" : " - not visible"));
                     }
                 }).size();
             } catch (Throwable ignored) {

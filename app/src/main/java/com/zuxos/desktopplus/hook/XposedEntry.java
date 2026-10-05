@@ -37,6 +37,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
             }
             NativeFolderMotion.install(lpparam.classLoader);
             RecentsRoute.install(lpparam.classLoader);
+            DetachGuard.install();
             if (Cfg.unlockStock()) {
                 StockUnlockHooks.install(lpparam.classLoader);
             }

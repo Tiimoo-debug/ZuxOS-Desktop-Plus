@@ -263,6 +263,25 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         return found != null && found.onBackPressed();
     }
 
+    /**
+     * The launcher's own recents is up on this display, or has gone: our desktop is drawn above
+     * it in the same window, so it steps out of the way while recents shows.
+     */
+    public static void setOverview(int displayId, boolean showing) {
+        DesktopHost found = null;
+        synchronized (DesktopHost.class) {
+            for (DesktopHost host : ACTIVE.values()) {
+                if (host.mDisplayId == displayId) {
+                    found = host;
+                }
+            }
+        }
+        if (found != null) {
+            found.mOverviewShowing = showing;
+            found.mRoot.setVisibility(showing ? View.INVISIBLE : View.VISIBLE);
+        }
+    }
+
     /** The activity our desktop lives in on this display, or null. */
     public static synchronized Activity activityOn(int displayId) {
         for (DesktopHost host : ACTIVE.values()) {

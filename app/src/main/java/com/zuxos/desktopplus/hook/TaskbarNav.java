@@ -116,12 +116,16 @@ final class TaskbarNav {
                         home(v);
                         return;
                     default:
-                        // Sending the recents key to this screen was measured to do nothing: the
-                        // system raised the home screen and put it straight back. ZUI's own button
-                        // is used, and RecentsRoute steers what it opens - or opens it itself.
-                        mOriginal.onClick(v);
-                        record(mId, "ZUI's own, steered");
-                        RecentsRoute.backstop(v.getContext(), mDisplay);
+                        // Both the recents key and ZUI's own button were measured to open recents
+                        // only for an instant: a transient launch the system undid 14 ms later.
+                        // RecentsRoute opens ZUI's recents on this screen with a real move.
+                        if (!Cfg.recentsRoute()) {
+                            mOriginal.onClick(v);
+                            record(mId, "ZUI's own (route off)");
+                            return;
+                        }
+                        RecentsRoute.openOn(v.getContext(), mDisplay);
+                        record(mId, "opened by the module");
                 }
             } catch (Throwable t) {
                 L.d("taskbar nav: " + mId + " fell back to the launcher's own (" + t + ")");
