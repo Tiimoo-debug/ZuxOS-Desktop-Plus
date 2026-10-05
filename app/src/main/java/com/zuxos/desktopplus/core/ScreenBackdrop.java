@@ -533,6 +533,22 @@ public final class ScreenBackdrop {
 
     /** One capture, waited for; null if it failed. Worker thread only. */
     public static Object grab(int display, Rect crop, SurfaceControl own, float scale) {
+        return grab(display, crop, own, scale, -1);
+    }
+
+    private static volatile Boolean sUidFilter;
+
+    /** Whether captures can be limited to one app's layers; null until first tried. */
+    public static Boolean uidFilter() {
+        return sUidFilter;
+    }
+
+    /**
+     * The same, limited to the layers one app owns when {@code uid} is not negative: that app's
+     * windows and nothing else - no other app over it, no bars, no letterbox.
+     */
+    public static Object grab(int display, Rect crop, SurfaceControl own, float scale,
+            long uid) {
         Object[] got = new Object[1];
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicBoolean late =
@@ -546,6 +562,16 @@ public final class ScreenBackdrop {
             sBuilder.getMethod("setFrameScale", float.class).invoke(builder, scale);
             sBuilder.getMethod("setExcludeLayers", SurfaceControl[].class)
                     .invoke(builder, (Object) new SurfaceControl[]{own});
+            if (uid >= 0) {
+                try {
+                    sBuilder.getMethod("setUid", long.class).invoke(builder, uid);
+                    sUidFilter = Boolean.TRUE;
+                } catch (Throwable t) {
+                    // Without the filter this would be the whole screen: say no instead.
+                    sUidFilter = Boolean.FALSE;
+                    return null;
+                }
+            }
             Object args = sBuilder.getMethod("build").invoke(builder);
             ObjIntConsumer<Object> answer = (shot, status) -> {
                 synchronized (got) {

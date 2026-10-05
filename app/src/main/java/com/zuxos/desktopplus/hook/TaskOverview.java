@@ -104,7 +104,13 @@ final class TaskOverview {
         /** On screen now, and where: its tile is cut straight out of a screen capture. */
         boolean visible;
         android.graphics.Rect bounds;
+        /** The app's uid: its tile is a capture of that app's layers alone. */
+        int uid = -1;
+        /** Its tile is being fed from its own capture right now (else the snapshot rotation). */
+        volatile boolean screenFed;
         CropDrawable crop;
+        final ArrayDeque<Bitmap> frames = new ArrayDeque<>();
+        int fed;
         Intent baseIntent;
         String pkg;
         CharSequence label;
@@ -488,7 +494,9 @@ final class TaskOverview {
         card.baseIntent = base;
         card.pkg = c.getPackageName();
         try {
-            card.label = pm.getApplicationLabel(pm.getApplicationInfo(card.pkg, 0));
+            android.content.pm.ApplicationInfo info = pm.getApplicationInfo(card.pkg, 0);
+            card.uid = info.uid;
+            card.label = pm.getApplicationLabel(info);
             card.icon = pm.getApplicationIcon(card.pkg);
         } catch (Throwable missing) {
             card.label = card.pkg;
@@ -511,7 +519,7 @@ final class TaskOverview {
                 MAIN.post(() -> {
                     View view = card.view;
                     View thumb = view == null ? null : view.findViewWithTag("thumb");
-                    if (thumb instanceof ImageView && card.crop == null) {
+                    if (thumb instanceof ImageView && !card.screenFed) {
                         // Whole, not cropped: a window's picture has the window's shape.
                         ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
                         ((ImageView) thumb).setImageBitmap(b);
@@ -789,13 +797,14 @@ final class TaskOverview {
                 }
                 List<Card> live = new ArrayList<>();
                 for (Card c : cards) {
-                    // Cards fed from the screen capture are already live at frame rate.
-                    if (c.running && c.view != null && !(sScreenFed && c.visible
-                            && c.bounds != null)) {
+                    // Cards fed from their own capture are already live at frame rate.
+                    if (c.running && c.view != null && !c.screenFed) {
                         live.add(c);
                     }
                 }
                 if (live.isEmpty()) {
+                    // All live from their captures for now; one may stop being drawn later.
+                    MAIN.postDelayed(this, LIVE_STEP_MS);
                     return;
                 }
                 Card card = live.get(next[0]++ % live.size());
@@ -807,7 +816,7 @@ final class TaskOverview {
                             return;
                         }
                         View thumb = card.view.findViewWithTag("thumb");
-                        if (thumb instanceof ImageView && card.crop == null) {
+                        if (thumb instanceof ImageView && !card.screenFed) {
                             Bitmap old = card.thumb;
                             card.thumb = b;
                             ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -826,37 +835,62 @@ final class TaskOverview {
         startScreenFeed(cards, root);
     }
 
-    private static volatile boolean sScreenFed;
-
     /** About 30 pictures a second for the tiles of apps that are on screen. */
     private static final long FRAME_MS = 33L;
     private static final float FEED_SCALE = 0.4f;
+    /** How often, in frames, a tile looks again for where its window is in its picture. */
+    private static final int BOX_EVERY = 15;
 
     /**
-     * Live tiles at frame rate. One capture of the whole screen behind recents - the way the
-     * liquid glass captures, our own window left out - and every visible app's tile is cut out of
-     * it. A system snapshot per app, one at a time, managed about one picture a second per tile;
-     * this is one capture per frame for all of them.
+     * Live tiles at frame rate, each app captured on its own.
+     *
+     * <p>The capture is limited to the layers the app owns, so the picture holds that app and
+     * nothing else. Cutting tiles out of one capture of the whole screen did not work: every task
+     * on the monitor reports itself fullscreen and visible, so every tile was the whole screen -
+     * bars, home screen, and whichever app was in front.
+     *
+     * <p>Where the window is inside its picture is read from the picture itself, every so often:
+     * the opaque part. That is the window as drawn - a portrait app letterboxed in the middle, a
+     * desktop window smaller than its reported bounds. A picture with nothing in it means the app
+     * is not drawn (behind home, behind a fullscreen app, minimised); its tile goes back to its
+     * snapshot and is looked at again a little later.
      */
     private static void startScreenFeed(List<Card> cards, FrameLayout root) {
-        boolean any = false;
+        List<Card> fed = new ArrayList<>();
+        java.util.Map<Integer, Integer> perUid = new java.util.HashMap<>();
         for (Card c : cards) {
-            any |= c.running && c.visible && c.bounds != null;
+            if (c.running && c.visible && c.uid >= 0) {
+                perUid.merge(c.uid, 1, Integer::sum);
+            }
         }
-        if (!any || com.zuxos.desktopplus.core.ScreenBackdrop.refused()) {
-            sScreenFed = false;
-            record("live tiles: snapshots only (" + (any ? "capture refused" : "nothing on screen")
+        int shared = 0;
+        for (Card c : cards) {
+            if (!(c.running && c.visible && c.uid >= 0)) {
+                continue;
+            }
+            if (perUid.get(c.uid) > 1) {
+                // Two windows of one app: one capture holds both, so neither is its own tile.
+                shared++;
+                continue;
+            }
+            fed.add(c);
+        }
+        if (fed.isEmpty() || com.zuxos.desktopplus.core.ScreenBackdrop.refused()
+                || Boolean.FALSE.equals(com.zuxos.desktopplus.core.ScreenBackdrop.uidFilter())) {
+            record("live tiles: snapshots only (" + (fed.isEmpty() ? "nothing on screen"
+                    : "capture refused") + (shared > 0 ? ", " + shared + " sharing an app" : "")
                     + ")");
             return;
         }
-        sScreenFed = true;
         final int display = sDisplay;
         final DisplayMetrics dm = root.getContext().getResources().getDisplayMetrics();
         final android.graphics.Rect screen = new android.graphics.Rect(0, 0, dm.widthPixels,
                 dm.heightPixels);
         final long startedAt = android.os.SystemClock.uptimeMillis();
-        final int[] frames = {0};
-        final ArrayDeque<Bitmap> retired = new ArrayDeque<>();
+        final int[] round = {0};
+        final int[] delivered = {0};
+        final boolean[] said = {false};
+        final int sharedCount = shared;
         Runnable capture = new Runnable() {
             @Override
             public void run() {
@@ -866,62 +900,200 @@ final class TaskOverview {
                 long t0 = android.os.SystemClock.uptimeMillis();
                 android.view.SurfaceControl own =
                         com.zuxos.desktopplus.core.ScreenBackdrop.surfaceOf(root);
-                Object shot = own == null ? null : com.zuxos.desktopplus.core.ScreenBackdrop
-                        .grab(display, screen, own, FEED_SCALE);
-                Bitmap frame = shot == null ? null
-                        : com.zuxos.desktopplus.core.ScreenBackdrop.toBitmap(shot);
-                if (frame != null) {
-                    MAIN.post(() -> {
-                        if (sRoot != root) {
-                            frame.recycle();
+                boolean probe = round[0]++ % BOX_EVERY == 0;
+                for (Card c : fed) {
+                    if (own == null || sRoot != root) {
+                        break;
+                    }
+                    if (!c.screenFed && !probe) {
+                        // Not drawn last time it was looked at: only look again now and then.
+                        continue;
+                    }
+                    Object shot = com.zuxos.desktopplus.core.ScreenBackdrop
+                            .grab(display, screen, own, FEED_SCALE, c.uid);
+                    Bitmap frame = shot == null ? null
+                            : com.zuxos.desktopplus.core.ScreenBackdrop.toBitmap(shot);
+                    if (frame == null) {
+                        if (Boolean.FALSE.equals(
+                                com.zuxos.desktopplus.core.ScreenBackdrop.uidFilter())) {
+                            record("live tiles: this build cannot capture one app alone"
+                                    + " - snapshots only");
+                            MAIN.post(() -> stopFeeding(fed));
                             return;
                         }
-                        for (Card c : cards) {
-                            if (!(c.running && c.visible && c.bounds != null) || c.view == null) {
-                                continue;
-                            }
-                            View thumb = c.view.findViewWithTag("thumb");
-                            if (!(thumb instanceof ImageView)) {
-                                continue;
-                            }
-                            if (c.crop == null) {
-                                c.crop = new CropDrawable(c.bounds, FEED_SCALE);
-                                ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
-                                ((ImageView) thumb).setImageDrawable(c.crop);
-                            }
-                            c.crop.setFrame(frame);
+                        continue;
+                    }
+                    android.graphics.Rect box = null;
+                    if (!c.screenFed || c.fed++ % BOX_EVERY == 0) {
+                        box = contentBox(frame);
+                        if (box == null) {
+                            // Could not read it: keep what the tile had.
+                            box = c.crop != null ? null : new android.graphics.Rect(0, 0,
+                                    frame.getWidth(), frame.getHeight());
                         }
-                        retired.addLast(frame);
-                        while (retired.size() > 2) {
-                            Bitmap old = retired.removeFirst();
-                            old.recycle();
-                        }
-                        frames[0]++;
-                        if (frames[0] == 60) {
-                            long ms = android.os.SystemClock.uptimeMillis() - startedAt;
-                            record("live tiles: from the screen at ~"
-                                    + Math.round(60000f / Math.max(1, ms)) + " fps");
-                        }
-                    });
+                    }
+                    final android.graphics.Rect where = box;
+                    MAIN.post(() -> show(c, frame, where, root));
+                    delivered[0]++;
                 }
-                long wait = Math.max(0L, FRAME_MS - (android.os.SystemClock.uptimeMillis() - t0));
+                long now = android.os.SystemClock.uptimeMillis();
+                if (!said[0] && now - startedAt >= 2000L) {
+                    said[0] = true;
+                    int live = 0;
+                    for (Card c : fed) {
+                        live += c.screenFed ? 1 : 0;
+                    }
+                    int each = live == 0 ? 0
+                            : Math.round(delivered[0] * 1000f / (now - startedAt) / live);
+                    record("live tiles: " + live + " app(s) captured on their own at ~" + each
+                            + " fps each, " + (cards.size() - live) + " from snapshots"
+                            + (sharedCount > 0 ? " (" + sharedCount + " sharing an app)" : ""));
+                }
+                long wait = Math.max(0L, FRAME_MS - (now - t0));
                 MAIN.postDelayed(() -> IO.execute(this), wait);
             }
         };
         IO.execute(capture);
     }
 
-    /** A tile cut out of the shared screen picture: the app window's own rectangle. */
+    /**
+     * Puts a tile's new picture up. {@code box} is where the window is in it when it was looked
+     * for this frame; empty means the app is not drawn and the tile goes back to its snapshot.
+     */
+    private static void show(Card c, Bitmap frame, android.graphics.Rect box, FrameLayout root) {
+        View thumb = c.view == null ? null : c.view.findViewWithTag("thumb");
+        if (sRoot != root || !(thumb instanceof ImageView)) {
+            frame.recycle();
+            return;
+        }
+        ImageView image = (ImageView) thumb;
+        if (box != null && box.isEmpty()) {
+            frame.recycle();
+            if (c.screenFed) {
+                c.screenFed = false;
+                c.crop = null;
+                image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                if (c.thumb != null && !c.thumb.isRecycled()) {
+                    image.setImageBitmap(c.thumb);
+                } else {
+                    image.setImageDrawable(c.icon);
+                }
+            }
+            return;
+        }
+        if (c.crop == null) {
+            if (box == null) {
+                frame.recycle();
+                return;
+            }
+            c.crop = new CropDrawable(box);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            image.setImageDrawable(c.crop);
+        } else if (box != null && c.crop.setSource(box)) {
+            // A new shape: the image view sizes the tile from the drawable's.
+            image.setImageDrawable(null);
+            image.setImageDrawable(c.crop);
+        }
+        c.screenFed = true;
+        c.crop.setFrame(frame);
+        c.frames.addLast(frame);
+        while (c.frames.size() > 2) {
+            c.frames.removeFirst().recycle();
+        }
+    }
+
+    private static void stopFeeding(List<Card> fed) {
+        for (Card c : fed) {
+            if (!c.screenFed) {
+                continue;
+            }
+            c.screenFed = false;
+            c.crop = null;
+            View thumb = c.view == null ? null : c.view.findViewWithTag("thumb");
+            if (thumb instanceof ImageView) {
+                if (c.thumb != null && !c.thumb.isRecycled()) {
+                    ((ImageView) thumb).setImageBitmap(c.thumb);
+                } else {
+                    ((ImageView) thumb).setImageDrawable(c.icon);
+                }
+            }
+        }
+    }
+
+    /**
+     * Where something is drawn in an app-only capture: the box around its opaque pixels, empty if
+     * there are none, null if the picture could not be read.
+     */
+    private static android.graphics.Rect contentBox(Bitmap frame) {
+        Bitmap soft = null;
+        try {
+            soft = frame.copy(Bitmap.Config.ARGB_8888, false);
+            if (soft == null) {
+                return null;
+            }
+            int w = soft.getWidth();
+            int h = soft.getHeight();
+            int[] row = new int[w];
+            int left = w;
+            int top = h;
+            int right = -1;
+            int bottom = -1;
+            final int step = 4;
+            for (int y = 0; y < h; y += step) {
+                soft.getPixels(row, 0, w, 0, y, w, 1);
+                for (int x = 0; x < w; x += step) {
+                    if ((row[x] >>> 24) > 16) {
+                        if (x < left) {
+                            left = x;
+                        }
+                        if (x > right) {
+                            right = x;
+                        }
+                        if (y < top) {
+                            top = y;
+                        }
+                        if (y > bottom) {
+                            bottom = y;
+                        }
+                    }
+                }
+            }
+            if (right < 0) {
+                return new android.graphics.Rect();
+            }
+            // The sampling stepped over up to a few pixels at each edge.
+            return new android.graphics.Rect(Math.max(0, left - step + 1),
+                    Math.max(0, top - step + 1), Math.min(w, right + step),
+                    Math.min(h, bottom + step));
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (soft != null) {
+                soft.recycle();
+            }
+        }
+    }
+
+    /** A tile: the part of its app's picture where the window is. */
     private static final class CropDrawable extends Drawable {
         private final android.graphics.Rect mSrc;
         private final android.graphics.Paint mPaint =
                 new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
         private Bitmap mFrame;
 
-        CropDrawable(android.graphics.Rect bounds, float scale) {
-            mSrc = new android.graphics.Rect(Math.round(bounds.left * scale),
-                    Math.round(bounds.top * scale), Math.round(bounds.right * scale),
-                    Math.round(bounds.bottom * scale));
+        CropDrawable(android.graphics.Rect src) {
+            mSrc = new android.graphics.Rect(src);
+        }
+
+        /** True if the window moved or resized in the picture. */
+        boolean setSource(android.graphics.Rect src) {
+            if (Math.abs(src.left - mSrc.left) <= 4 && Math.abs(src.top - mSrc.top) <= 4
+                    && Math.abs(src.right - mSrc.right) <= 4
+                    && Math.abs(src.bottom - mSrc.bottom) <= 4) {
+                return false;
+            }
+            mSrc.set(src);
+            return true;
         }
 
         void setFrame(Bitmap frame) {

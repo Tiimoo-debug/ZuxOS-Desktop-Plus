@@ -49,6 +49,16 @@ public class GlassSurface extends FrameLayout {
         mTint = tint;
         mMaterial = material;
         setWillNotDraw(false);
+        // The pane is its rounded shape and nothing outside it. The backdrop rounds itself in
+        // its shader, but the base fill it shows before the first capture does not - the
+        // recents cards opened as square slabs.
+        setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(android.view.View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), mRadius);
+            }
+        });
+        setClipToOutline(true);
 
         mEdge.setStyle(Paint.Style.STROKE);
         mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
