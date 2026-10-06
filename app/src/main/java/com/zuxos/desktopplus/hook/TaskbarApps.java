@@ -249,6 +249,11 @@ final class TaskbarApps {
             // The hover - lift, jiggle, window preview - on the launcher's icons as on ours.
             TaskbarPreview.attach(icon, IconInfo.packageOf(icon.getTag()),
                     TaskbarTray.displayIdOf(icon));
+            // And a click on the app already in front minimises it, as on our own icons.
+            Object click = clickListenerOf(icon);
+            if (click instanceof View.OnClickListener && !(click instanceof FrontToggle)) {
+                icon.setOnClickListener(new FrontToggle((View.OnClickListener) click));
+            }
             Object current = longClickListenerOf(icon);
             if (current == ROW_MENU) {
                 continue;
@@ -269,6 +274,30 @@ final class TaskbarApps {
     };
 
     private static final java.util.Set<String> SAID_FOREIGN = new java.util.HashSet<>();
+
+    private static Object clickListenerOf(View view) {
+        Object info = Reflect.field(view, "mListenerInfo");
+        return info == null ? null : Reflect.field(info, "mOnClickListener");
+    }
+
+    /** The launcher's own click, unless the app is in front - then it is minimised. */
+    private static final class FrontToggle implements View.OnClickListener {
+        private final View.OnClickListener mOriginal;
+
+        FrontToggle(View.OnClickListener original) {
+            mOriginal = original;
+        }
+
+        @Override
+        public void onClick(View v) {
+            String pkg = IconInfo.packageOf(v.getTag());
+            if (pkg != null && minimizeIfFront(v.getContext(), pkg, -1,
+                    TaskbarTray.displayIdOf(v))) {
+                return;
+            }
+            mOriginal.onClick(v);
+        }
+    }
 
     /** The view's long-click listener, or null when it has none or it cannot be read. */
     private static Object longClickListenerOf(View view) {
@@ -325,10 +354,10 @@ final class TaskbarApps {
         if (taskOf(ctx, pkg, displayId) != null) {
             // Only for an app that is open here: a second window of something with no first one
             // is just opening it, and there is nothing to minimise.
-            if (allowsWindows(ctx, pkg)) {
-                entries.add(new TaskbarMenu.Entry("New window",
-                        () -> newWindow(ctx, pkg, displayId)));
-            }
+            // For every app: one that keeps a single window gets its second through the
+            // system's part of the module (System Framework in LSPosed).
+            entries.add(new TaskbarMenu.Entry("New window",
+                    () -> newWindow(ctx, pkg, displayId)));
             entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
         }
         entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
@@ -470,6 +499,50 @@ final class TaskbarApps {
             L.i("taskbar apps: " + pkg + " has no window on display " + display);
             return;
         }
+        minimizeTask(ctx, task, display);
+    }
+
+    /**
+     * The window in front of everything on this screen, or null: the focused one, or failing
+     * that the first one listed if it is showing.
+     */
+    static android.app.ActivityManager.RunningTaskInfo frontTask(Context ctx, int display) {
+        List<android.app.ActivityManager.RunningTaskInfo> tasks = tasksOn(ctx, display);
+        for (android.app.ActivityManager.RunningTaskInfo t : tasks) {
+            if (Boolean.TRUE.equals(Reflect.field(t, "isFocused"))) {
+                return t;
+            }
+        }
+        if (!tasks.isEmpty() && Boolean.TRUE.equals(Reflect.field(tasks.get(0), "isVisible"))) {
+            return tasks.get(0);
+        }
+        return null;
+    }
+
+    /**
+     * A click on an open app's icon, as a desktop taskbar does it: the app already in front is
+     * minimised, rather than opened again over itself. True when it was - the click is done.
+     *
+     * @param taskId one window of the app, or -1 for whichever of its windows is in front
+     */
+    static boolean minimizeIfFront(Context ctx, String pkg, int taskId, int display) {
+        try {
+            android.app.ActivityManager.RunningTaskInfo front = frontTask(ctx, display);
+            if (front == null || !pkg.equals(packageOf(front))
+                    || (taskId >= 0 && front.taskId != taskId)) {
+                return false;
+            }
+            L.i("taskbar apps: " + pkg + " is in front - minimizing it, not reopening");
+            minimizeTask(ctx, front, display);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static void minimizeTask(Context ctx, android.app.ActivityManager.RunningTaskInfo task,
+            int display) {
+        String pkg = packageOf(task);
         // The window itself goes to the back - under the desktop - and stays running. The
         // monitor's windows are free-floating (the probe lists them as freeform), so bringing
         // another app forward, as this used to, left the "minimised" one in sight.
@@ -562,6 +635,35 @@ final class TaskbarApps {
      * Another window of the app, beside the one already open. Apps that allow it open a second
      * one; an app that only ever has one just comes forward.
      */
+    /**
+     * Whether the new window came, checked for a few seconds: a heavy app can take more than a
+     * second to make its task, and checking once at 1.5 s said "only one window" for Claude, whose
+     * second window then opened anyway.
+     */
+    private static void watchNewWindow(Context ctx, String pkg, int display, int before,
+            int round) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            int after = windowsOf(ctx, pkg, display);
+            if (after > before) {
+                L.i("taskbar apps: new window of " + pkg + " on display " + display + " ("
+                        + after + " now, " + (round + 1) * 400 + "ms)");
+                return;
+            }
+            if (round < 11) {
+                watchNewWindow(ctx, pkg, display, before, round + 1);
+                return;
+            }
+            boolean system = SystemNewWindow.active();
+            L.i("taskbar apps: " + pkg + " reopened its one window instead of a new one"
+                    + " (single-task=" + !allowsWindows(ctx, pkg) + ", system part="
+                    + system + ")");
+            TaskbarMenu.toast(ctx, system || allowsWindows(ctx, pkg)
+                    ? "This app only allows one window"
+                    : "For a second window of this app, tick System Framework for ZuxOS "
+                            + "Desktop Plus in LSPosed and reboot");
+        }, 400L);
+    }
+
     private static int windowsOf(Context ctx, String pkg, int display) {
         int n = 0;
         for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
@@ -580,19 +682,12 @@ final class TaskbarApps {
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+            // Read by the system's part of the module: a new task even for an app whose main
+            // screen is single-task (Termux), which Android would otherwise reuse.
+            intent.putExtra(SystemNewWindow.EXTRA, true);
             int before = windowsOf(ctx, pkg, display);
             ctx.startActivity(intent, TaskbarMenu.launchOptions(display));
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                int after = windowsOf(ctx, pkg, display);
-                if (after > before) {
-                    L.i("taskbar apps: new window of " + pkg + " on display " + display
-                            + " (" + after + " now)");
-                    return;
-                }
-                // The app took the launch into the window it already had.
-                L.i("taskbar apps: " + pkg + " reopened its one window instead of a new one");
-                TaskbarMenu.toast(ctx, "This app only allows one window");
-            }, 1500L);
+            watchNewWindow(ctx, pkg, display, before, 0);
         } catch (Throwable t) {
             L.e("taskbar apps: could not open a new window of " + pkg, t);
         }

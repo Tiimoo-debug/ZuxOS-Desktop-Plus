@@ -1649,6 +1649,11 @@ final class TaskbarRunning {
             view.setTag(pkg);
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
             view.setOnClickListener(v -> {
+                // The app already in front: minimised, as a desktop taskbar does, rather than
+                // opened again over itself.
+                if (TaskbarApps.minimizeIfFront(ctx, pkg, taskId, displayId)) {
+                    return;
+                }
                 // A window icon is that window; the app's own icon, when it has several, is its
                 // front one - not the app opened again.
                 int target = taskId;
