@@ -124,9 +124,12 @@ public final class Shots {
         }
     }
 
-    /** Small enough to keep on screen for a few seconds; the preview shows it at 200 dp. */
+    /**
+     * Half the screen's width at most: sharp enough for the first frames of the shrink into
+     * the corner, where it still fills the screen, and small to keep for a few seconds.
+     */
     private static Bitmap thumbnail(Bitmap picture) {
-        int w = Math.min(picture.getWidth(), 640);
+        int w = Math.min(picture.getWidth(), 1280);
         int h = Math.max(1, Math.round(w * picture.getHeight() / (float) picture.getWidth()));
         try {
             return Bitmap.createScaledBitmap(picture, w, h, true);

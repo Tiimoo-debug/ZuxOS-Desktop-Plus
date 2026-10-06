@@ -51,6 +51,8 @@ final class ShotPreview {
     private static View sRoot;
     private static WindowManager sWm;
     private static Bitmap sThumb;
+    /** The flying copy while it is up. */
+    private static View sFly;
     private static final Runnable HIDE = ShotPreview::dismiss;
 
     private ShotPreview() {
@@ -84,6 +86,11 @@ final class ShotPreview {
             }
         });
         picture.setClipToOutline(true);
+        // The thin white edge iOS gives a screenshot, so it reads as a picture on the glass.
+        GradientDrawable edge = new GradientDrawable();
+        edge.setCornerRadius(corner);
+        edge.setStroke(Math.max(1, Ui.dp(ctx, 1.5f)), 0xD9FFFFFF);
+        picture.setForeground(edge);
         picture.setContentDescription("Open the screenshot");
         picture.setOnClickListener(v -> act(ctx, display, view(uri)));
         picture.setOnTouchListener(new TaskbarRunning.Press());
@@ -103,25 +110,7 @@ final class ShotPreview {
         actions.addView(button(ctx, Glyphs.REMOVE, "Delete", () -> delete(ctx, uri)));
         actions.addView(button(ctx, Glyphs.CLOSE, "Close", ShotPreview::dismiss));
 
-        // A pointer anywhere over it - its buttons included - keeps it; leaving starts the
-        // clock again. Read where every hover event passes, because the root alone is told it
-        // was left the moment the pointer moves onto one of its own buttons.
-        FrameLayout root = new FrameLayout(ctx) {
-            @Override
-            public boolean dispatchHoverEvent(MotionEvent e) {
-                boolean inside = e.getX() >= 0 && e.getY() >= 0 && e.getX() < getWidth()
-                        && e.getY() < getHeight();
-                if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT && !inside) {
-                    MAIN.removeCallbacks(HIDE);
-                    MAIN.postDelayed(HIDE, SHOWN_MS);
-                } else if (inside) {
-                    MAIN.removeCallbacks(HIDE);
-                }
-                return super.dispatchHoverEvent(e);
-            }
-        };
-        root.addView(pane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout root = new Root(ctx, pane);
 
         root.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -157,11 +146,227 @@ final class ShotPreview {
         sWm = wm;
         sThumb = thumb;
 
-        // In from the left edge on iOS's spring.
-        pane.setTranslationX(-(root.getMeasuredWidth() + margin));
-        pane.animate().translationX(0f).setDuration(Motion.IOS_MS)
-                .setInterpolator(Motion.IOS).withLayer().start();
+        // The iOS way: a flash, then the whole screen shrinks into the corner on a spring and
+        // the glass card forms around it. Without the flying copy, in from the left edge.
+        if (!fly(ctx, wm, thumb, lp.x + pad, lp.y + pad, thumbW, thumbH, corner, pane)) {
+            pane.setTranslationX(-(root.getMeasuredWidth() + margin));
+            pane.animate().translationX(0f).setDuration(Motion.IOS_MS)
+                    .setInterpolator(Motion.IOS).withLayer().start();
+        }
         MAIN.postDelayed(HIDE, SHOWN_MS);
+    }
+
+    /**
+     * The screen, as just taken, shrinking from full size into the thumbnail's place - in a
+     * window of its own over everything, which takes no touches and is gone once it lands.
+     *
+     * @return false when it could not be shown; the card then comes in by itself
+     */
+    private static boolean fly(Context ctx, WindowManager wm, Bitmap shot, int toX, int toY,
+            int toW, int toH, float corner, View card) {
+        android.graphics.Rect screen;
+        try {
+            screen = wm.getCurrentWindowMetrics().getBounds();
+        } catch (Throwable t) {
+            return false;
+        }
+        int w = screen.width();
+        int h = screen.height();
+        if (w <= 0 || h <= 0) {
+            return false;
+        }
+        FrameLayout layer = new FrameLayout(ctx);
+        View flash = new View(ctx);
+        flash.setBackgroundColor(0xFFFFFFFF);
+        flash.setAlpha(0f);
+        layer.addView(flash, new FrameLayout.LayoutParams(w, h));
+        ImageView copy = new ImageView(ctx);
+        copy.setImageBitmap(shot);
+        copy.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        float[] radius = {0f};
+        copy.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius[0]);
+            }
+        });
+        copy.setClipToOutline(true);
+        copy.setPivotX(0f);
+        copy.setPivotY(0f);
+        layer.addView(copy, new FrameLayout.LayoutParams(w, h));
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(w, h,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.setFitInsetsTypes(0);
+        lp.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        lp.setTitle("ZuxOS Desktop Plus screenshot flash");
+        FrameRate.forWindow(lp, wm.getDefaultDisplay());
+        try {
+            wm.addView(layer, lp);
+        } catch (Throwable t) {
+            L.d("screenshot preview: no flash (" + t + ")");
+            return false;
+        }
+        sFly = layer;
+        card.setAlpha(0f);
+        card.setScaleX(0.96f);
+        card.setScaleY(0.96f);
+
+        // The shutter: up fast, away slower.
+        flash.animate().alpha(0.55f).setDuration(70L).setInterpolator(Motion.EASE)
+                .withEndAction(() -> flash.animate().alpha(0f).setDuration(240L)
+                        .setInterpolator(Motion.EASE).start()).start();
+
+        float endScale = toW / (float) w;
+        // Corners in the copy's own pixels: it is drawn scaled, so they are divided back out.
+        android.animation.ValueAnimator shrink = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        shrink.setDuration(Motion.SMOOTH_MS);
+        shrink.setInterpolator(Motion.SMOOTH);
+        shrink.addUpdateListener(a -> {
+            float f = (float) a.getAnimatedValue();
+            float scale = 1f + (endScale - 1f) * f;
+            copy.setScaleX(scale);
+            copy.setScaleY(scale);
+            copy.setTranslationX(toX * f);
+            copy.setTranslationY(toY * f + (toH - h * endScale) / 2f * f);
+            radius[0] = corner * f / Math.max(scale, 0.01f);
+            copy.invalidateOutline();
+        });
+        shrink.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                // The card takes over where the copy landed, then the copy goes.
+                card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(Motion.IOS_MS)
+                        .setInterpolator(Motion.IOS).withLayer().start();
+                copy.animate().alpha(0f).setDuration(140L).setStartDelay(60L)
+                        .withEndAction(() -> removeFly(wm, layer)).start();
+            }
+        });
+        shrink.start();
+        return true;
+    }
+
+    private static void removeFly(WindowManager wm, View layer) {
+        if (sFly == layer) {
+            sFly = null;
+        }
+        try {
+            wm.removeViewImmediate(layer);
+        } catch (Throwable ignored) {
+            // Already gone.
+        }
+    }
+
+    /**
+     * The card's window root: holds it while a pointer is anywhere over it, and lets it be
+     * swiped away to the left, following the finger or pen, the way iOS's is.
+     */
+    private static final class Root extends FrameLayout {
+        private final View mPane;
+        private final int mSlop;
+        private final float mFling;
+        private float mDownX;
+        private boolean mDragging;
+        private android.view.VelocityTracker mVelocity;
+
+        Root(Context ctx, View pane) {
+            super(ctx);
+            mPane = pane;
+            mSlop = android.view.ViewConfiguration.get(ctx).getScaledTouchSlop();
+            mFling = Ui.dp(ctx, 600);
+            addView(pane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
+        /**
+         * Read where every hover event passes: the root alone is told it was left the moment
+         * the pointer moves onto one of its own buttons.
+         */
+        @Override
+        public boolean dispatchHoverEvent(MotionEvent e) {
+            boolean inside = e.getX() >= 0 && e.getY() >= 0 && e.getX() < getWidth()
+                    && e.getY() < getHeight();
+            if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT && !inside) {
+                MAIN.removeCallbacks(HIDE);
+                MAIN.postDelayed(HIDE, SHOWN_MS);
+            } else if (inside) {
+                MAIN.removeCallbacks(HIDE);
+            }
+            return super.dispatchHoverEvent(e);
+        }
+
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent e) {
+            track(e);
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                mDownX = e.getRawX();
+                mDragging = false;
+            } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE && !mDragging
+                    && mDownX - e.getRawX() > mSlop) {
+                mDragging = true;
+                MAIN.removeCallbacks(HIDE);
+            }
+            return mDragging;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            track(e);
+            float dx = e.getRawX() - mDownX;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    mDownX = e.getRawX();
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (!mDragging && -dx > mSlop) {
+                        mDragging = true;
+                        MAIN.removeCallbacks(HIDE);
+                    }
+                    if (mDragging) {
+                        // To the left it follows; to the right it only gives a little.
+                        mPane.setTranslationX(dx < 0 ? dx : dx * 0.15f);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    float vx = 0f;
+                    if (mVelocity != null) {
+                        mVelocity.computeCurrentVelocity(1000);
+                        vx = mVelocity.getXVelocity();
+                        mVelocity.recycle();
+                        mVelocity = null;
+                    }
+                    if (mDragging && (dx < -getWidth() / 3f || vx < -mFling)) {
+                        dismiss();
+                    } else if (mDragging) {
+                        mPane.animate().translationX(0f).setDuration(Motion.IOS_MS)
+                                .setInterpolator(Motion.IOS).start();
+                        MAIN.postDelayed(HIDE, SHOWN_MS);
+                    }
+                    mDragging = false;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        private void track(MotionEvent e) {
+            if (mVelocity == null) {
+                mVelocity = android.view.VelocityTracker.obtain();
+            }
+            // Raw coordinates: the card moves under the finger while it is dragged.
+            MotionEvent raw = MotionEvent.obtain(e);
+            raw.setLocation(e.getRawX(), e.getRawY());
+            mVelocity.addMovement(raw);
+            raw.recycle();
+        }
     }
 
     private static View button(Context ctx, int glyph, String description, Runnable action) {
@@ -263,6 +468,10 @@ final class ShotPreview {
         View root = sRoot;
         WindowManager wm = sWm;
         Bitmap thumb = sThumb;
+        if (sFly != null && wm != null) {
+            // The flying copy draws the same picture, which is freed with the card.
+            removeFly(wm, sFly);
+        }
         clear();
         if (root == null || wm == null) {
             return;
@@ -270,7 +479,7 @@ final class ShotPreview {
         View pane = root instanceof ViewGroup && ((ViewGroup) root).getChildCount() > 0
                 ? ((ViewGroup) root).getChildAt(0) : root;
         pane.animate().translationX(-(root.getWidth() + Ui.dp(root.getContext(), 16)))
-                .setDuration(260L).setInterpolator(Motion.EXIT).withLayer()
+                .alpha(0.6f).setDuration(260L).setInterpolator(Motion.EXIT).withLayer()
                 .withEndAction(() -> remove(wm, root, thumb)).start();
     }
 
@@ -278,6 +487,9 @@ final class ShotPreview {
         View root = sRoot;
         WindowManager wm = sWm;
         Bitmap thumb = sThumb;
+        if (sFly != null && wm != null) {
+            removeFly(wm, sFly);
+        }
         clear();
         if (root != null && wm != null) {
             remove(wm, root, thumb);
