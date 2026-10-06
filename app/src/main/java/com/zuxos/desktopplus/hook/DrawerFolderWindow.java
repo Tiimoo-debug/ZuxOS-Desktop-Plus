@@ -37,6 +37,9 @@ public final class DrawerFolderWindow {
 
     private static FrameLayout sCurrent;
     private static WindowManager sWm;
+    private static WindowManager.LayoutParams sLp;
+    /** The folder is out of the way of a drag that left it, and closes when the drag ends. */
+    private static boolean sSteppedAside;
     private static GridLayout sGrid;
     private static Item sFolder;
     private static AppsRepo sRepo;
@@ -138,6 +141,35 @@ public final class DrawerFolderWindow {
                 }
                 return false;
             });
+            // Dragged off the panel: the folder and the drawer step aside so it can be dropped on
+            // the desktop or the taskbar, and close for good once the drag is over.
+            root.setOnDragListener((v, event) -> {
+                Object local = event.getLocalState();
+                if (!(local instanceof DragPayload) || ((DragPayload) local).folder != sFolder) {
+                    return false;
+                }
+                switch (event.getAction()) {
+                    case android.view.DragEvent.ACTION_DRAG_LOCATION:
+                        if (!inside(glass, event.getX(), event.getY())) {
+                            stepAsideForDrag();
+                        }
+                        return true;
+                    case android.view.DragEvent.ACTION_DRAG_EXITED:
+                        stepAsideForDrag();
+                        return true;
+                    case android.view.DragEvent.ACTION_DROP:
+                        // Let go over the dimmed space round the panel: not a drop on anything.
+                        return false;
+                    case android.view.DragEvent.ACTION_DRAG_ENDED:
+                        if (sSteppedAside) {
+                            sSteppedAside = false;
+                            v.post(DrawerFolderWindow::dismiss);
+                        }
+                        return true;
+                    default:
+                        return true;
+                }
+            });
             root.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_OUTSIDE
                         || event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -170,6 +202,8 @@ public final class DrawerFolderWindow {
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            sLp = lp;
+            sSteppedAside = false;
             sPanel = glass;
             sSource = source;
             root.requestFocus();
@@ -209,8 +243,14 @@ public final class DrawerFolderWindow {
                     if (item == null) {
                         return;
                     }
-                    DragPayload payload = new DragPayload(item, DragPayload.SRC_FOLDER, sFolder);
-                    view.startDragAndDrop(null, view.shadow(), payload, View.DRAG_FLAG_OPAQUE);
+                    // A drawer app, copied wherever it is dropped, as one dragged from the drawer's
+                    // grid is - and written onto the drag, which has to cross windows: the desktop
+                    // and the taskbar are not this one. A drag with no clip and no global flag
+                    // never left the folder, which is why only a whole folder could be dragged
+                    // out. The folder it came from still rides along, for reordering in here.
+                    DragPayload payload = new DragPayload(item, DragPayload.SRC_DRAWER, sFolder);
+                    view.startDragAndDrop(payload.toClip(), view.shadow(), payload,
+                            View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
                 }
             });
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
@@ -373,6 +413,45 @@ public final class DrawerFolderWindow {
         });
     }
 
+    private static boolean inside(View panel, float x, float y) {
+        return x >= panel.getLeft() && x <= panel.getRight()
+                && y >= panel.getTop() && y <= panel.getBottom();
+    }
+
+    /**
+     * Out of the way of a drag that left the panel, without ending it: the window stays - it is
+     * where the drag started - but draws nothing, blurs nothing and lets touches and the drop
+     * through to whatever is under it. The stock drawer goes too; it covers the desktop.
+     */
+    private static void stepAsideForDrag() {
+        View current = sCurrent;
+        WindowManager wm = sWm;
+        WindowManager.LayoutParams lp = sLp;
+        if (sSteppedAside || current == null || wm == null || lp == null) {
+            return;
+        }
+        sSteppedAside = true;
+        current.animate().alpha(0f).setDuration(com.zuxos.desktopplus.core.Motion.SHORT)
+                .setInterpolator(com.zuxos.desktopplus.core.Motion.EXIT).start();
+        lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        lp.flags &= ~WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            lp.setBlurBehindRadius(0);
+        }
+        try {
+            wm.updateViewLayout(current, lp);
+        } catch (Throwable t) {
+            L.d("folder window: could not step aside (" + t + ")");
+        }
+        current.post(() -> {
+            try {
+                TaskbarBridge.closeStockDrawer();
+            } catch (Throwable t) {
+                L.d("could not close the stock drawer: " + t);
+            }
+        });
+    }
+
     public static void dismiss() {
         if (sPanel != null) {
             // Gone without the closing animation - an app launched from it: the icon comes back.
@@ -384,6 +463,7 @@ public final class DrawerFolderWindow {
         WindowManager wm = sWm;
         sCurrent = null;
         sWm = null;
+        sLp = null;
         sGrid = null;
         sFolder = null;
         sStore = null;

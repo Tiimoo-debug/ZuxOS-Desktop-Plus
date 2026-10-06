@@ -211,6 +211,7 @@ public final class NativeDrawerHooks {
             if (apps == null || apps.isEmpty()) {
                 return false;
             }
+            sLastList = new java.lang.ref.WeakReference<>(appsList);
             DrawerStore store = store(ctx);
             Set<String> filed = store.keysInFolders();
             Set<String> hidden = store.hidden();
@@ -360,6 +361,68 @@ public final class NativeDrawerHooks {
             }
             return Integer.compare(ia, ib);
         });
+    }
+
+    /** The drawer's app list as last seen, so a rearrangement can have it re-sorted. */
+    private static java.lang.ref.WeakReference<Object> sLastList;
+
+    /** What an icon in the stock drawer stands for, as a key of the drawer's order; or null. */
+    static String keyOfIcon(View icon) {
+        Context ctx = AppCtx.get();
+        Object tag = icon == null ? null : icon.getTag();
+        if (ctx == null || tag == null || sAppInfoCls == null || !sAppInfoCls.isInstance(tag)) {
+            return null;
+        }
+        String key = entryKey(ctx, tag);
+        return key.isEmpty() ? null : key;
+    }
+
+    /** Every entry of the stock drawer, by key, in the order it is showing them. */
+    static List<String> shownOrder() {
+        Context ctx = AppCtx.get();
+        Object list = sLastList != null ? sLastList.get() : null;
+        List<Object> apps = list == null ? null : appsListOf(list);
+        List<String> keys = new ArrayList<>();
+        if (ctx == null || apps == null) {
+            return keys;
+        }
+        for (Object app : apps) {
+            String key = entryKey(ctx, app);
+            if (!key.isEmpty()) {
+                keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    /**
+     * Moves one entry of the stock drawer to {@code index} of what it shows, keeps that order -
+     * the same order the module's own drawer uses - and has the drawer show it.
+     *
+     * @return false when the drawer's list is not at hand and nothing was changed
+     */
+    static boolean moveInDrawer(String key, int index) {
+        Context ctx = AppCtx.get();
+        Object list = sLastList != null ? sLastList.get() : null;
+        List<String> keys = shownOrder();
+        int from = keys.indexOf(key);
+        if (ctx == null || list == null || from < 0 || index < 0 || index >= keys.size()) {
+            return false;
+        }
+        keys.remove(from);
+        keys.add(index, key);
+        DrawerStore store = store(ctx);
+        store.order().clear();
+        store.order().addAll(keys);
+        store.save();
+        try {
+            // Re-sorted through the same path that applies the order on every refresh.
+            Reflect.call(list, "updateAdapterItems");
+        } catch (Throwable t) {
+            L.d("native drawer: could not re-sort after a move (" + t + ")");
+        }
+        L.i("native drawer: moved " + key + " to " + index + " of " + keys.size());
+        return true;
     }
 
     private static String entryKey(Context ctx, Object entry) {

@@ -20,9 +20,13 @@ import java.util.List;
  *
  * <p>The drag starts on the hold either way - by the time anyone knows whether the finger will
  * move, the hold has already fired - so what happens next is decided by watching it. A
- * see-through view laid over the drawer for the length of the drag hears where it goes: once it
- * has moved a little the drawer gets out of the way so there is somewhere to drop it, and if it
- * is let go where it was picked up, nothing was dropped and the menu opens instead.
+ * see-through view laid over the drawer for the length of the drag hears where it goes:
+ * <ul>
+ * <li>moved within the drawer, it rearranges the drawer ({@link DrawerReorder});
+ * <li>moved out of the drawer's panel or onto the taskbar, the drawer gets out of the way so it
+ * can be dropped on the desktop or the bar;
+ * <li>let go where it was picked up, nothing was dropped and the menu opens instead.
+ * </ul>
  *
  * <p>It used to close the drawer the moment the hold fired, which is why holding an app only ever
  * dragged it.
@@ -64,6 +68,12 @@ final class DrawerHold {
         private float mStartX = -1f;
         private float mStartY;
         private boolean mMoved;
+        /** Rearranging the drawer while the drag is over it; null where that cannot be done. */
+        private DrawerReorder mReorder;
+        /** The drag has left the drawer, which has stepped aside for it. */
+        private boolean mLeft;
+        /** Let go over the drawer, in a new place in it. */
+        private boolean mDroppedHere;
 
         Watcher(Context ctx) {
             super(ctx);
@@ -77,6 +87,23 @@ final class DrawerHold {
             mItem = item;
             mStartX = -1f;
             mMoved = false;
+            mLeft = false;
+            mDroppedHere = false;
+            mReorder = DrawerReorder.begin(source);
+        }
+
+        /** The drawer steps aside, once, for a drag on its way to the desktop or the taskbar. */
+        private void leave() {
+            mMoved = true;
+            if (mLeft) {
+                return;
+            }
+            mLeft = true;
+            if (mReorder != null) {
+                mReorder.cancel();
+            }
+            // Posted: the window this view is in is the one being closed.
+            post(TaskbarBridge::closeStockDrawer);
         }
 
         private boolean onDrag(View v, DragEvent event) {
@@ -86,28 +113,56 @@ final class DrawerHold {
             switch (event.getAction()) {
                 case DragEvent.ACTION_DRAG_STARTED:
                     return true;
-                case DragEvent.ACTION_DRAG_LOCATION:
+                case DragEvent.ACTION_DRAG_LOCATION: {
+                    float x = event.getX();
+                    float y = event.getY();
                     if (mStartX < 0) {
-                        mStartX = event.getX();
-                        mStartY = event.getY();
-                    } else if (!mMoved && Math.hypot(event.getX() - mStartX,
-                            event.getY() - mStartY) > Ui.dp(getContext(), MOVE_DP)) {
-                        // A drag after all. The drawer covers the desktop, so it goes now -
-                        // posted, because the window this view is in is the one being closed.
+                        mStartX = x;
+                        mStartY = y;
+                        return true;
+                    }
+                    if (!mMoved && Math.hypot(x - mStartX, y - mStartY)
+                            > Ui.dp(getContext(), MOVE_DP)) {
+                        // A drag after all, not a hold.
                         mMoved = true;
-                        post(TaskbarBridge::closeStockDrawer);
+                        if (mReorder == null) {
+                            // Nothing to rearrange here: the drawer covers the desktop, so it
+                            // goes now, as it always did.
+                            leave();
+                        }
+                    }
+                    if (mMoved && mReorder != null && !mLeft) {
+                        if (mReorder.over(x, y)) {
+                            mReorder.moveTo(x, y);
+                        } else {
+                            leave();
+                        }
                     }
                     return true;
+                }
                 case DragEvent.ACTION_DRAG_EXITED:
-                    mMoved = true;
+                    leave();
                     return true;
                 case DragEvent.ACTION_DROP:
-                    // Let go over the drawer itself: not a drop on anything.
+                    if (mReorder != null && mMoved && !mLeft) {
+                        // Let go over the drawer after moving: a new place in it.
+                        mDroppedHere = true;
+                        mReorder.drop();
+                        return true;
+                    }
+                    // Let go where it was picked up: not a drop on anything.
                     return false;
                 case DragEvent.ACTION_DRAG_ENDED: {
                     View source = mSource;
                     Item item = mItem;
                     boolean menu = !mMoved && !event.getResult();
+                    if (mReorder != null && !mDroppedHere) {
+                        // Dropped elsewhere, or nowhere: the drawer's icons all back in place,
+                        // the picked-up one showing again for the next time it opens.
+                        mReorder.cancel();
+                        mReorder.drop();
+                    }
+                    mReorder = null;
                     mSource = null;
                     mItem = null;
                     if (menu && source != null && item != null) {
