@@ -95,16 +95,6 @@ final class TaskbarFollow {
         STATES.put(dragLayer, state);
     }
 
-    /** Off a bar that is no longer ours, with every piece put back to rest. */
-    static void uninstall(ViewGroup dragLayer) {
-        State state = STATES.remove(dragLayer);
-        if (state == null) {
-            return;
-        }
-        detach(state);
-        apply(dragLayer, 1f, 0f);
-    }
-
     private static void detach(State state) {
         ViewTreeObserver observer = state.observer;
         if (observer == null || !observer.isAlive()) {

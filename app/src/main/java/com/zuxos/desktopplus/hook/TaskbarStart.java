@@ -53,7 +53,7 @@ final class TaskbarStart {
     static void apply(ViewGroup dragLayer, ViewGroup icons) {
         try {
             View zui = allAppsButton(icons);
-            if (!Cfg.startButtonLeft() || !TaskbarScope.ours(dragLayer)) {
+            if (!Cfg.startButtonLeft()) {
                 unapply(dragLayer, icons);
                 return;
             }

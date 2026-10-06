@@ -496,7 +496,7 @@ public final class TaskbarGlass {
         return tagged;
     }
 
-    static void remove(ViewGroup dragLayer) {
+    private static void remove(ViewGroup dragLayer) {
         // First: a listener still on the row would re-tint the buttons at the next layout, just
         // after their own colours had been put back.
         unwatch(dragLayer);

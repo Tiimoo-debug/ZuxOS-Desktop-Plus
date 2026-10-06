@@ -53,14 +53,6 @@ final class TaskbarDrop {
         }
     }
 
-    /** Takes the strip off a bar that is not ours. */
-    static void remove(ViewGroup dragLayer) {
-        DropStrip strip = stripIn(dragLayer);
-        if (strip != null) {
-            dragLayer.removeView(strip);
-        }
-    }
-
     private static DropStrip stripIn(ViewGroup dragLayer) {
         for (int i = 0; i < dragLayer.getChildCount(); i++) {
             if (dragLayer.getChildAt(i) instanceof DropStrip) {

@@ -20,8 +20,7 @@ import de.robv.android.xposed.XposedBridge;
  *
  * <p>The rebuild goes ahead - stopping it would also stop the bar learning that anything changed -
  * but with "Only open apps" on, ZUI is handed no apps to build it with: our own row draws the
- * open ones, and nothing of ZUI's has to be hidden afterwards. The tablet's desktop-mode bar is
- * left to ZUI entirely ({@link TaskbarScope}).
+ * open ones, and nothing of ZUI's has to be hidden afterwards.
  */
 final class TaskbarRebind {
 
@@ -117,9 +116,7 @@ final class TaskbarRebind {
      * flash. The bar's own drawer button is not an item and is built as always.
      */
     private static void emptyOfApps(XC_MethodHook.MethodHookParam param) {
-        if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
-                || !(param.thisObject instanceof android.view.View)
-                || !TaskbarScope.ours((android.view.View) param.thisObject)) {
+        if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
             return;
         }
         for (int i = 0; i < param.args.length; i++) {
@@ -234,10 +231,7 @@ final class TaskbarRebind {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
-                                    // The tablet's desktop-mode bar fills itself with the open
-                                    // apps through this very call: that bar is ZUI's.
-                                    || !TaskbarScope.oursFromFields(param.thisObject)) {
+                            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
                                 return;
                             }
                             param.setResult(null);

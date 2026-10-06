@@ -78,11 +78,6 @@ final class TaskbarRunning {
 
     /** Called whenever a taskbar is (re)attached, and then on its own every few seconds. */
     static void apply(ViewGroup dragLayer) {
-        if (!TaskbarScope.ours(dragLayer)) {
-            // The tablet's desktop-mode bar: ZUI's own, exactly as ZUI builds it.
-            stock(dragLayer);
-            return;
-        }
         // Both of these come first, and before any setting is read: the strip is what catches an
         // app dropped on the bar, and nothing can be pinned until it is there - so a taskbar with
         // every one of these settings off still has to be able to receive the first pin.
@@ -244,7 +239,7 @@ final class TaskbarRunning {
     static void rebound(ViewGroup icons) {
         try {
             View root = icons.getRootView();
-            if (!(root instanceof ViewGroup) || !TaskbarScope.ours(icons)) {
+            if (!(root instanceof ViewGroup)) {
                 return;
             }
             ViewGroup dragLayer = (ViewGroup) root;
@@ -352,25 +347,6 @@ final class TaskbarRunning {
         showEverythingAgain(icons);
         TaskbarApps.installRowMenu(icons);
         TaskbarStart.apply(dragLayer, icons);
-    }
-
-    /**
-     * Leaves a bar entirely to ZUI: our row, marks, drop strip, start button and follow-along
-     * taken off, and anything of ZUI's we hid shown again.
-     */
-    static void stock(ViewGroup dragLayer) {
-        ScrollRow scroller = scrollerIn(dragLayer);
-        if (scroller != null) {
-            dragLayer.removeView(scroller);
-        }
-        TaskbarMarks.remove(dragLayer);
-        TaskbarDrop.remove(dragLayer);
-        TaskbarFollow.uninstall(dragLayer);
-        ViewGroup icons = iconRow(dragLayer);
-        if (icons != null) {
-            showEverythingAgain(icons);
-        }
-        TaskbarStart.unapply(dragLayer, icons);
     }
 
     /** Puts back icons an earlier run hid, without touching anything else in the bar. */
@@ -901,7 +877,7 @@ final class TaskbarRunning {
             }
             int edge = leftEdge(dragLayer);
             int left;
-            int right = trayGap(dragLayer);
+            int right = rightGap(dragLayer, edge, reference);
             int width;
             if (edge >= 0) {
                 // Anchored at both ends - after the drawer button on the left, short of the tray
@@ -988,18 +964,83 @@ final class TaskbarRunning {
     private static final int BARE_DP = 40;
 
     /**
-     * How far our row has to stay from the right-hand end of the bar: up to the tray's actual
-     * left edge, and a stretch of bare bar more, so neither the last icon nor its fading edge
-     * touches it and the bar can still be held there.
+     * How far our row has to stay from the right-hand end of the bar: up to the first thing to
+     * its right - our tray, or anything of ZUI's sitting in the bar's row, such as the search
+     * pill and the button at the far end of the tablet's desktop-mode bar - and a stretch of bare
+     * bar more, so neither the last icon nor its fading edge touches it and the bar can still be
+     * held there. Stopping at our tray alone ran the row under ZUI's search pill on the tablet,
+     * which has no tray.
      */
-    private static int trayGap(ViewGroup dragLayer) {
+    private static int rightGap(ViewGroup dragLayer, int start, View reference) {
         int margin = Ui.dp(dragLayer.getContext(), BARE_DP);
-        View tray = TaskbarTray.trayOf(dragLayer);
-        if (tray != null && tray.getWidth() > 0 && dragLayer.getWidth() > 0
-                && tray.getParent() == dragLayer) {
-            return Math.max(0, dragLayer.getWidth() - tray.getLeft()) + margin;
+        int width = dragLayer.getWidth();
+        if (width <= 0) {
+            return TaskbarTray.trayWidth(dragLayer) + margin;
         }
-        return TaskbarTray.trayWidth(dragLayer) + margin;
+        int limit = width;
+        View tray = TaskbarTray.trayOf(dragLayer);
+        if (tray != null && tray.getWidth() > 0 && tray.getParent() == dragLayer) {
+            limit = tray.getLeft();
+        }
+        if (start >= 0 && reference != null && reference.getHeight() > 0) {
+            int zui = firstOfZuisAfter(dragLayer, start, reference.getTop(),
+                    reference.getBottom());
+            if (zui >= 0) {
+                limit = Math.min(limit, zui);
+            }
+        }
+        return Math.max(0, width - limit) + margin;
+    }
+
+    /**
+     * The left edge of the first visible thing of ZUI's that sits in the bar's row at or after
+     * {@code start}, in the drag layer's coordinates; -1 when there is none.
+     *
+     * <p>Found by what is on screen rather than by name: buttons and pills of the bar's own, not
+     * the wide containers they sit in, and nothing of ours.
+     */
+    private static int firstOfZuisAfter(ViewGroup dragLayer, int start, int top, int bottom) {
+        int found = -1;
+        int half = dragLayer.getWidth() / 2;
+        java.util.ArrayDeque<View> pending = new java.util.ArrayDeque<>();
+        for (int i = 0; i < dragLayer.getChildCount(); i++) {
+            pending.add(dragLayer.getChildAt(i));
+        }
+        while (!pending.isEmpty()) {
+            View view = pending.poll();
+            if (view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f
+                    || view.getClass().getName().startsWith("com.zuxos.desktopplus.")) {
+                continue;
+            }
+            if (view.getWidth() >= half && view instanceof ViewGroup) {
+                // A container spanning the bar: what matters is what is in it.
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    pending.add(group.getChildAt(i));
+                }
+                continue;
+            }
+            if (view.getWidth() <= 0 || view.getWidth() >= half) {
+                continue;
+            }
+            int left = offsetIn(dragLayer, view);
+            int viewTop = topIn(dragLayer, view);
+            if (left < start || viewTop >= bottom || viewTop + view.getHeight() <= top) {
+                continue;
+            }
+            found = found < 0 ? left : Math.min(found, left);
+        }
+        return found;
+    }
+
+    /** How far a view's top edge is from the drag layer's. */
+    private static int topIn(ViewGroup dragLayer, View view) {
+        int top = 0;
+        for (View v = view; v != null && v != dragLayer; ) {
+            top += v.getTop();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return top;
     }
 
     /** How far a view's left edge is from the drag layer's. */
