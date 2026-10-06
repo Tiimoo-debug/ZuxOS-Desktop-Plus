@@ -45,7 +45,8 @@ final class TaskbarStart {
     private static final android.util.SparseLongArray PRESSED = new android.util.SparseLongArray();
 
     private static boolean sSaid;
-    private static final java.util.Set<Integer> SAID_PRESS = new java.util.HashSet<>();
+    private static final java.util.Set<String> SAID_PRESS = new java.util.HashSet<>();
+    private static final java.util.Set<String> SAID_TOUCH = new java.util.HashSet<>();
 
     private TaskbarStart() {
     }
@@ -260,7 +261,16 @@ final class TaskbarStart {
             setContentDescription("Start");
             setOnClickListener(v -> press());
             setOnLongClickListener(v -> mZui != null && mZui.performLongClick());
-            setOnTouchListener(new TaskbarRunning.Press());
+            View.OnTouchListener press = new TaskbarRunning.Press();
+            setOnTouchListener((v, e) -> {
+                if (e.getActionMasked() == MotionEvent.ACTION_DOWN
+                        && SAID_TOUCH.add(TaskbarScope.label(v))) {
+                    // Once per bar: a touch that arrives and no press after it says the press
+                    // is lost on the way; no touch at all says the bar never handed it over.
+                    L.i("start button: touched on " + TaskbarScope.label(v));
+                }
+                return press.onTouch(v, e);
+            });
             setOnHoverListener((v, e) -> {
                 int action = e.getActionMasked();
                 if (action == MotionEvent.ACTION_HOVER_ENTER) {
@@ -292,9 +302,9 @@ final class TaskbarStart {
 
         private void press() {
             int display = TaskbarTray.displayIdOf(this);
-            if (SAID_PRESS.add(display)) {
-                // Once per screen: proof the press reached the button at all.
-                L.i("start button: pressed on display " + display + ", ZUI's button "
+            if (SAID_PRESS.add(TaskbarScope.label(this))) {
+                // Once per bar - the tablet has two on one screen: proof the press reached it.
+                L.i("start button: pressed on " + TaskbarScope.label(this) + ", ZUI's button "
                         + (mZui == null ? "not found" : mZui.getClass().getSimpleName()
                         + (mZui.hasOnClickListeners() ? " with" : " without")
                         + " a click listener"));

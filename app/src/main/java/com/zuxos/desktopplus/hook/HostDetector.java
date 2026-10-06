@@ -63,8 +63,13 @@ public final class HostDetector {
         return false;
     }
 
+    /**
+     * By the activity's own name, not its package's: every screen of ZUI's launcher lives in
+     * {@code com.zui.launcher}, which matched "launcher" - so its search permission screen and
+     * its recents were taken for home screens, and the desktop attached itself to them.
+     */
     private static boolean nameLooksLikeHome(Activity activity) {
-        String name = activity.getClass().getName().toLowerCase();
+        String name = activity.getClass().getSimpleName().toLowerCase();
         for (String hint : CLASS_HINTS) {
             if (name.contains(hint)) {
                 return true;

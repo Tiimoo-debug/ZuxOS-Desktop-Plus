@@ -34,7 +34,9 @@ public final class Probe {
                     content = (ViewGroup) decor;
                 }
             }
-            String text = describe(activity, content);
+            // Every window too, as the exported probe has: the taskbars are windows of their own,
+            // and a dump without them could not show a bar at all.
+            String text = describe(activity, content) + describeAllWindows();
             String out = Storage.export(activity, Const.FILE_PROBE, text);
             Storage.write(Storage.file(activity, Const.FILE_PROBE), text);
             L.i("probe dump" + (out != null ? " written to " + out : "") + ":\n" + text);

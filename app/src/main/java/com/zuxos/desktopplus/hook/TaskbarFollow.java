@@ -1,5 +1,6 @@
 package com.zuxos.desktopplus.hook;
 
+import android.graphics.Rect;
 import android.graphics.Region;
 import android.view.View;
 import android.view.ViewGroup;
@@ -41,7 +42,7 @@ final class TaskbarFollow {
     private static Field sTouchableRegion;
     private static boolean sInsetsUnavailable;
     private static boolean sSaidFollow;
-    private static boolean sSaidTouch;
+    private static final Map<View, Boolean> TOUCH_SAID = new WeakHashMap<>();
 
     /** {@code InternalInsetsInfo.TOUCHABLE_INSETS_REGION}. */
     private static final int TOUCHABLE_REGION = 3;
@@ -55,6 +56,8 @@ final class TaskbarFollow {
         Object insets;
         float alpha = 1f;
         float shift = 0f;
+        String lastDescribed;
+        int described;
         /** ZUI's icon row, found once rather than searched for on every frame. */
         java.lang.ref.WeakReference<View> row;
     }
@@ -64,6 +67,17 @@ final class TaskbarFollow {
         ViewTreeObserver observer = dragLayer.getViewTreeObserver();
         State state = STATES.get(dragLayer);
         if (state != null && state.observer == observer && observer.isAlive()) {
+            // Back to the end of the line: a bar that registers its own touch region after ours
+            // - one built on a window context may, each time it shows - would otherwise
+            // overwrite what ours adds, and our icons would take no taps.
+            if (state.insets != null) {
+                try {
+                    sRemoveInsets.invoke(observer, state.insets);
+                    sAddInsets.invoke(observer, state.insets);
+                } catch (Throwable ignored) {
+                    // Left where it was.
+                }
+            }
             return;
         }
         if (state != null) {
@@ -133,6 +147,7 @@ final class TaskbarFollow {
             alpha *= zui.getAlpha();
             shift += zui.getTranslationY();
         }
+        describe(dragLayer, state, row, zui);
         if ((alpha < 0.999f || shift != 0f)
                 && TaskbarStart.drawerOpen(TaskbarTray.displayIdOf(dragLayer))) {
             // ZUI hides its row for its drawer; ours stays, so the start button can close it.
@@ -145,6 +160,26 @@ final class TaskbarFollow {
         state.alpha = alpha;
         state.shift = shift;
         apply(dragLayer, alpha, shift);
+    }
+
+    /**
+     * One line per change in how ZUI shows a tablet bar, a few dozen at most per bar: what each
+     * of its hiding channels reads. Enough to see from a log alone how it hides for the keyboard.
+     */
+    private static void describe(ViewGroup dragLayer, State state, View row, View zui) {
+        if (state.described >= 20) {
+            return;
+        }
+        String line = "row " + row.getVisibility() + "/" + row.getAlpha() + "/"
+                + row.getTranslationY()
+                + (zui != null ? " button " + zui.getAlpha() + "/" + zui.getTranslationY() : "")
+                + " layer " + dragLayer.getAlpha() + "/" + dragLayer.getTranslationY()
+                + " window " + dragLayer.getWindowVisibility();
+        if (!line.equals(state.lastDescribed)) {
+            state.lastDescribed = line;
+            state.described++;
+            L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " " + line);
+        }
     }
 
     private static void apply(ViewGroup dragLayer, float alpha, float shift) {
@@ -232,6 +267,7 @@ final class TaskbarFollow {
             if (region == null) {
                 return;
             }
+            Rect zuis = region.getBounds();
             int[] at = new int[2];
             boolean added = false;
             for (View piece : new View[]{TaskbarRunning.scrollerOf(dragLayer),
@@ -245,9 +281,16 @@ final class TaskbarFollow {
                         Region.Op.UNION);
                 added = true;
             }
-            if (added && !sSaidTouch) {
-                sSaidTouch = true;
-                L.i("taskbar follow: ZUI limited the bar's touch to its own icons; ours added");
+            if (added && TOUCH_SAID.put(dragLayer, Boolean.TRUE) == null) {
+                View start = TaskbarStart.buttonIn(dragLayer);
+                String startIn = "no start button";
+                if (start != null && start.getWidth() > 0) {
+                    start.getLocationInWindow(at);
+                    startIn = "start button " + (region.contains(at[0] + start.getWidth() / 2,
+                            at[1] + start.getHeight() / 2) ? "inside" : "OUTSIDE");
+                }
+                L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " - ZUI limited its"
+                        + " touch to " + zuis + "; with ours " + startIn);
             }
         } catch (Throwable t) {
             L.d("taskbar follow: could not widen the touch region (" + t + ")");

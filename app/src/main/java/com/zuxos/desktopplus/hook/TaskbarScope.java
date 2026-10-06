@@ -37,6 +37,11 @@ final class TaskbarScope {
         return true;
     }
 
+    /** A bar's name for the log: its display and the class it is made from. */
+    static String label(View view) {
+        return "display " + TaskbarTray.displayIdOf(view) + "/" + className(view.getContext());
+    }
+
     /** The bar's context class, or one it wraps when that is one of ZUI's desktop-mode ones. */
     private static String className(Context ctx) {
         String first = ctx == null ? "no context" : ctx.getClass().getSimpleName();
