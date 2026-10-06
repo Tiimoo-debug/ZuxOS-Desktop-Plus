@@ -2,8 +2,10 @@ package com.zuxos.desktopplus.hook;
 
 import android.app.ActivityOptions;
 import android.content.ClipData;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
@@ -31,7 +33,12 @@ import com.zuxos.desktopplus.core.Hover;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.LiquidGlass;
 import com.zuxos.desktopplus.core.Motion;
+import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * The picture just taken, in the bottom-left corner of the screen it was taken on, for a few
@@ -58,9 +65,58 @@ final class ShotPreview {
     private ShotPreview() {
     }
 
-    /** Main thread. {@code thumb} becomes this preview's, and is freed with it. */
-    static void show(Context source, int display, Bitmap thumb, Uri uri) {
+    /**
+     * One screenshot: shown the moment it is captured, saved a moment later. What is asked of
+     * it before the file exists waits for it.
+     */
+    static final class Shot {
+        /** Set on the main thread once the file exists. */
+        Uri uri;
+        boolean failed;
+        /** Deleted before it was saved: the saver drops it. Read from the saver's thread. */
+        volatile boolean cancelled;
+        /** What was asked for before it was saved. */
+        Runnable waiting;
+    }
+
+    private static Shot sShot;
+
+    /** The file is there: anything waiting on it runs now. Main thread. */
+    static void saved(Shot shot, Uri uri) {
+        shot.uri = uri;
+        Runnable waiting = shot.waiting;
+        shot.waiting = null;
+        if (waiting != null) {
+            waiting.run();
+        }
+    }
+
+    /** It could not be saved: the card goes, and says so. Main thread. */
+    static void failed(Context ctx, Shot shot) {
+        shot.failed = true;
+        shot.waiting = null;
+        if (sShot == shot) {
+            dismiss();
+        }
+        toast(ctx, "Could not save the screenshot");
+    }
+
+    /** Runs {@code action} with the file, now or once it is saved. */
+    private static void whenSaved(Shot shot, java.util.function.Consumer<Uri> action) {
+        if (shot.uri != null) {
+            action.accept(shot.uri);
+        } else if (!shot.failed) {
+            shot.waiting = () -> action.accept(shot.uri);
+        }
+    }
+
+    /**
+     * Main thread. {@code thumb} - the capture itself, straight from the screen - becomes this
+     * preview's, and is freed with it.
+     */
+    static void show(Context source, int display, Bitmap thumb, Shot shot) {
         dismissNow();
+        sShot = shot;
         Context ctx = Overlays.windowContext(source);
         WindowManager wm = Overlays.windowManager(ctx);
         int pad = Ui.dp(ctx, 8);
@@ -92,7 +148,10 @@ final class ShotPreview {
         edge.setStroke(Math.max(1, Ui.dp(ctx, 1.5f)), 0xD9FFFFFF);
         picture.setForeground(edge);
         picture.setContentDescription("Open the screenshot");
-        picture.setOnClickListener(v -> act(ctx, display, view(uri)));
+        picture.setOnClickListener(v -> whenSaved(shot, uri -> {
+            dismiss();
+            launch(ctx, display, view(uri), true, "open");
+        }));
         picture.setOnTouchListener(new TaskbarRunning.Press());
         column.addView(picture, new LinearLayout.LayoutParams(thumbW, thumbH));
 
@@ -103,14 +162,18 @@ final class ShotPreview {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         alp.topMargin = Ui.dp(ctx, 6);
         column.addView(actions, alp);
-        actions.addView(button(ctx, Glyphs.EXPORT, "Share",
-                () -> act(ctx, display, Intent.createChooser(share(uri), "Share screenshot"))));
-        actions.addView(button(ctx, Glyphs.RENAME, "Edit",
-                () -> act(ctx, display, Intent.createChooser(edit(uri), "Edit screenshot"))));
-        actions.addView(button(ctx, Glyphs.REMOVE, "Delete", () -> delete(ctx, uri)));
+        View[] card = new View[1];
+        View shareButton = button(ctx, Glyphs.SHARE, "Share", null);
+        shareButton.setOnClickListener(v -> sheet(ctx, display, shot, card[0], v, false));
+        View editButton = button(ctx, Glyphs.RENAME, "Edit", null);
+        editButton.setOnClickListener(v -> sheet(ctx, display, shot, card[0], v, true));
+        actions.addView(shareButton);
+        actions.addView(editButton);
+        actions.addView(button(ctx, Glyphs.REMOVE, "Delete", () -> delete(ctx, shot)));
         actions.addView(button(ctx, Glyphs.CLOSE, "Close", ShotPreview::dismiss));
 
         FrameLayout root = new Root(ctx, pane);
+        card[0] = pane;
 
         root.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -293,7 +356,9 @@ final class ShotPreview {
         public boolean dispatchHoverEvent(MotionEvent e) {
             boolean inside = e.getX() >= 0 && e.getY() >= 0 && e.getX() < getWidth()
                     && e.getY() < getHeight();
-            if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT && !inside) {
+            if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT && !inside
+                    && !ShotTargets.showing()) {
+                // Into the share sheet is not leaving: it restarts the clock when it closes.
                 MAIN.removeCallbacks(HIDE);
                 MAIN.postDelayed(HIDE, SHOWN_MS);
             } else if (inside) {
@@ -383,13 +448,15 @@ final class ShotPreview {
         round.setColor(0x1FFFFFFF);
         b.setBackground(round);
         b.setContentDescription(description);
-        b.setOnClickListener(v -> {
-            try {
-                action.run();
-            } catch (Throwable t) {
-                L.d("screenshot preview: " + description + " failed (" + t + ")");
-            }
-        });
+        if (action != null) {
+            b.setOnClickListener(v -> {
+                try {
+                    action.run();
+                } catch (Throwable t) {
+                    L.d("screenshot preview: " + description + " failed (" + t + ")");
+                }
+            });
+        }
         b.setOnTouchListener(new TaskbarRunning.Press());
         b.setOnHoverListener((v, e) -> {
             int a = e.getActionMasked();
@@ -414,33 +481,123 @@ final class ShotPreview {
 
     private static Intent share(Uri uri) {
         Intent send = new Intent(Intent.ACTION_SEND).setType("image/png")
-                .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        send.setClipData(ClipData.newRawUri("", uri));
+        if (uri != null) {
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.setClipData(ClipData.newRawUri("", uri));
+        }
         return send;
     }
 
+    /** Before the file exists the apps are found by a stand-in of the same kind. */
+    private static final Uri ANY_IMAGE = Uri.parse("content://media/external/images/media/0");
+
     private static Intent edit(Uri uri) {
-        return new Intent(Intent.ACTION_EDIT).setDataAndType(uri, "image/png")
+        return new Intent(Intent.ACTION_EDIT)
+                .setDataAndType(uri != null ? uri : ANY_IMAGE, "image/png")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
     }
 
-    /** Opens on the screen the picture was taken on, and the preview steps aside. */
-    private static void act(Context ctx, int display, Intent intent) {
-        dismiss();
+    /**
+     * Share or Edit: our own glass sheet of the apps that can, instead of Android's chooser.
+     * The sheet opens at once; the app picked gets the file once it is saved.
+     */
+    private static void sheet(Context ctx, int display, Shot shot, View card, View from,
+            boolean editing) {
+        Intent probe = editing ? edit(shot.uri) : share(shot.uri);
+        List<ResolveInfo> targets;
+        try {
+            targets = ctx.getPackageManager().queryIntentActivities(probe, 0);
+        } catch (Throwable t) {
+            targets = new ArrayList<>();
+        }
+        if (targets.isEmpty()) {
+            toast(ctx, editing ? "No app can edit pictures" : "No app can share pictures");
+            return;
+        }
+        Collections.sort(targets, (a, b) -> String.valueOf(a.loadLabel(ctx.getPackageManager()))
+                .compareToIgnoreCase(String.valueOf(b.loadLabel(ctx.getPackageManager()))));
+        MAIN.removeCallbacks(HIDE);
+        ShotTargets.show(ctx, sWm, card, from, editing ? "Edit with" : "Share",
+                editing ? "edit" : "share", targets,
+                target -> whenSaved(shot, uri -> {
+                    dismiss();
+                    Intent intent = editing ? edit(uri) : share(uri);
+                    intent.setComponent(new ComponentName(target.activityInfo.packageName,
+                            target.activityInfo.name));
+                    // An editor full screen, as on iOS - and ZUI's refuses to run as a window.
+                    // A share target opens as the window it is used to being.
+                    launch(ctx, display, intent, editing, editing ? "edit" : "share");
+                }),
+                () -> {
+                    if (sShot == shot) {
+                        MAIN.removeCallbacks(HIDE);
+                        MAIN.postDelayed(HIDE, SHOWN_MS);
+                    }
+                });
+    }
+
+    /**
+     * Starts it on the screen the picture was taken on.
+     *
+     * <p>{@code fullscreen}: ZUI's desktop makes every new task a floating window, and its photo
+     * editor closes itself at once in one ("not support split screen", 17:38 log). Asked for full
+     * screen, it opens. The mode the task really got is logged half a second later.
+     */
+    private static void launch(Context ctx, int display, Intent intent, boolean fullscreen,
+            String what) {
         try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ActivityOptions options = ActivityOptions.makeBasic().setLaunchDisplayId(display);
+            if (fullscreen) {
+                Reflect.call(options, "setLaunchWindowingMode", WINDOWING_MODE_FULLSCREEN);
+            }
             ctx.startActivity(intent, options.toBundle());
         } catch (Throwable t) {
-            L.d("screenshot preview: nothing to open it with (" + t + ")");
+            L.d("screenshot preview: could not " + what + " (" + t + ")");
             toast(ctx, "No app can open this");
+            return;
+        }
+        String pkg = intent.getComponent() != null ? intent.getComponent().getPackageName()
+                : null;
+        MAIN.postDelayed(() -> L.i("screenshot preview: " + what + " -> "
+                + (pkg != null ? pkg : "default app") + " " + modeOf(ctx, pkg, display)), 500L);
+    }
+
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+
+    /** The windowing mode the app's task on that screen ended up in, for the log. */
+    private static String modeOf(Context ctx, String pkg, int display) {
+        if (pkg == null) {
+            return "";
+        }
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager)
+                    ctx.getSystemService(Context.ACTIVITY_SERVICE);
+            for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(20)) {
+                Object d = Reflect.field(task, "displayId");
+                if (pkg.equals(TaskbarApps.packageOf(task))
+                        && d instanceof Integer && (Integer) d == display) {
+                    return "in mode " + Probe.windowingMode(task);
+                }
+            }
+            return "not running (it closed itself)";
+        } catch (Throwable t) {
+            return "";
         }
     }
 
-    private static void delete(Context ctx, Uri uri) {
+    /** Deleted before it was saved: never written. After: removed from the media store. */
+    private static void delete(Context ctx, Shot shot) {
         dismiss();
+        if (shot.uri == null) {
+            shot.cancelled = true;
+            shot.waiting = null;
+            toast(ctx, "Screenshot deleted");
+            return;
+        }
+        Uri uri = shot.uri;
         new Thread(() -> {
             boolean gone;
             try {
@@ -465,6 +622,9 @@ final class ShotPreview {
 
     /** Slides back out to the left. */
     static void dismiss() {
+        if (ShotTargets.showing()) {
+            ShotTargets.dismiss();
+        }
         View root = sRoot;
         WindowManager wm = sWm;
         Bitmap thumb = sThumb;
@@ -484,6 +644,9 @@ final class ShotPreview {
     }
 
     private static void dismissNow() {
+        if (ShotTargets.showing()) {
+            ShotTargets.dismiss();
+        }
         View root = sRoot;
         WindowManager wm = sWm;
         Bitmap thumb = sThumb;
@@ -498,6 +661,7 @@ final class ShotPreview {
 
     private static void clear() {
         MAIN.removeCallbacks(HIDE);
+        sShot = null;
         sRoot = null;
         sWm = null;
         sThumb = null;

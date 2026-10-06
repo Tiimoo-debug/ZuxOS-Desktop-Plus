@@ -199,7 +199,7 @@ public final class Probe {
     }
 
     /** The windowing mode a task is in - full screen, split, freeform - by name where we have one. */
-    private static String windowingMode(Object task) {
+    static String windowingMode(Object task) {
         try {
             Object window = windowConfig(task);
             Object mode = window == null ? null : Reflect.call(window, "getWindowingMode");

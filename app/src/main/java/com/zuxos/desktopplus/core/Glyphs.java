@@ -46,6 +46,7 @@ public final class Glyphs {
     public static final int MEMORY = 23;
     public static final int MINIMIZE = 24;
     public static final int NEW_WINDOW = 25;
+    public static final int SHARE = 26;
 
     private Glyphs() {
     }
@@ -357,6 +358,20 @@ public final class Glyphs {
                 p.lineTo(19, 5);
                 p.lineTo(19, 15);
                 p.addRoundRect(new RectF(5, 9, 15, 19), 2f, 2f, Path.Direction.CW);
+                return p;
+            case SHARE:
+                // iOS's share: an open box with an arrow rising out of it.
+                p.moveTo(12, 3.5f);
+                p.lineTo(12, 14);
+                p.moveTo(8, 7.5f);
+                p.lineTo(12, 3.5f);
+                p.lineTo(16, 7.5f);
+                p.moveTo(9, 10);
+                p.lineTo(6.5f, 10);
+                p.lineTo(6.5f, 20);
+                p.lineTo(17.5f, 20);
+                p.lineTo(17.5f, 10);
+                p.lineTo(15, 10);
                 return p;
             default:
                 return null;

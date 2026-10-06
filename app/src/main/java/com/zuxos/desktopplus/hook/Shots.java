@@ -61,13 +61,22 @@ public final class Shots {
     }
 
     /** Takes a screenshot of the display the taskbar is on. */
+    /** A second press this soon after the first is the same press: a mouse's double click. */
+    private static final long REPEAT_MS = 400L;
+    private static long sLastPress;
+
     public static void take(Context ctx, int displayId) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - sLastPress < REPEAT_MS) {
+            return;
+        }
+        sLastPress = now;
         Handler main = new Handler(Looper.getMainLooper());
         // Our own panels, menu and preview are left out of the picture rather than waited out of
         // the screen: their layers are skipped by the capture itself, then they close.
         List<SurfaceControl> leave = new ArrayList<>();
         for (View open : new View[]{QuickPanel.current(), NotifyPanel.current(),
-                TaskbarMenu.current(), TaskbarPreview.current(), ShotPreview.current()}) {
+                TaskbarMenu.current(), TaskbarPreview.current(), ShotPreview.current(), ShotTargets.current()}) {
             SurfaceControl layer = open != null ? ScreenBackdrop.surfaceOf(open) : null;
             if (layer != null) {
                 leave.add(layer);
@@ -94,17 +103,21 @@ public final class Shots {
                 main.post(() -> takeWithRoot(ctx, displayId, name, main));
                 return;
             }
+            // The pixels for the file are copied out first; then the capture itself goes on
+            // screen at once - it is a GPU picture, shown with no copy - and the slow part,
+            // encoding and writing the PNG, happens behind it. Waiting for the file first
+            // left a second of nothing, and the button was pressed again.
             Bitmap picture = hardware.copy(Bitmap.Config.ARGB_8888, false);
-            hardware.recycle();
+            ShotPreview.Shot pending = new ShotPreview.Shot();
+            main.post(() -> ShotPreview.show(ctx, displayId, hardware, pending));
             if (picture == null) {
-                report(ctx, main, displayId, name, null, null);
+                main.post(() -> ShotPreview.failed(ctx, pending));
                 return;
             }
-            Uri saved = file(ctx, name, out ->
+            Uri saved = pending.cancelled ? null : file(ctx, name, out ->
                     picture.compress(Bitmap.CompressFormat.PNG, 100, out));
-            Bitmap thumb = saved != null ? thumbnail(picture) : null;
             picture.recycle();
-            report(ctx, main, displayId, name, saved, thumb);
+            report(ctx, main, displayId, name, saved, pending);
         });
     }
 
@@ -124,35 +137,23 @@ public final class Shots {
         }
     }
 
-    /**
-     * Half the screen's width at most: sharp enough for the first frames of the shrink into
-     * the corner, where it still fills the screen, and small to keep for a few seconds.
-     */
-    private static Bitmap thumbnail(Bitmap picture) {
-        int w = Math.min(picture.getWidth(), 1280);
-        int h = Math.max(1, Math.round(w * picture.getHeight() / (float) picture.getWidth()));
-        try {
-            return Bitmap.createScaledBitmap(picture, w, h, true);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    /** Saved: the preview in the corner of that screen. Not saved: say so. */
+    /** Saved: whatever was waiting on the file gets it. Not saved: say so. */
     private static void report(Context ctx, Handler main, int displayId, String name, Uri saved,
-            Bitmap thumb) {
+            ShotPreview.Shot shot) {
+        if (shot.cancelled) {
+            // Deleted from the preview while it was being written.
+            if (saved != null) {
+                ctx.getContentResolver().delete(saved, null, null);
+            }
+            L.i("tray: screenshot of display " + displayId + " deleted before it was kept");
+            return;
+        }
         if (saved == null) {
-            main.post(() -> toast(ctx, "Could not save the screenshot"));
+            main.post(() -> ShotPreview.failed(ctx, shot));
             return;
         }
         L.i("tray: screenshot of display " + displayId + " saved to " + RELATIVE + "/" + name);
-        main.post(() -> {
-            if (thumb != null) {
-                ShotPreview.show(ctx, displayId, thumb, saved);
-            } else {
-                toast(ctx, "Screenshot saved");
-            }
-        });
+        main.post(() -> ShotPreview.saved(shot, saved));
     }
 
     /**
@@ -180,10 +181,14 @@ public final class Shots {
                     }
                 });
                 temp.delete();
-                if (saved == null && thumb != null) {
-                    thumb.recycle();
+                ShotPreview.Shot shot = new ShotPreview.Shot();
+                if (thumb != null) {
+                    main.post(() -> ShotPreview.show(ctx, displayId, thumb, shot));
                 }
-                report(ctx, main, displayId, name, saved, thumb);
+                report(ctx, main, displayId, name, saved, shot);
+                if (saved != null && thumb == null) {
+                    main.post(() -> toast(ctx, "Screenshot saved"));
+                }
                 return;
             }
             if (!outcome.shouldFallBack()) {
