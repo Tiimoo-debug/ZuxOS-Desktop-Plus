@@ -67,7 +67,7 @@ public final class Shots {
         // the screen: their layers are skipped by the capture itself, then they close.
         List<SurfaceControl> leave = new ArrayList<>();
         for (View open : new View[]{QuickPanel.current(), NotifyPanel.current(),
-                TaskbarMenu.current(), TaskbarPreview.current()}) {
+                TaskbarMenu.current(), TaskbarPreview.current(), ShotPreview.current()}) {
             SurfaceControl layer = open != null ? ScreenBackdrop.surfaceOf(open) : null;
             if (layer != null) {
                 leave.add(layer);
@@ -78,6 +78,7 @@ public final class Shots {
         NotifyPanel.dismiss();
         TaskbarMenu.dismiss();
         TaskbarPreview.dismiss();
+        ShotPreview.dismiss();
         String name = "Screenshot_"
                 + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".png";
         if (crop == null) {
@@ -95,12 +96,15 @@ public final class Shots {
             }
             Bitmap picture = hardware.copy(Bitmap.Config.ARGB_8888, false);
             hardware.recycle();
-            String saved = picture != null ? file(ctx, name, out ->
-                    picture.compress(Bitmap.CompressFormat.PNG, 100, out)) : null;
-            if (picture != null) {
-                picture.recycle();
+            if (picture == null) {
+                report(ctx, main, displayId, name, null, null);
+                return;
             }
-            report(ctx, main, displayId, saved);
+            Uri saved = file(ctx, name, out ->
+                    picture.compress(Bitmap.CompressFormat.PNG, 100, out));
+            Bitmap thumb = saved != null ? thumbnail(picture) : null;
+            picture.recycle();
+            report(ctx, main, displayId, name, saved, thumb);
         });
     }
 
@@ -120,13 +124,32 @@ public final class Shots {
         }
     }
 
-    private static void report(Context ctx, Handler main, int displayId, String saved) {
-        if (saved != null) {
-            L.i("tray: screenshot of display " + displayId + " saved to " + saved);
-            main.post(() -> toast(ctx, "Screenshot saved"));
-        } else {
-            main.post(() -> toast(ctx, "Could not save the screenshot"));
+    /** Small enough to keep on screen for a few seconds; the preview shows it at 200 dp. */
+    private static Bitmap thumbnail(Bitmap picture) {
+        int w = Math.min(picture.getWidth(), 640);
+        int h = Math.max(1, Math.round(w * picture.getHeight() / (float) picture.getWidth()));
+        try {
+            return Bitmap.createScaledBitmap(picture, w, h, true);
+        } catch (Throwable t) {
+            return null;
         }
+    }
+
+    /** Saved: the preview in the corner of that screen. Not saved: say so. */
+    private static void report(Context ctx, Handler main, int displayId, String name, Uri saved,
+            Bitmap thumb) {
+        if (saved == null) {
+            main.post(() -> toast(ctx, "Could not save the screenshot"));
+            return;
+        }
+        L.i("tray: screenshot of display " + displayId + " saved to " + RELATIVE + "/" + name);
+        main.post(() -> {
+            if (thumb != null) {
+                ShotPreview.show(ctx, displayId, thumb, saved);
+            } else {
+                toast(ctx, "Screenshot saved");
+            }
+        });
     }
 
     /**
@@ -142,7 +165,8 @@ public final class Shots {
         String command = capture(displayId, temp);
         main.postDelayed(() -> Su.run(outcome -> {
             if (outcome.ok()) {
-                String saved = file(ctx, name, out -> {
+                Bitmap thumb = decodeSmall(temp);
+                Uri saved = file(ctx, name, out -> {
                     try (InputStream in = new FileInputStream(temp)) {
                         byte[] buffer = new byte[64 * 1024];
                         int n;
@@ -153,7 +177,10 @@ public final class Shots {
                     }
                 });
                 temp.delete();
-                report(ctx, main, displayId, saved);
+                if (saved == null && thumb != null) {
+                    thumb.recycle();
+                }
+                report(ctx, main, displayId, name, saved, thumb);
                 return;
             }
             if (!outcome.shouldFallBack()) {
@@ -195,8 +222,19 @@ public final class Shots {
         boolean write(OutputStream out) throws IOException;
     }
 
+    /** The picture root saved, read at a quarter size for the preview. */
+    private static Bitmap decodeSmall(File file) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inSampleSize = 4;
+            return android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), o);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     /** Files the picture in Pictures/Screenshots the way any app saves an image. */
-    private static String file(Context ctx, String name, Writer writer) {
+    private static Uri file(Context ctx, String name, Writer writer) {
         ContentResolver files = ctx.getContentResolver();
         Uri uri = null;
         try {
@@ -220,7 +258,7 @@ public final class Shots {
             row.clear();
             row.put(MediaStore.Images.Media.IS_PENDING, 0);
             files.update(uri, row, null, null);
-            return RELATIVE + "/" + name;
+            return uri;
         } catch (Throwable t) {
             L.d("tray: could not file the screenshot (" + t + ")");
             if (uri != null) {
