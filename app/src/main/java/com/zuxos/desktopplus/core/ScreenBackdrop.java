@@ -87,6 +87,11 @@ public final class ScreenBackdrop {
         return sWorker;
     }
 
+    /** Longest a pane's first frame waits for its own capture. */
+    private static final long PRIME_WAIT_MS = 40L;
+    private static boolean sPrimeOk = true;
+    private static boolean sSaidPrimed;
+
     /** Every running session, so an event that changes the screen can wake them all. */
     private static final java.util.Set<Session> SESSIONS =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
@@ -248,6 +253,9 @@ public final class ScreenBackdrop {
             return true;
         };
 
+        /** The first frame's capture has been tried. */
+        private boolean mPrimed;
+
         private long mStartedAt;
         private int mCaptures;
         private int mSkipped;
@@ -311,8 +319,50 @@ public final class ScreenBackdrop {
                     request(now);
                 }
             } else if (mCurrent == null && !mInFlight) {
+                if (!mPrimed) {
+                    mPrimed = true;
+                    prime(now);
+                }
                 request(now);
             }
+        }
+
+        /**
+         * The pane's very first frame frosts what is behind it right now, not an older picture
+         * of the screen: one small capture, taken here before that frame is drawn.
+         *
+         * <p>Only once capture is known to work, a quarter size (the frost hides the rest, and
+         * the full one follows a frame later), and waited for no more than a few frames; a
+         * capture that ever runs out that wait is not tried this way again, and the seed stays
+         * the fallback.
+         */
+        private void prime(long now) {
+            if (sState != WORKS || !sPrimeOk || mPane.getDisplay() == null) {
+                return;
+            }
+            SurfaceControl own = surfaceOf(mPane);
+            Rect crop = onScreen(mPane);
+            if (own == null || crop.isEmpty()) {
+                return;
+            }
+            Object shot = grab(mPane.getDisplay().getDisplayId(), crop, own,
+                    Math.min(mScale, 0.25f), -1, PRIME_WAIT_MS);
+            Bitmap frame = shot != null ? toBitmap(shot) : null;
+            long took = SystemClock.uptimeMillis() - now;
+            if (frame == null) {
+                if (took >= PRIME_WAIT_MS) {
+                    sPrimeOk = false;
+                    L.i("liquid glass: first-frame capture too slow (" + took
+                            + "ms), using the seed");
+                }
+                return;
+            }
+            if (!sSaidPrimed) {
+                sSaidPrimed = true;
+                L.i("liquid glass: first frame captured before drawing (" + took + "ms)");
+            }
+            mCurrent = frame;
+            mSink.onFrame(frame);
         }
 
         public void stop() {
@@ -549,6 +599,12 @@ public final class ScreenBackdrop {
      */
     public static Object grab(int display, Rect crop, SurfaceControl own, float scale,
             long uid) {
+        return grab(display, crop, own, scale, uid, 250L);
+    }
+
+    /** The same, waiting at most {@code waitMs} for the answer. */
+    private static Object grab(int display, Rect crop, SurfaceControl own, float scale,
+            long uid, long waitMs) {
         Object[] got = new Object[1];
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicBoolean late =
@@ -585,7 +641,7 @@ public final class ScreenBackdrop {
                 done.countDown();
             };
             sCapture.invoke(sWm, display, args, sListener.newInstance(answer));
-            if (!done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            if (!done.await(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                 synchronized (got) {
                     late.set(true);
                     close(got[0]);

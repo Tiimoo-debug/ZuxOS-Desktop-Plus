@@ -114,23 +114,23 @@ final class DrawerAccountBar {
             View list = lists.isEmpty() ? null : lists.get(0);
             Bar bar = new Bar(window.getContext(), window, TaskbarTray.displayIdOf(window));
             int height = Ui.dp(window.getContext(), Bar.HEIGHT_DP);
-            if (sheet instanceof FrameLayout) {
-                // Inside the sheet itself, at its foot: it slides, fades and is cut off with the
-                // drawer in the same frame. Copying the sheet's position from beside it was a
-                // frame late, so the bar trailed the drawer whenever it moved.
-                int margin = Ui.dp(window.getContext(), Bar.MARGIN_DP);
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, height,
-                        Gravity.BOTTOM | Gravity.START);
-                lp.setMargins(margin, 0, margin, margin);
-                ((FrameLayout) sheet).addView(bar, lp);
-                bar.mInSheet = true;
-            } else {
-                container.addView(bar, new ViewGroup.LayoutParams(1, height));
-            }
-            container.getViewTreeObserver().addOnPreDrawListener(() -> {
-                bar.follow(sheet, list, window);
-                return true;
+            // Beside the sheet, after the list: above both, so it shows and takes its own taps.
+            // (Inside the sheet it sat under the list and down behind the taskbar.)
+            container.addView(bar, new ViewGroup.LayoutParams(1, height));
+            // The window's own pre-draw: the last step before every frame, after the drawer's
+            // slide and scroll have moved the sheet, so the bar lands in the same frame.
+            window.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+                @Override
+                public boolean onPreDraw() {
+                    if (!bar.isAttachedToWindow()) {
+                        if (window.getViewTreeObserver().isAlive()) {
+                            window.getViewTreeObserver().removeOnPreDrawListener(this);
+                        }
+                        return true;
+                    }
+                    bar.follow(sheet, list, window);
+                    return true;
+                }
             });
             if (!sSaidAttached) {
                 sSaidAttached = true;
@@ -157,8 +157,7 @@ final class DrawerAccountBar {
         private final ImageView mPower;
         private ContentObserver mObserver;
         private int mListPadBase = -1;
-        /** Riding inside the drawer's sheet, rather than following it from beside. */
-        boolean mInSheet;
+        private float mLastTop = Float.NaN;
 
         Bar(Context ctx, ViewGroup window, int display) {
             super(ctx);
@@ -298,49 +297,66 @@ final class DrawerAccountBar {
          */
         void follow(View sheet, View list, ViewGroup window) {
             Context ctx = getContext();
-            if (mInSheet) {
-                // Position, fade and clipping all come from the sheet; only the list needs room
-                // under its last row.
-                padList(list, sheet.getY() + getY());
-                return;
-            }
+            View container = (View) sheet.getParent();
             int margin = Ui.dp(ctx, MARGIN_DP);
             int width = Math.max(1, sheet.getWidth() - 2 * margin);
             if (getLayoutParams().width != width) {
                 getLayoutParams().width = width;
                 requestLayout();
             }
+            // The sheet's foot, or the first thing that hides it: the window's clip, or the top
+            // of the taskbar - the drawer runs on under the bar.
             float bottom = sheet.getY() + sheet.getHeight();
             Rect clip = window.getClipBounds();
             if (clip != null) {
                 int[] inWindow = new int[2];
-                ((View) sheet.getParent()).getLocationInWindow(inWindow);
+                container.getLocationInWindow(inWindow);
                 bottom = Math.min(bottom, clip.bottom - inWindow[1]);
             }
-            float top = bottom - margin - getHeight();
+            int[] onScreen = new int[2];
+            container.getLocationOnScreen(onScreen);
+            int barTop = TaskbarTray.barTopOnScreen(mDisplay);
+            if (barTop > 0) {
+                bottom = Math.min(bottom, barTop - onScreen[1]);
+            }
+            int height = getHeight() > 0 ? getHeight() : getLayoutParams().height;
+            float top = bottom - margin - height;
             setX(sheet.getX() + margin);
             setY(top);
             setAlpha(sheet.getAlpha());
             setVisibility(sheet.getVisibility() == VISIBLE && sheet.isShown() ? VISIBLE
                     : INVISIBLE);
-            padList(list, top);
+            // The list is re-padded only once the drawer is still: during a slide the bar is
+            // held at the taskbar while the list moves, and re-laying the list out every frame
+            // would stutter it.
+            float barTopOnScreen = onScreen[1] + top;
+            if (barTopOnScreen == mLastTop) {
+                padList(list, barTopOnScreen);
+            } else {
+                // One more frame after the last move, so a drawer that stops still gets padded.
+                postInvalidateOnAnimation();
+            }
+            mLastTop = barTopOnScreen;
         }
 
         /** Room under the list's last row, down to where the bar starts and a little more. */
-        private void padList(View list, float top) {
+        private void padList(View list, float barTopOnScreen) {
             Context ctx = getContext();
-            if (list != null && getHeight() > 0) {
-                if (mListPadBase < 0) {
-                    mListPadBase = list.getPaddingBottom();
-                }
-                // Room under the last row: down to where the bar starts, and a little more.
-                float listBottom = list.getY() + list.getHeight();
-                int want = mListPadBase + Math.max(0,
-                        Math.round(listBottom - top) + Ui.dp(ctx, 8));
-                if (list.getPaddingBottom() != want) {
-                    list.setPadding(list.getPaddingLeft(), list.getPaddingTop(),
-                            list.getPaddingRight(), want);
-                }
+            if (list == null || list.getHeight() <= 0) {
+                return;
+            }
+            if (mListPadBase < 0) {
+                mListPadBase = list.getPaddingBottom();
+            }
+            int[] at = new int[2];
+            list.getLocationOnScreen(at);
+            // Screen pixels, so it holds whatever the list sits in; scale is 1 in the drawer.
+            float listBottom = at[1] + list.getHeight();
+            int want = mListPadBase + Math.max(0,
+                    Math.round(listBottom - barTopOnScreen) + Ui.dp(ctx, 8));
+            if (list.getPaddingBottom() != want) {
+                list.setPadding(list.getPaddingLeft(), list.getPaddingTop(),
+                        list.getPaddingRight(), want);
             }
         }
 

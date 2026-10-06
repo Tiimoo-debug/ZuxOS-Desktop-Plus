@@ -104,6 +104,9 @@ public final class MenuRows {
             int inset = Ui.dp(ctx, 6);
             row.setBackground(new android.graphics.drawable.InsetDrawable(light, inset,
                     Ui.dp(ctx, 1), inset, Ui.dp(ctx, 1)));
+            // An inset background hands its insets to the view as padding: put the row's own
+            // back, or every row shrinks to the light's 6/1 dp (the 16:51 probe: 29 px rows).
+            row.setPadding(padH, padV, Ui.dp(ctx, 20), padV);
             View glyph = row.getChildCount() > 1 ? row.getChildAt(0) : null;
             float nudge = Ui.dp(ctx, 2);
             row.setOnHoverListener((v, e) -> {

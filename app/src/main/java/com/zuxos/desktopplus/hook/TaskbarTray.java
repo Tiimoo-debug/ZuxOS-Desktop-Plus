@@ -248,6 +248,26 @@ public final class TaskbarTray {
         return width + Ui.dp(dragLayer.getContext(), EDGE_MARGIN_DP);
     }
 
+    /**
+     * The top of the visible taskbar on this display, in screen pixels, or -1 when no bar is up
+     * there - for anything that must stop above it.
+     */
+    static int barTopOnScreen(int display) {
+        for (View dragLayer : new java.util.ArrayList<>(TRAYS.keySet())) {
+            if (!(dragLayer instanceof ViewGroup) || !dragLayer.isAttachedToWindow()
+                    || displayIdOf(dragLayer) != display) {
+                continue;
+            }
+            View reference = rowReference((ViewGroup) dragLayer);
+            if (reference != null && reference.getHeight() > 0 && reference.isShown()) {
+                int[] at = new int[2];
+                reference.getLocationOnScreen(at);
+                return at[1];
+            }
+        }
+        return -1;
+    }
+
     static int displayIdOf(View view) {
         try {
             if (view.getDisplay() != null) {
@@ -375,7 +395,7 @@ public final class TaskbarTray {
         return source.getHeight() > 0 ? source.getHeight() : Ui.dp(source.getContext(), 56);
     }
 
-    private static int displayHeight(Context ctx) {
+    static int displayHeight(Context ctx) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);

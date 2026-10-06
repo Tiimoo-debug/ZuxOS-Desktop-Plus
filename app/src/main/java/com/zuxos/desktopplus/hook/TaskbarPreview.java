@@ -7,6 +7,7 @@ import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -355,9 +356,21 @@ final class TaskbarPreview {
                         | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.BOTTOM | Gravity.START;
+        // Placed in absolute screen pixels from the top. Measured from the bottom, an overlay
+        // starts above the taskbar's inset already, so adding the bar's height again left a gap.
+        int screenH = TaskbarTray.displayHeight(icon.getContext());
+        if (screenH <= 0) {
+            screenH = dm.heightPixels;
+        }
+        int barTop = screenH - TaskbarTray.barInset(icon);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            lp.setFitInsetsTypes(0);
+        }
+        lp.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         lp.x = x;
-        lp.y = TaskbarTray.barInset(icon) + Ui.dp(ctx, 6);
+        lp.y = Math.max(edge, barTop - root.getMeasuredHeight() - Ui.dp(ctx, 8));
         lp.setTitle("ZuxOS Desktop Plus window preview");
         // The monitor's fastest refresh rate while this is up: its motion at what the
         // screen can show.

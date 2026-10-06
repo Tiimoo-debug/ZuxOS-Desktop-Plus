@@ -169,19 +169,37 @@ public final class Menus {
 
         // Keep it on screen: the size is only known once it has been measured. Opening upwards
         // when it would run off the bottom, the way a menu by the taskbar has to.
-        pane.post(() -> {
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) pane.getLayoutParams();
-            lp.leftMargin = clamp(lp.leftMargin, shade.getWidth() - pane.getWidth());
-            // The usable height stops at the taskbar: the activity runs on underneath it, which
-            // is how a menu held near the bottom ended up half behind the bar.
-            int usable = shade.getHeight() - taskbarOver(shade);
-            int top = lp.topMargin;
-            if (top + pane.getHeight() > usable) {
-                top = top - pane.getHeight();
-            }
-            lp.topMargin = clamp(top, usable - pane.getHeight());
-            pane.setLayoutParams(lp);
-        });
+        // Placed in the last step before its first frame, once it has a size: a posted job can
+        // run before the first layout, see a height of 0 and leave the menu where it was asked
+        // for - the 16:53 recording, a menu near the bottom cut off behind the taskbar.
+        pane.getViewTreeObserver().addOnPreDrawListener(
+                new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        if (pane.getHeight() <= 0 || shade.getHeight() <= 0) {
+                            return true;
+                        }
+                        pane.getViewTreeObserver().removeOnPreDrawListener(this);
+                        FrameLayout.LayoutParams lp =
+                                (FrameLayout.LayoutParams) pane.getLayoutParams();
+                        int left = clamp(lp.leftMargin, shade.getWidth() - pane.getWidth());
+                        // The usable height stops at the taskbar: the activity runs on under it.
+                        int usable = shade.getHeight() - taskbarOver(shade);
+                        int top = lp.topMargin;
+                        if (top + pane.getHeight() > usable) {
+                            top = top - pane.getHeight();
+                        }
+                        top = clamp(top, usable - pane.getHeight());
+                        if (left == lp.leftMargin && top == lp.topMargin) {
+                            return true;
+                        }
+                        lp.leftMargin = left;
+                        lp.topMargin = top;
+                        pane.setLayoutParams(lp);
+                        // This frame would show it in the wrong place: skip it.
+                        return false;
+                    }
+                });
         MenuRows.popIn(pane, false, pane::refresh);
     }
 
