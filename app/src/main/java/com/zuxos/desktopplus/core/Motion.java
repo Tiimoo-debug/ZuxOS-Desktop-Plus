@@ -55,8 +55,11 @@ public final class Motion {
      * A damped spring, as an interpolator over the animation's duration.
      *
      * <p>The classic under-damped solution {@code 1 - e^(-zwt) (cos(wd t) + zw/wd sin(wd t))},
-     * with the natural frequency chosen so the spring has settled (to within 0.2%) exactly when
-     * the animation ends - which is what lets it be used with an ordinary duration.
+     * with the natural frequency chosen so the spring has all but settled when the animation
+     * ends - which is what lets it be used with an ordinary duration.
+     *
+     * <p>Scaled so it lands on exactly 1 at the end. Unscaled, the near-critical spring stopped
+     * 1.2% short and snapped the rest in the last frame - seven pixels on a sheet sliding 600.
      *
      * @param damping the damping ratio, 0 to 1: lower bounces more
      */
@@ -64,14 +67,13 @@ public final class Motion {
         final double zeta = Math.max(0.1, Math.min(0.99, damping));
         final double omega = 6.2 / zeta;
         final double omegaD = omega * Math.sqrt(1 - zeta * zeta);
-        return t -> {
-            if (t >= 1f) {
-                return 1f;
-            }
-            double decay = Math.exp(-zeta * omega * t);
-            double value = 1 - decay * (Math.cos(omegaD * t)
-                    + (zeta * omega / omegaD) * Math.sin(omegaD * t));
-            return (float) value;
-        };
+        final double end = raw(1.0, zeta, omega, omegaD);
+        return t -> t >= 1f ? 1f : (float) (raw(t, zeta, omega, omegaD) / end);
+    }
+
+    private static double raw(double t, double zeta, double omega, double omegaD) {
+        double decay = Math.exp(-zeta * omega * t);
+        return 1 - decay * (Math.cos(omegaD * t)
+                + (zeta * omega / omegaD) * Math.sin(omegaD * t));
     }
 }
