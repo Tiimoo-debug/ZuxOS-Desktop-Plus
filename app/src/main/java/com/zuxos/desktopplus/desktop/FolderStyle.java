@@ -384,6 +384,26 @@ public final class FolderStyle {
         panel.setTag(R_HIDDEN, null);
         if (hidden instanceof View) {
             ((View) hidden).setAlpha(1f);
+            restoreIcon((View) hidden);
+        }
+    }
+
+    /**
+     * An icon a folder opened from, back to its full size. Opening the folder ourselves cut the
+     * launcher's tap short: its press shrink was never undone, and the drawer folder stayed a
+     * size smaller than its neighbours after it closed (the 15:35 recording).
+     */
+    public static void restoreIcon(View icon) {
+        try {
+            icon.setPressed(false);
+            icon.setHovered(false);
+            icon.jumpDrawablesToCurrentState();
+            if (icon.getScaleX() != 1f || icon.getScaleY() != 1f) {
+                icon.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                        .setInterpolator(Motion.SNAPPY).start();
+            }
+        } catch (Throwable ignored) {
+            // A view gone with its window.
         }
     }
 

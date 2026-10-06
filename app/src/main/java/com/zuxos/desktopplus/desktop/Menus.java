@@ -103,12 +103,12 @@ public final class Menus {
         final FrameLayout shade = new FrameLayout(ctx);
         // Catches the tap that dismisses the menu, and stops it reaching whatever is underneath.
         shade.setClickable(true);
-        shade.setOnClickListener(v -> root.removeView(shade));
+        shade.setOnClickListener(v -> MenuRows.close(shade, () -> root.removeView(shade)));
         shade.setFocusableInTouchMode(true);
         shade.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() == KeyEvent.ACTION_UP && (keyCode == KeyEvent.KEYCODE_BACK
                     || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
-                root.removeView(shade);
+                MenuRows.close(shade, () -> root.removeView(shade));
                 return true;
             }
             return false;
@@ -134,7 +134,7 @@ public final class Menus {
             Entry entry = entries.get(i);
             body.addView(MenuRows.row(ctx, entry.title, icons.get(i), anyIcon, entry.enabled,
                     v -> {
-                        root.removeView(shade);
+                        MenuRows.close(shade, () -> root.removeView(shade));
                         if (entry.action != null) {
                             try {
                                 entry.action.run();

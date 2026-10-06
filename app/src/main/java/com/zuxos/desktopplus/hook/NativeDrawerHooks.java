@@ -129,6 +129,14 @@ public final class NativeDrawerHooks {
                             if (param.thisObject instanceof View
                                     && openFolderFor((View) param.thisObject)) {
                                 param.setResult(Boolean.TRUE);
+                                // The launcher's tap feedback is cut short here: undo its
+                                // shrink now, not only when the folder closes.
+                                View tapped = (View) param.thisObject;
+                                tapped.post(() -> com.zuxos.desktopplus.desktop.FolderStyle
+                                        .restoreIcon(tapped));
+                                // And once more after any press animation of its own has run.
+                                tapped.postDelayed(() -> com.zuxos.desktopplus.desktop
+                                        .FolderStyle.restoreIcon(tapped), 350L);
                             }
                         }
                     }).size();

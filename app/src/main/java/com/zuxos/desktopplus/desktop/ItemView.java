@@ -277,7 +277,7 @@ public class ItemView extends LinearLayout {
     public boolean onHoverEvent(android.view.MotionEvent event) {
         int action = event.getActionMasked();
         if (action == android.view.MotionEvent.ACTION_HOVER_ENTER) {
-            com.zuxos.desktopplus.core.Hover.enter(mIcon);
+            com.zuxos.desktopplus.core.Hover.enter(mIcon, 1.10f);
         } else if (action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
             com.zuxos.desktopplus.core.Hover.exit(mIcon);
         }

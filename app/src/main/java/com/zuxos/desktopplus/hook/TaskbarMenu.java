@@ -268,6 +268,13 @@ public final class TaskbarMenu {
         if (current == null || wm == null) {
             return;
         }
+        sCurrent = null;
+        sWm = null;
+        // Faded out first, the iOS way; the next menu can open meanwhile.
+        com.zuxos.desktopplus.core.MenuRows.close(current, () -> removeMenu(current, wm));
+    }
+
+    private static void removeMenu(View current, WindowManager wm) {
         try {
             wm.removeViewImmediate(current);
         } catch (IllegalArgumentException notThere) {
@@ -282,8 +289,6 @@ public final class TaskbarMenu {
                 L.w("taskbar menu: a window may have been left behind");
             }
         }
-        sCurrent = null;
-        sWm = null;
     }
 
     static void show(View source, int displayId, float rawX) {

@@ -113,8 +113,21 @@ final class DrawerAccountBar {
             List<View> lists = Reflect.findByIdNames(window, "apps_list_view");
             View list = lists.isEmpty() ? null : lists.get(0);
             Bar bar = new Bar(window.getContext(), window, TaskbarTray.displayIdOf(window));
-            container.addView(bar, new ViewGroup.LayoutParams(1, Ui.dp(window.getContext(),
-                    Bar.HEIGHT_DP)));
+            int height = Ui.dp(window.getContext(), Bar.HEIGHT_DP);
+            if (sheet instanceof FrameLayout) {
+                // Inside the sheet itself, at its foot: it slides, fades and is cut off with the
+                // drawer in the same frame. Copying the sheet's position from beside it was a
+                // frame late, so the bar trailed the drawer whenever it moved.
+                int margin = Ui.dp(window.getContext(), Bar.MARGIN_DP);
+                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, height,
+                        Gravity.BOTTOM | Gravity.START);
+                lp.setMargins(margin, 0, margin, margin);
+                ((FrameLayout) sheet).addView(bar, lp);
+                bar.mInSheet = true;
+            } else {
+                container.addView(bar, new ViewGroup.LayoutParams(1, height));
+            }
             container.getViewTreeObserver().addOnPreDrawListener(() -> {
                 bar.follow(sheet, list, window);
                 return true;
@@ -144,6 +157,8 @@ final class DrawerAccountBar {
         private final ImageView mPower;
         private ContentObserver mObserver;
         private int mListPadBase = -1;
+        /** Riding inside the drawer's sheet, rather than following it from beside. */
+        boolean mInSheet;
 
         Bar(Context ctx, ViewGroup window, int display) {
             super(ctx);
@@ -231,6 +246,16 @@ final class DrawerAccountBar {
 
             for (View v : new View[]{mAvatar, mPower}) {
                 v.setOnTouchListener(new TaskbarRunning.Press());
+                // Under a mouse or a stylus: a little bigger, with a soft light behind.
+                v.setOnHoverListener((h, e) -> {
+                    int action = e.getActionMasked();
+                    if (action == android.view.MotionEvent.ACTION_HOVER_ENTER) {
+                        com.zuxos.desktopplus.core.Hover.lift(h);
+                    } else if (action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
+                        com.zuxos.desktopplus.core.Hover.drop(h);
+                    }
+                    return false;
+                });
             }
             mName.setText(storedName());
             if (TextUtils.isEmpty(storedName())) {
@@ -273,6 +298,12 @@ final class DrawerAccountBar {
          */
         void follow(View sheet, View list, ViewGroup window) {
             Context ctx = getContext();
+            if (mInSheet) {
+                // Position, fade and clipping all come from the sheet; only the list needs room
+                // under its last row.
+                padList(list, sheet.getY() + getY());
+                return;
+            }
             int margin = Ui.dp(ctx, MARGIN_DP);
             int width = Math.max(1, sheet.getWidth() - 2 * margin);
             if (getLayoutParams().width != width) {
@@ -292,6 +323,12 @@ final class DrawerAccountBar {
             setAlpha(sheet.getAlpha());
             setVisibility(sheet.getVisibility() == VISIBLE && sheet.isShown() ? VISIBLE
                     : INVISIBLE);
+            padList(list, top);
+        }
+
+        /** Room under the list's last row, down to where the bar starts and a little more. */
+        private void padList(View list, float top) {
+            Context ctx = getContext();
             if (list != null && getHeight() > 0) {
                 if (mListPadBase < 0) {
                     mListPadBase = list.getPaddingBottom();

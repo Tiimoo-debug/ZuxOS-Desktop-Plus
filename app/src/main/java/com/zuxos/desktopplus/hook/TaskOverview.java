@@ -66,7 +66,7 @@ final class TaskOverview {
     });
 
     /** Cards on liquid glass; past this many, plain - each pane is a live capture of its own. */
-    private static final int GLASS_CARDS = 8;
+    private static final int GLASS_CARDS = 64;
 
     private static FrameLayout sRoot;
     private static WindowManager sWm;
@@ -291,7 +291,9 @@ final class TaskOverview {
     /** One card: icon and name over the app's last picture, with an X; tap, X or swipe up. */
     private static View cardView(Context ctx, Card card, List<Card> all, int width, int thumbH,
             boolean glass, long delay) {
-        LinearLayout box = new LinearLayout(ctx);
+        // Under a mouse or stylus: a soft light behind the card and its picture growing a
+        // little, steady across its X and icon - the same as the taskbar's previews.
+        HoverTile box = new HoverTile(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout header = new LinearLayout(ctx);
@@ -343,6 +345,7 @@ final class TaskOverview {
         });
         thumb.setClipToOutline(true);
         thumb.setTag("thumb");
+        box.mThumb = thumb;
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(width, thumbH);
         tlp.topMargin = Ui.dp(ctx, 8);
         box.addView(thumb, tlp);

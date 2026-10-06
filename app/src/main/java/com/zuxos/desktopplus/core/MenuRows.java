@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -95,10 +96,108 @@ public final class MenuRows {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         if (enabled) {
-            row.setBackground(Ui.ripple(ctx, 0x00000000, 0));
+            // The iOS menu row: a soft rounded light under the row the pointer is on, deeper and
+            // a touch smaller while pressed, springing back on release.
+            android.graphics.drawable.GradientDrawable light =
+                    Ui.roundRect(0x2E8E8E93, Ui.dp(ctx, 10));
+            light.setAlpha(0);
+            int inset = Ui.dp(ctx, 6);
+            row.setBackground(new android.graphics.drawable.InsetDrawable(light, inset,
+                    Ui.dp(ctx, 1), inset, Ui.dp(ctx, 1)));
+            View glyph = row.getChildCount() > 1 ? row.getChildAt(0) : null;
+            float nudge = Ui.dp(ctx, 2);
+            row.setOnHoverListener((v, e) -> {
+                int action = e.getActionMasked();
+                if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                    fade(light, 200);
+                    if (glyph != null) {
+                        glyph.animate().translationX(nudge).setDuration(Motion.IOS_MS)
+                                .setInterpolator(Motion.SNAPPY).start();
+                    }
+                } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                    fade(light, 0);
+                    if (glyph != null) {
+                        glyph.animate().translationX(0f).setDuration(Motion.IOS_MS)
+                                .setInterpolator(Motion.SNAPPY).start();
+                    }
+                }
+                return false;
+            });
+            row.setOnTouchListener((v, e) -> {
+                int action = e.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    fade(light, 255);
+                    v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(Motion.SHORT)
+                            .setInterpolator(Motion.EASE).start();
+                } else if (action == MotionEvent.ACTION_UP
+                        || action == MotionEvent.ACTION_CANCEL) {
+                    fade(light, v.isHovered() ? 200 : 0);
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                            .setInterpolator(Motion.SNAPPY).start();
+                }
+                return false;
+            });
             row.setOnClickListener(onClick);
         }
         return row;
+    }
+
+    private static void fade(android.graphics.drawable.Drawable d, int to) {
+        android.animation.ValueAnimator a = android.animation.ValueAnimator.ofInt(d.getAlpha(), to);
+        a.setDuration(Motion.SHORT + 60);
+        a.setInterpolator(Motion.SMOOTH);
+        a.addUpdateListener(v -> d.setAlpha((Integer) v.getAnimatedValue()));
+        a.start();
+    }
+
+    /**
+     * A menu going away: a quick fade as it settles back a touch, then {@code done}. Called
+     * twice - a second tap while it fades - it still ends once.
+     */
+    public static void close(View menu, Runnable done) {
+        if (Boolean.TRUE.equals(menu.getTag(TAG_CLOSING))) {
+            return;
+        }
+        menu.setTag(TAG_CLOSING, Boolean.TRUE);
+        if (!Cfg.animations()) {
+            done.run();
+            return;
+        }
+        View pane = menu instanceof android.view.ViewGroup
+                && ((android.view.ViewGroup) menu).getChildCount() > 0
+                ? ((android.view.ViewGroup) menu).getChildAt(0) : menu;
+        if (pane != menu) {
+            pane.animate().scaleX(0.96f).scaleY(0.96f).setDuration(Motion.SHORT)
+                    .setInterpolator(Motion.EXIT).start();
+        }
+        menu.animate().alpha(0f).setDuration(Motion.SHORT).setInterpolator(Motion.EXIT)
+                .withEndAction(done).start();
+    }
+
+    private static final int TAG_CLOSING = 0x7A000301;
+
+    /** The rows come in one after another, each rising a little - the iOS context menu. */
+    private static void stagger(View pane) {
+        LinearLayout body = pane instanceof GlassSurface ? body((GlassSurface) pane) : null;
+        if (body == null && pane instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) pane;
+            for (int i = 0; i < g.getChildCount() && body == null; i++) {
+                if (g.getChildAt(i) instanceof LinearLayout) {
+                    body = (LinearLayout) g.getChildAt(i);
+                }
+            }
+        }
+        if (body == null) {
+            return;
+        }
+        float rise = Ui.dp(pane.getContext(), 6);
+        for (int i = 0; i < body.getChildCount(); i++) {
+            View row = body.getChildAt(i);
+            row.setAlpha(0f);
+            row.setTranslationY(rise);
+            row.animate().alpha(1f).translationY(0f).setStartDelay(40L + i * 18L)
+                    .setDuration(Motion.IOS_MS).setInterpolator(Motion.SNAPPY).start();
+        }
     }
 
     /** The menu coming up: a short grow and fade from where it was asked for. */
@@ -123,6 +222,7 @@ public final class MenuRows {
         pane.post(() -> {
             pane.setPivotX(pane.getWidth() / 2f);
             pane.setPivotY(fromBelow ? pane.getHeight() : 0f);
+            stagger(pane);
             android.view.ViewPropertyAnimator anim = pane.animate().alpha(1f).scaleX(1f)
                     .scaleY(1f).setDuration(Motion.SPRING_MS).setInterpolator(Motion.SPRING)
                     .withLayer();
