@@ -493,6 +493,11 @@ public final class Probe {
                 // whole icon apart, is invisible in sizes alone and obvious in positions.
                 .append(" @").append(v.getLeft()).append(',').append(v.getTop()).append(']')
                 .append(v.getVisibility() == View.VISIBLE ? "" : " (hidden)")
+                // How the launcher hides a bar without hiding its views: faded, slid, shrunk.
+                .append(v.getAlpha() < 1f ? " alpha=" + v.getAlpha() : "")
+                .append(v.getTranslationY() != 0f ? " ty=" + v.getTranslationY() : "")
+                .append(v.getScaleY() != 1f ? " scale=" + v.getScaleY() : "")
+                .append(v.hasOnClickListeners() ? " (click)" : "")
                 .append('\n');
         if (v instanceof ViewGroup && depth < 12) {
             ViewGroup g = (ViewGroup) v;

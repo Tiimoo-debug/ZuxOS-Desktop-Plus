@@ -124,8 +124,15 @@ final class TaskbarFollow {
             }
             state.row = new java.lang.ref.WeakReference<>(row);
         }
+        // ZUI hides a bar by fading or sliding its icon row, or by fading and sliding each icon
+        // in it; its drawer button - invisible, ours stands in for it - still gets the latter.
         float alpha = row.isShown() ? row.getAlpha() : 0f;
         float shift = row.getTranslationY();
+        View zui = row instanceof ViewGroup ? TaskbarStart.allAppsButton((ViewGroup) row) : null;
+        if (zui != null) {
+            alpha *= zui.getAlpha();
+            shift += zui.getTranslationY();
+        }
         if ((alpha < 0.999f || shift != 0f)
                 && TaskbarStart.drawerOpen(TaskbarTray.displayIdOf(dragLayer))) {
             // ZUI hides its row for its drawer; ours stays, so the start button can close it.

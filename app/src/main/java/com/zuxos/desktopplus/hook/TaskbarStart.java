@@ -45,6 +45,7 @@ final class TaskbarStart {
     private static final android.util.SparseLongArray PRESSED = new android.util.SparseLongArray();
 
     private static boolean sSaid;
+    private static final java.util.Set<Integer> SAID_PRESS = new java.util.HashSet<>();
 
     private TaskbarStart() {
     }
@@ -291,6 +292,13 @@ final class TaskbarStart {
 
         private void press() {
             int display = TaskbarTray.displayIdOf(this);
+            if (SAID_PRESS.add(display)) {
+                // Once per screen: proof the press reached the button at all.
+                L.i("start button: pressed on display " + display + ", ZUI's button "
+                        + (mZui == null ? "not found" : mZui.getClass().getSimpleName()
+                        + (mZui.hasOnClickListeners() ? " with" : " without")
+                        + " a click listener"));
+            }
             if (TaskbarBridge.isStockDrawerOpen(display)) {
                 // A second press closes it, as a start button does.
                 PRESSED.delete(display);
@@ -306,7 +314,54 @@ final class TaskbarStart {
             mRobot.setWide(true);
             removeCallbacks(mWatchDrawer);
             postDelayed(mWatchDrawer, 600L);
-            mZui.performClick();
+            boolean handled = mZui.performClick();
+            View zui = mZui;
+            postDelayed(() -> {
+                if (TaskbarBridge.isStockDrawerOpen(display)) {
+                    return;
+                }
+                // ZUI's button did not bring its drawer up - on some of its bars the press is
+                // handled elsewhere. Its drawer's own controller is asked instead.
+                String how = openThroughController(zui);
+                L.i("start button: ZUI's button " + (handled ? "took" : "ignored")
+                        + " the press on display " + display + " and no drawer came up; "
+                        + how);
+            }, 450L);
+        }
+
+        /**
+         * Opens ZUI's drawer through the taskbar's all-apps controller - a field whose name the
+         * probe shows kept on this build - by the first of its usual entry points it has.
+         */
+        private static String openThroughController(View zui) {
+            try {
+                Object controllers = Reflect.field(zui.getContext(), "mControllers");
+                Object allApps = controllers == null ? null
+                        : Reflect.field(controllers, "taskbarAllAppsController");
+                if (allApps == null) {
+                    return "no all-apps controller found";
+                }
+                for (String name : new String[]{"toggle", "show", "open"}) {
+                    for (Class<?> c = allApps.getClass(); c != null; c = c.getSuperclass()) {
+                        for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                            if (m.getName().equals(name) && m.getParameterCount() == 0) {
+                                m.setAccessible(true);
+                                m.invoke(allApps);
+                                return "opened through " + allApps.getClass().getSimpleName()
+                                        + "." + name + "()";
+                            }
+                        }
+                    }
+                }
+                StringBuilder methods = new StringBuilder();
+                for (java.lang.reflect.Method m : allApps.getClass().getDeclaredMethods()) {
+                    methods.append(' ').append(m.getName()).append('(')
+                            .append(m.getParameterCount()).append(')');
+                }
+                return "its controller has none of toggle/show/open:" + methods;
+            } catch (Throwable t) {
+                return "the controller would not open it (" + t + ")";
+            }
         }
 
         /** How wide ZUI draws its own icon inside its button. */
