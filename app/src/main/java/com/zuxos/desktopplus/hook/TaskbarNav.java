@@ -84,7 +84,8 @@ final class TaskbarNav {
     private static final class NavClick implements View.OnClickListener {
 
         private final String mId;
-        private final int mDisplay;
+        /** Read again at every press: ZUI moves a bar between screens (see onClick). */
+        private int mDisplay;
         private final View.OnClickListener mOriginal;
 
         NavClick(String id, int display, View.OnClickListener original) {
@@ -95,6 +96,12 @@ final class TaskbarNav {
 
         @Override
         public void onClick(View v) {
+            // The screen the key is on now, not the one it was on when it was taken over. At
+            // boot ZUI builds its bar on the tablet and moves it to the monitor a few seconds
+            // later; a recents key that kept "display 0" sent every press to the tablet.
+            if (v.getDisplay() != null) {
+                mDisplay = v.getDisplay().getDisplayId();
+            }
             if ("recent_apps".equals(mId)) {
                 RecentsRoute.pressed(mDisplay, () -> mOriginal.onClick(v));
             }

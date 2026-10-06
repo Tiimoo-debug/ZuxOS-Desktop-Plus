@@ -50,7 +50,6 @@ final class TaskbarPreview {
     private static final long CLOSE_GRACE_MS = 250L;
     /** How far from an icon still counts as on it - the gaps between icons included. */
     private static final int NEAR_DP = 12;
-    private static final int MOST_WINDOWS = 6;
     private static final int TILE_DP = 240;
     private static final long FRAME_MS = 33L;
     private static final float FEED_SCALE = 0.4f;
@@ -60,6 +59,7 @@ final class TaskbarPreview {
 
     private static final int TAG_PKG = 0x7A000201;
     private static final int TAG_DISPLAY = 0x7A000202;
+    private static final int TAG_TASK = 0x7A000203;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> {
@@ -77,14 +77,44 @@ final class TaskbarPreview {
     private static FrameLayout sRoot;
     private static WindowManager sWm;
     private static String sPkg;
+    /** The icon whose window the preview shows. */
+    private static View sShown;
 
     private TaskbarPreview() {
     }
 
+    /** Only the lift and jiggle - for what has no windows of its own, a folder. */
+    static void attachHover(View icon) {
+        icon.setOnHoverListener((v, e) -> {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                if (sIcon != null && sIcon != v) {
+                    Hover.exit(sIcon);
+                    sIcon = null;
+                }
+                dismiss();
+                Hover.enter(v);
+            } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                Hover.exit(v);
+            }
+            return false;
+        });
+    }
+
     /** Gives an icon its hover: the lift and jiggle, and the preview of its app's windows. */
     static void attach(View icon, String pkg, int displayId) {
+        attach(icon, pkg, displayId, -1);
+    }
+
+    /**
+     * The same for one window's icon: its preview is that window alone. An app's own icon, when
+     * the app has several windows, previews its front one - each of the others has an icon of its
+     * own beside it.
+     */
+    static void attach(View icon, String pkg, int displayId, int taskId) {
         icon.setTag(TAG_PKG, pkg);
         icon.setTag(TAG_DISPLAY, displayId);
+        icon.setTag(TAG_TASK, taskId);
         icon.setOnHoverListener((v, e) -> {
             int action = e.getActionMasked();
             if (action == MotionEvent.ACTION_HOVER_ENTER) {
@@ -150,7 +180,7 @@ final class TaskbarPreview {
         cancel(sOpen);
         if (sRoot != null) {
             // A preview is up: moving along the bar swaps it straight away, as Windows does.
-            if (!pkg.equals(sPkg)) {
+            if (icon != sShown) {
                 show(icon);
             }
             return;
@@ -216,9 +246,15 @@ final class TaskbarPreview {
             return;
         }
         Context ctx = Overlays.windowContext(icon.getContext());
+        Object tag = icon.getTag(TAG_TASK);
+        int taskId = tag instanceof Integer ? (Integer) tag : -1;
         List<ActivityManager.RunningTaskInfo> windows = new ArrayList<>();
         for (ActivityManager.RunningTaskInfo task : TaskbarApps.tasksOn(ctx, display)) {
-            if (pkg.equals(TaskbarApps.packageOf(task)) && windows.size() < MOST_WINDOWS) {
+            if (!pkg.equals(TaskbarApps.packageOf(task))) {
+                continue;
+            }
+            // One icon, one window: this icon's own task, or the app's front one.
+            if (taskId < 0 ? windows.isEmpty() : task.taskId == taskId) {
                 windows.add(task);
             }
         }
@@ -331,6 +367,7 @@ final class TaskbarPreview {
         sRoot = root;
         sWm = wm;
         sPkg = pkg;
+        sShown = icon;
         sOverPane = false;
 
         // Up from the icon on iOS's spring: a little small and low, then in place.
@@ -569,6 +606,7 @@ final class TaskbarPreview {
         sRoot = null;
         sWm = null;
         sPkg = null;
+        sShown = null;
         sOverPane = false;
         if (root == null || wm == null) {
             return;
@@ -584,6 +622,7 @@ final class TaskbarPreview {
         sRoot = null;
         sWm = null;
         sPkg = null;
+        sShown = null;
         if (root != null && wm != null) {
             remove(wm, root);
         }

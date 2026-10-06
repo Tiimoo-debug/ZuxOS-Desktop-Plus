@@ -83,10 +83,8 @@ public final class FrameRate {
      * against the monitor's rate - the proof that motion here runs at what the screen shows.
      */
     public static void measure(View view, String what) {
-        Display display = view.getDisplay();
-        if (display == null) {
-            return;
-        }
+        // Read when the frames are counted, not now: a window just added has no display yet -
+        // which is why the first build of this measured nothing at all.
         final long[] first = {0L};
         final int[] frames = {0};
         Choreographer.getInstance().postFrameCallback(new Choreographer.FrameCallback() {
@@ -102,6 +100,10 @@ public final class FrameRate {
                     return;
                 }
                 float fps = (frames[0] - 1) * 1e9f / span;
+                Display display = view.getDisplay();
+                if (display == null) {
+                    return;
+                }
                 String line = String.format(Locale.ROOT,
                         "%s animated at ~%.0f fps on display %d (monitor at %.0f Hz)", what, fps,
                         display.getDisplayId(), display.getRefreshRate());

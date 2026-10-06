@@ -250,7 +250,13 @@ public final class TaskbarTray {
 
     static int displayIdOf(View view) {
         try {
-            return view.getDisplay() != null ? view.getDisplay().getDisplayId() : 0;
+            if (view.getDisplay() != null) {
+                return view.getDisplay().getDisplayId();
+            }
+            // Not in a window yet: the display its window context is for, rather than
+            // assuming the tablet.
+            android.view.Display d = view.getContext().getDisplay();
+            return d != null ? d.getDisplayId() : 0;
         } catch (Throwable t) {
             return 0;
         }

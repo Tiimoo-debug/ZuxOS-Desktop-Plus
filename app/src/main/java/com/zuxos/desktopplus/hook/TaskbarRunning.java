@@ -79,6 +79,7 @@ final class TaskbarRunning {
         watchGeometry(dragLayer, TaskbarTray.rowReference(dragLayer));
         TaskbarDrop.apply(dragLayer);
         TaskbarNav.apply(dragLayer);
+        TaskbarRecovery.check(dragLayer);
         fastBar(dragLayer);
 
         boolean onlyOpen = Cfg.taskbarRunningOnly();
@@ -1412,6 +1413,9 @@ final class TaskbarRunning {
             view.setContentDescription(folder.label != null ? folder.label : "Folder");
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
             view.setOnClickListener(v -> openFolder(ctx, v, folder, displayId));
+            // A folder lifts and jiggles under the pointer like the apps beside it; it has no
+            // windows, so no preview.
+            TaskbarPreview.attachHover(view);
             return view;
         } catch (Throwable t) {
             L.d("taskbar running: could not draw the pinned folder (" + t + ")");
@@ -1674,7 +1678,7 @@ final class TaskbarRunning {
             view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
                     android.os.Process.myUserHandle(), displayId));
             view.setOnTouchListener(new Press());
-            TaskbarPreview.attach(view, pkg, displayId);
+            TaskbarPreview.attach(view, pkg, displayId, taskId);
             return view;
         } catch (Throwable t) {
             // An app we cannot draw is an app we leave out.
