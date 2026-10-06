@@ -112,6 +112,15 @@ public final class TaskbarTray {
 
     /** Puts each piece in or takes it out, following its setting. */
     private static void applyAll(View root) {
+        if (!TaskbarScope.ours(root)) {
+            // The tablet's desktop-mode bar is ZUI's: nothing of ours on it, nothing left behind.
+            detach(root);
+            if (root instanceof ViewGroup) {
+                TaskbarGlass.remove((ViewGroup) root);
+                TaskbarRunning.apply((ViewGroup) root);
+            }
+            return;
+        }
         if (Cfg.taskbarTray()) {
             attach(root);
         } else {

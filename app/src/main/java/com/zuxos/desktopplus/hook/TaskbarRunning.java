@@ -73,6 +73,11 @@ final class TaskbarRunning {
 
     /** Called whenever a taskbar is (re)attached, and then on its own every few seconds. */
     static void apply(ViewGroup dragLayer) {
+        if (!TaskbarScope.ours(dragLayer)) {
+            // The tablet's desktop-mode bar: ZUI's own, exactly as ZUI builds it.
+            stock(dragLayer);
+            return;
+        }
         // Both of these come first, and before any setting is read: the strip is what catches an
         // app dropped on the bar, and nothing can be pinned until it is there - so a taskbar with
         // every one of these settings off still has to be able to receive the first pin.
@@ -92,6 +97,7 @@ final class TaskbarRunning {
         // list can start answering later than the first look at it. A feature that only engages
         // when something else happens to refresh the taskbar is not a feature.
         tick(dragLayer);
+        TaskbarFollow.install(dragLayer);
         ViewGroup icons = iconRow(dragLayer);
         if (icons == null) {
             return;
@@ -227,14 +233,21 @@ final class TaskbarRunning {
      */
     static void rebound(ViewGroup icons) {
         try {
-            TaskbarApps.installRowMenu(icons);
             View root = icons.getRootView();
-            if (!(root instanceof ViewGroup) || !Cfg.taskbarRunningOnly()
-                    || !Cfg.hideRecommendedFlash()) {
+            if (!(root instanceof ViewGroup) || !TaskbarScope.ours(icons)) {
                 return;
             }
             ViewGroup dragLayer = (ViewGroup) root;
-            hideLauncherApps(icons);
+            TaskbarApps.installRowMenu(icons);
+            // ZUI rebuilt its row, and with it its drawer button: ours stays the one shown.
+            TaskbarStart.apply(dragLayer, icons);
+            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
+                return;
+            }
+            if (!TaskbarRebind.sAppsAtSource) {
+                // Only where ZUI could not be kept from building its apps in the first place.
+                hideLauncherApps(icons);
+            }
             // And a real read soon, rather than at the next tick, now that something changed.
             dragLayer.removeCallbacks(REREAD.get(dragLayer));
             // Weakly, because it is also the value of a weak map keyed by this same view.
@@ -330,6 +343,25 @@ final class TaskbarRunning {
         TaskbarStart.apply(dragLayer, icons);
     }
 
+    /**
+     * Leaves a bar entirely to ZUI: our row, marks, drop strip, start button and follow-along
+     * taken off, and anything of ZUI's we hid shown again.
+     */
+    static void stock(ViewGroup dragLayer) {
+        ScrollRow scroller = scrollerIn(dragLayer);
+        if (scroller != null) {
+            dragLayer.removeView(scroller);
+        }
+        TaskbarMarks.remove(dragLayer);
+        TaskbarDrop.remove(dragLayer);
+        TaskbarFollow.uninstall(dragLayer);
+        ViewGroup icons = iconRow(dragLayer);
+        if (icons != null) {
+            showEverythingAgain(icons);
+        }
+        TaskbarStart.unapply(dragLayer, icons);
+    }
+
     /** Puts back icons an earlier run hid, without touching anything else in the bar. */
     private static void showEverythingAgain(ViewGroup icons) {
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
@@ -348,27 +380,6 @@ final class TaskbarRunning {
      * them in its own order, so with both showing the bar was two clusters that shifted on every
      * launch and ran under the tray.
      */
-    /** Called from the launcher's layout pass: hides its apps when "Only open apps" is on. */
-    static void hideOnSight(ViewGroup icons) {
-        if (Cfg.taskbarRunningOnly() && Cfg.hideRecommendedFlash()) {
-            hideLauncherApps(icons);
-        }
-    }
-
-    /**
-     * Hides one icon the launcher has just added to its row, if it stands for an app.
-     *
-     * <p>Remembered like the rest, so the setting going off shows it again.
-     */
-    static void hideIfApp(View child) {
-        if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
-                || IconInfo.packagesOfView(child).isEmpty()) {
-            return;
-        }
-        HIDDEN.put(child, Boolean.TRUE);
-        child.setVisibility(View.GONE);
-    }
-
     private static void hideLauncherApps(ViewGroup icons) {
         boolean changed = false;
         for (int i = icons.getChildCount() - 1; i >= 0; i--) {
@@ -446,11 +457,11 @@ final class TaskbarRunning {
         for (Item pin : pins) {
             pinKeys.add(pin.key());
         }
-        if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins)) {
+        if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins) && row.mSize == size) {
             return;
         }
         Context ctx = dragLayer.getContext();
-        if (pinKeys.equals(row.mPins)
+        if (pinKeys.equals(row.mPins) && row.mSize == size
                 && reconcile(row, wanted, ctx, size, gap, displayId)) {
             return;
         }
@@ -480,6 +491,7 @@ final class TaskbarRunning {
         // otherwise be remembered as shown and never tried again.
         row.mRunning = shown;
         row.mPins = shownPins;
+        row.mSize = size;
         row.setLayoutTransition(transition);
     }
 
@@ -718,6 +730,11 @@ final class TaskbarRunning {
             }
         }
         return null;
+    }
+
+    /** The scroller our row sits in on this bar, or null - for the bar's touch region. */
+    static View scrollerOf(ViewGroup dragLayer) {
+        return scrollerIn(dragLayer);
     }
 
     /** What is actually placed in the drag layer: the scroller the row sits in. */
@@ -1006,18 +1023,20 @@ final class TaskbarRunning {
             previous = child;
         }
         if (gaps.isEmpty()) {
-            // Nothing of the launcher's showing to measure, as when all of it is hidden: the gap
-            // last measured, or the one the probe shows ZUI using.
-            return sGap > 0 ? sGap : 3;
+            // Nothing of the launcher's showing to measure: this bar's gap as last measured, or
+            // ZUI's own proportion - 3px beside 60px icons in the probe - at this bar's size.
+            Integer known = GAPS.get(icons);
+            return known != null ? known : Math.max(3, Math.round(iconSize(icons) / 20f));
         }
-        sGap = RunningOrder.spacing(gaps, Ui.dp(icons.getContext(), 64),
+        int gap = RunningOrder.spacing(gaps, Ui.dp(icons.getContext(), 64),
                 Ui.dp(icons.getContext(), 8));
-        return sGap;
+        GAPS.put(icons, gap);
+        return gap;
     }
 
-    /** The launcher's icon gap and size, last measured; kept for when its icons are hidden. */
-    private static int sGap;
-    private static int sIconSize;
+    /** Each bar's icon gap and size, last measured; kept for when its icons are not there. */
+    private static final Map<View, Integer> GAPS = new WeakHashMap<>();
+    private static final Map<View, Integer> SIZES = new WeakHashMap<>();
 
     /** Ours, and never a child of the launcher's icon row. */
     private static final class RunningRow extends LinearLayout {
@@ -1025,6 +1044,8 @@ final class TaskbarRunning {
         List<String> mPins = new ArrayList<>();
         /** Open apps that are not pinned anywhere, in the order that has to hold still. */
         List<String> mRunning = new ArrayList<>();
+        /** The icon size the row was built at: built again when the bar's size is known better. */
+        int mSize;
         /** What is open right now, for the marks under the icons. */
         private Set<String> mOpen = Collections.emptySet();
         private final android.graphics.Paint mMarkPaint =
@@ -1334,13 +1355,21 @@ final class TaskbarRunning {
     private static int iconSize(ViewGroup icons) {
         for (int i = 0; i < icons.getChildCount(); i++) {
             View child = icons.getChildAt(i);
-            if (child.getWidth() > 0 && IconInfo.packageOfView(child) != null) {
-                sIconSize = child.getWidth();
-                return sIconSize;
+            if (child.getVisibility() == View.VISIBLE && child.getWidth() > 0
+                    && IconInfo.packageOfView(child) != null) {
+                SIZES.put(icons, child.getWidth());
+                return child.getWidth();
             }
         }
-        // 60px is what ZUI draws them at on the external bar, per the probe.
-        return sIconSize > 0 ? sIconSize : 60;
+        Integer known = SIZES.get(icons);
+        if (known != null) {
+            return known;
+        }
+        // ZUI's drawer button is laid out at the bar's icon size - 60px on the monitor, beside
+        // 60px apps in the probe - and it is there whether or not any app icon is. One size for
+        // every bar is how the tablet's got the monitor's, small at the tablet's density.
+        View button = TaskbarStart.allAppsButton(icons);
+        return TaskbarStart.size(button, icons.getContext());
     }
 
     /** True when any of these packages is in that set. */

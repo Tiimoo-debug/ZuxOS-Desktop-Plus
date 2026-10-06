@@ -18,9 +18,10 @@ import de.robv.android.xposed.XposedBridge;
  * last build hooked an inherited {@code setVisibility} on the wrong view, which Xposed reports as
  * {@code x0} and never calls.
  *
- * <p>ZUI's model is left alone. Stopping the bind would also stop the bar learning about anything
- * that changed, so the rebuild goes ahead and {@link TaskbarRunning#rebound} hides its app icons
- * immediately afterwards, in the same frame - our own row draws the open apps.
+ * <p>The rebuild goes ahead - stopping it would also stop the bar learning that anything changed -
+ * but with "Only open apps" on, ZUI is handed no apps to build it with: our own row draws the
+ * open ones, and nothing of ZUI's has to be hidden afterwards. The tablet's desktop-mode bar is
+ * left to ZUI entirely ({@link TaskbarScope}).
  */
 final class TaskbarRebind {
 
@@ -68,7 +69,12 @@ final class TaskbarRebind {
             L.d("taskbar rebind: no " + TASKBAR_VIEW + " on this build");
             return;
         }
-        XC_MethodHook after = new XC_MethodHook() {
+        XC_MethodHook rebuild = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                emptyOfApps(param);
+            }
+
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
                 swallowDoubleAdd(param);
@@ -82,130 +88,52 @@ final class TaskbarRebind {
         // calls it directly would otherwise slip past.
         for (String name : new String[]{"updateItems", "updateHotseatItems"}) {
             try {
-                hooked += XposedBridge.hookAllMethods(cls, name, after).size();
+                hooked += XposedBridge.hookAllMethods(cls, name, rebuild).size();
             } catch (Throwable t) {
                 L.d("taskbar rebind: could not hook " + name + " (" + t + ")");
             }
         }
-        L.i("taskbar rebind: watching the launcher rebuild its row x" + hooked);
-        try {
-            int laid = XposedBridge.hookAllMethods(cls, "onLayout", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.thisObject instanceof ViewGroup) {
-                        // Hidden here too, in the pass that would draw them: anything of the
-                        // launcher's that came back since it was added is gone before the frame.
-                        TaskbarRunning.hideOnSight((ViewGroup) param.thisObject);
-                        TaskbarStart.relayout((ViewGroup) param.thisObject);
-                    }
-                }
-            }).size();
-            TaskbarStart.sLayoutHooked = laid > 0;
-            L.i("taskbar rebind: placing the drawer button after the row's layout x" + laid);
-        } catch (Throwable t) {
-            L.d("taskbar rebind: could not hook onLayout (" + t + ")");
-        }
+        sAppsAtSource = hooked > 0;
+        L.i("taskbar rebind: ZUI's own apps kept off the bar where it builds them x" + hooked);
         blockRecents(loader);
         listenToTasks(loader);
-        hideOnAdd();
-        sTaskbarView = cls;
-        TaskbarStart.guardIcon(loader);
-        keepStartShowing();
-        keepStartOpaque();
     }
-
-    /** The launcher's row class, compared by identity: the hooks below run on every view. */
-    private static Class<?> sTaskbarView;
-
-    /** Whether the start button is to stay up while the launcher hides its row. */
-    private static boolean keepsStart(Object view) {
-        return view != null && view.getClass() == sTaskbarView
-                && Cfg.taskbarRunningOnly() && Cfg.startButtonLeft();
-    }
-
-    private static boolean sSaidOpaque;
-
-    /** The alpha each row was last asked for - the fade's direction is the drawer's state. */
-    private static final java.util.Map<android.view.View, Float> LAST_ALPHA =
-            new java.util.WeakHashMap<>();
 
     /**
-     * The other half of hiding the row: ZUI fades it out before it marks it invisible.
-     *
-     * <p>The recording shows the start button dimming over a quarter of a second and staying
-     * gone while the drawer is open, although the row was never invisible - its alpha was 0.
-     * The fade is held at fully opaque for the row, under the same two settings as above.
+     * Whether ZUI is kept from building app icons at all. When it is, nothing of ZUI's has to
+     * be hidden afterwards; only when these hooks could not go in does the bar fall back to
+     * hiding ZUI's icons once they are there.
      */
-    private static void keepStartOpaque() {
-        try {
-            XposedBridge.hookAllMethods(android.view.View.class, "setAlpha",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            Object view = param.thisObject;
-                            if (view == null || view.getClass() != sTaskbarView
-                                    || param.args.length != 1
-                                    || !(param.args[0] instanceof Float)) {
-                                return;
-                            }
-                            float asked = (Float) param.args[0];
-                            // Which way the fade is going says which way the drawer is: out as
-                            // it opens, back in as it closes. Read before it is held at 1.
-                            Float last = LAST_ALPHA.put((android.view.View) view, asked);
-                            float before = last != null ? last : 1f;
-                            if (asked < before - 0.001f) {
-                                TaskbarStart.drawerShowing((android.view.View) view, true);
-                            } else if (asked > before + 0.001f) {
-                                TaskbarStart.drawerShowing((android.view.View) view, false);
-                            }
-                            if (asked >= 1f || !keepsStart(view)) {
-                                return;
-                            }
-                            param.args[0] = 1f;
-                            if (!sSaidOpaque) {
-                                sSaidOpaque = true;
-                                L.i("taskbar start: kept the start button opaque while the "
-                                        + "launcher faded its row");
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            L.d("taskbar rebind: could not watch the row's alpha (" + t + ")");
+    static volatile boolean sAppsAtSource;
+
+    private static boolean sSaidEmpty;
+
+    /**
+     * ZUI's row, built without apps: with "Only open apps" on, every app on the bar is ours.
+     *
+     * <p>The row's items arrive as an array of item infos, and its recents as a list; both are
+     * handed over empty, of the same type. ZUI then builds no icon to hide - the old way hid them
+     * after they were added, through hooks on every view in the launcher, and still had them
+     * flash. The bar's own drawer button is not an item and is built as always.
+     */
+    private static void emptyOfApps(XC_MethodHook.MethodHookParam param) {
+        if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
+                || !(param.thisObject instanceof android.view.View)
+                || !TaskbarScope.ours((android.view.View) param.thisObject)) {
+            return;
         }
-    }
-
-    private static boolean sSaidKept;
-
-    /**
-     * Keeps the start button on the bar while ZUI's app drawer is open.
-     *
-     * <p>ZUI hides its whole icon row when the drawer opens. With "Only open apps" on, that row
-     * holds nothing but the start button - every app is in our row - so hiding it only took the
-     * start button away, which a desktop never does. The request to hide it is turned into a
-     * request to show it, for that one view and only with both settings on.
-     */
-    private static void keepStartShowing() {
-        try {
-            XposedBridge.hookAllMethods(android.view.View.class, "setVisibility",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            if (param.args.length == 0
-                                    || !(param.args[0] instanceof Integer)
-                                    || (Integer) param.args[0] == android.view.View.VISIBLE
-                                    || !keepsStart(param.thisObject)) {
-                                return;
-                            }
-                            param.args[0] = android.view.View.VISIBLE;
-                            if (!sSaidKept) {
-                                sSaidKept = true;
-                                L.i("taskbar start: kept the start button visible while the "
-                                        + "launcher hid its row");
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            L.d("taskbar rebind: could not watch the row's visibility (" + t + ")");
+        for (int i = 0; i < param.args.length; i++) {
+            Object arg = param.args[i];
+            if (arg instanceof Object[]) {
+                param.args[i] = java.lang.reflect.Array.newInstance(
+                        arg.getClass().getComponentType(), 0);
+            } else if (arg instanceof java.util.List) {
+                param.args[i] = new java.util.ArrayList<>();
+            }
+        }
+        if (!sSaidEmpty) {
+            sSaidEmpty = true;
+            L.i("taskbar rebind: ZUI builds its row without apps - ours shows the open ones");
         }
     }
 
@@ -301,7 +229,10 @@ final class TaskbarRebind {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
+                            if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()
+                                    // The tablet's desktop-mode bar fills itself with the open
+                                    // apps through this very call: that bar is ZUI's.
+                                    || !TaskbarScope.oursFromFields(param.thisObject)) {
                                 return;
                             }
                             param.setResult(null);
@@ -318,34 +249,6 @@ final class TaskbarRebind {
             L.i("taskbar rebind: holding back the launcher's recent apps x" + hooked);
         } catch (Throwable t) {
             L.d("taskbar rebind: could not hook bindRecentUsedApps (" + t + ")");
-        }
-    }
-
-    /**
-     * Anything ZUI still adds to its row by another route is hidden as it is added.
-     *
-     * <p>{@code onViewAdded} runs inside {@code addView}, before the view has been laid out or
-     * drawn, so an icon hidden here never reaches the screen. Hooked on {@code ViewGroup},
-     * where the method is declared, and narrowed to the launcher's taskbar row at once.
-     */
-    private static void hideOnAdd() {
-        try {
-            int hooked = XposedBridge.hookAllMethods(ViewGroup.class, "onViewAdded",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            Object row = param.thisObject;
-                            if (row == null || !TASKBAR_VIEW.equals(row.getClass().getName())
-                                    || param.args.length == 0
-                                    || !(param.args[0] instanceof android.view.View)) {
-                                return;
-                            }
-                            TaskbarRunning.hideIfApp((android.view.View) param.args[0]);
-                        }
-                    }).size();
-            L.i("taskbar rebind: hiding the launcher's icons as they are added x" + hooked);
-        } catch (Throwable t) {
-            L.d("taskbar rebind: could not hook onViewAdded (" + t + ")");
         }
     }
 }

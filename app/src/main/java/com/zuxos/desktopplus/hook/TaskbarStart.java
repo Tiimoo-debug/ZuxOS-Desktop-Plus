@@ -1,388 +1,191 @@
 package com.zuxos.desktopplus.hook;
 
+import android.content.Context;
+import android.graphics.drawable.Drawable;
+import android.os.SystemClock;
+import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import com.zuxos.desktopplus.core.AndroidRobot;
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Hover;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.Ui;
 
 import java.util.Map;
 import java.util.WeakHashMap;
 
 /**
- * The launcher's drawer button, moved to the left end of the bar where a desktop keeps it.
+ * The start button, at the left end of the bar where a desktop keeps it.
  *
- * <p>ZUI lays its all-apps button out at the right-hand end of the centred icon cluster, which
- * leaves it floating in the middle of the bar once open apps sit either side of it. This moves
- * <em>that</em> button - ZUI's own view, its own icon, its own click and animation - to just right
- * of the navigation keys. Nothing is hidden and nothing is drawn in its place.
+ * <p>Ours, drawn in the bar beside the navigation keys, and pressing it presses ZUI's own
+ * drawer button - so the drawer is ZUI's, opened with ZUI's own animation. ZUI's button is set
+ * invisible when ZUI builds its row, and left at that.
  *
- * <p>Moved by layout: straight after {@code TaskbarView} lays its children out, the button is laid
- * out again at the left (see {@link #relayout}, called from the {@code onLayout} hook in
- * {@link TaskbarRebind}). It used to be moved with {@code translationX}, but Launcher3 animates its
- * taskbar icons through a translation delegate of its own that rewrites {@code translationX} on
- * every icon whenever an animation ticks - which put the button back in the middle several times
- * a second, and the row measured from it jumped with it. Translation is left to the launcher now;
- * the position is ours, and holds until the row lays out again, when it is set again.
- *
- * <p>Only if that hook cannot be installed does it fall back to the translation.
+ * <p>It used to be ZUI's own button, moved. Keeping it there meant undoing ZUI all the time:
+ * laying it out again after every layout of the row, putting the robot back whenever ZUI reset
+ * the icon, and holding the row visible and opaque whenever ZUI hid it - through hooks that ran
+ * for every view in the launcher. Holding the row up was also what left icons where the tablet's
+ * bar had been once it was switched off. Our own button needs none of that: it is placed when the
+ * bar's geometry changes, and it follows the bar like the rest of ours ({@link TaskbarFollow}).
  */
 final class TaskbarStart {
 
-    /** ZUI's buttons we have moved, so the setting going off can put them back. */
-    private static final Map<View, Boolean> MOVED = new WeakHashMap<>();
+    private static final String TAG_START = "zux-start-button";
 
-    /** Whether {@code TaskbarView.onLayout} is hooked, so the button can be moved by layout. */
-    static volatile boolean sLayoutHooked;
-    private static boolean sSaidMoved;
+    /** ZUI's buttons we set invisible, so the setting going off can show them again. */
+    private static final Map<View, Boolean> HIDDEN = new WeakHashMap<>();
+
+    /** When our button was last pressed, per display: the drawer is on its way. */
+    private static final android.util.SparseLongArray PRESSED = new android.util.SparseLongArray();
+
+    private static boolean sSaid;
 
     private TaskbarStart() {
     }
 
-    /** Moves the launcher's button to the left of the bar, or back where ZUI put it. */
+    /** Puts our button on this bar, or ZUI's back, following the setting and the bar. */
     static void apply(ViewGroup dragLayer, ViewGroup icons) {
         try {
-            View button = allAppsButton(icons);
-            if (button == null) {
+            View zui = allAppsButton(icons);
+            if (!Cfg.startButtonLeft() || !TaskbarScope.ours(dragLayer)) {
+                unapply(dragLayer, icons);
                 return;
             }
-            robot(button);
-            toggles(button);
-            if (sLayoutHooked) {
-                // The move itself happens in relayout(); all this does is ask for a layout when
-                // the button is not where it should be, or no longer should be.
-                if (!Cfg.startButtonLeft()) {
-                    if (MOVED.remove(button) != null) {
-                        icons.requestLayout();
-                    }
+            if (zui == null) {
+                return;
+            }
+            if (zui.getVisibility() != View.INVISIBLE) {
+                HIDDEN.put(zui, Boolean.TRUE);
+                zui.setVisibility(View.INVISIBLE);
+            }
+            StartButton ours = buttonIn(dragLayer);
+            if (ours == null) {
+                ours = add(dragLayer);
+                if (ours == null) {
                     return;
                 }
-                if (button.getWidth() > 0 && icons.getWidth() > 0) {
-                    int target = targetLeft(dragLayer, icons);
-                    if (target >= 0 && button.getLeft() != target) {
-                        icons.requestLayout();
-                    }
-                }
-                return;
             }
-            if (!Cfg.startButtonLeft()) {
-                if (MOVED.remove(button) != null) {
-                    button.setTranslationX(0f);
-                }
-                return;
-            }
-            if (button.getWidth() <= 0 || icons.getWidth() <= 0) {
-                // Not laid out yet; the layout listener in TaskbarRunning brings us back.
-                return;
-            }
-            int target = targetLeft(dragLayer, icons);
-            if (target < 0) {
-                return;
-            }
-            float shift = target - button.getLeft();
-            if (button.getTranslationX() != shift) {
-                boolean first = !MOVED.containsKey(button);
-                MOVED.put(button, Boolean.TRUE);
-                button.setTranslationX(shift);
-                if (first) {
-                    L.i("taskbar start: moved the launcher's drawer button by " + (int) shift
-                            + "px, to x=" + target + " beside the navigation keys");
-                }
-            }
+            ours.bind(zui);
+            place(dragLayer, ours, zui);
         } catch (Throwable t) {
-            L.d("taskbar start: not moved (" + t + ")");
+            L.d("taskbar start: not placed (" + t + ")");
         }
     }
 
+    /** Our button off this bar and ZUI's shown again, as ZUI built it. */
+    static void unapply(ViewGroup dragLayer, ViewGroup icons) {
+        StartButton ours = buttonIn(dragLayer);
+        if (ours != null) {
+            dragLayer.removeView(ours);
+        }
+        View zui = allAppsButton(icons);
+        if (zui != null && HIDDEN.remove(zui) != null) {
+            zui.setVisibility(View.VISIBLE);
+        }
+    }
+
+    static StartButton buttonIn(ViewGroup dragLayer) {
+        View found = dragLayer == null ? null : dragLayer.findViewWithTag(TAG_START);
+        return found instanceof StartButton ? (StartButton) found : null;
+    }
+
+    private static StartButton add(ViewGroup dragLayer) {
+        View reference = TaskbarTray.rowReference(dragLayer);
+        ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
+        if (!(lp instanceof FrameLayout.LayoutParams)) {
+            L.w("taskbar start: the drag layer's layout params are not reproducible, no button");
+            return null;
+        }
+        StartButton button = new StartButton(dragLayer.getContext());
+        button.setTag(TAG_START);
+        dragLayer.addView(button, lp);
+        if (!sSaid) {
+            sSaid = true;
+            L.i("taskbar start: our own start button beside the navigation keys; ZUI's is "
+                    + "pressed through it");
+        }
+        return button;
+    }
+
+    /** Beside the navigation keys, centred on the bar's row, at ZUI's own icon size. */
+    private static void place(ViewGroup dragLayer, StartButton button, View zui) {
+        View reference = TaskbarTray.rowReference(dragLayer);
+        if (reference == null || reference.getHeight() <= 0) {
+            return;
+        }
+        int size = size(zui, dragLayer.getContext());
+        int left = navEnd(dragLayer);
+        int top = reference.getTop() + (reference.getHeight() - size) / 2;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) button.getLayoutParams();
+        int gravity = Gravity.TOP | Gravity.START;
+        if (lp.gravity == gravity && lp.width == size && lp.height == size
+                && lp.leftMargin == left && lp.topMargin == top) {
+            // Placed from layout listeners: unchanged params must not ask for another pass.
+            return;
+        }
+        lp.gravity = gravity;
+        lp.width = size;
+        lp.height = size;
+        lp.leftMargin = left;
+        lp.topMargin = top;
+        button.setLayoutParams(lp);
+    }
+
+    /** ZUI's own button's size, which is its icon size on this bar. */
+    static int size(View zui, Context ctx) {
+        if (zui != null && zui.getWidth() > 0) {
+            return zui.getWidth();
+        }
+        return Ui.dp(ctx, 48);
+    }
+
     /**
-     * Lays the button out at the left, right after {@code TaskbarView} has laid out its row.
-     *
-     * <p>Called from inside the layout pass, so it only calls {@code layout()} on the one child -
-     * nothing that would ask for another pass.
+     * The right-hand end of the navigation keys, in the drag layer's coordinates, or 0 when
+     * they are not on the left - the tablet's own bar keeps them on the right, or has none with
+     * gestures.
      */
-    static void relayout(ViewGroup icons) {
-        try {
-            if (!Cfg.startButtonLeft()) {
-                return;
-            }
-            View button = allAppsButton(icons);
-            View root = icons.getRootView();
-            if (button == null || button.getWidth() <= 0 || !(root instanceof ViewGroup)) {
-                return;
-            }
-            int target = targetLeft((ViewGroup) root, icons);
-            if (target < 0 || button.getLeft() == target) {
-                return;
-            }
-            button.layout(target, button.getTop(), target + button.getWidth(),
-                    button.getBottom());
-            MOVED.put(button, Boolean.TRUE);
-            if (!sSaidMoved) {
-                sSaidMoved = true;
-                L.i("taskbar start: the drawer button is laid out at x=" + target
-                        + " in the row, beside the navigation keys");
-            }
-        } catch (Throwable t) {
-            L.d("taskbar start: not laid out (" + t + ")");
-        }
-    }
-
-    /** The button's own icons, kept so the setting going off can give them back. */
-    private static final Map<View, android.graphics.drawable.Drawable[]> ORIGINAL_ICONS =
-            new WeakHashMap<>();
-    private static boolean sSaidRobot;
-
-    /**
-     * Puts the Android robot on the button, or ZUI's own icon back.
-     *
-     * <p>The button is a {@code BubbleTextView}, which draws its icon as a compound drawable of
-     * the text view it is - so the icon is swapped there, at the bounds ZUI gave its own. Checked
-     * on every refresh: ZUI sets its icon again when the theme or the bar changes, and a robot
-     * that quietly turned back into ZUI's icon would look like a bug.
-     */
-    private static void robot(View button) {
-        if (!(button instanceof android.widget.TextView)) {
-            if (!sSaidRobot) {
-                sSaidRobot = true;
-                L.i("taskbar start: the drawer button is a " + button.getClass().getName()
-                        + ", which has no icon to swap");
-            }
-            return;
-        }
-        android.widget.TextView text = (android.widget.TextView) button;
-        android.graphics.drawable.Drawable[] icons = text.getCompoundDrawables();
-        int at = -1;
-        for (int i = 0; i < icons.length; i++) {
-            if (icons[i] != null) {
-                at = i;
-                break;
+    private static int navEnd(ViewGroup dragLayer) {
+        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
+            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
+                int right = offsetIn(dragLayer, view) + view.getWidth();
+                return right < dragLayer.getWidth() / 2 ? right : 0;
             }
         }
-        boolean showing = at >= 0 && icons[at] instanceof AndroidRobot;
-        if (!Cfg.startButtonRobot()) {
-            android.graphics.drawable.Drawable[] original = ORIGINAL_ICONS.remove(button);
-            if (showing && original != null) {
-                text.setCompoundDrawables(original[0], original[1], original[2], original[3]);
-            }
-            return;
-        }
-        if (showing) {
-            return;
-        }
-        if (at < 0) {
-            if (!sSaidRobot) {
-                sSaidRobot = true;
-                L.i("taskbar start: the drawer button draws its icon some other way; the robot "
-                        + "cannot go on it");
-            }
-            return;
-        }
-        ORIGINAL_ICONS.put(button, icons.clone());
-        AndroidRobot robot = ROBOTS.get(button);
-        if (robot == null) {
-            robot = new AndroidRobot();
-            ROBOTS.put(button, robot);
-        }
-        robot.setBounds(icons[at].getBounds());
-        android.graphics.drawable.Drawable[] next = icons.clone();
-        next[at] = robot;
-        text.setCompoundDrawables(next[0], next[1], next[2], next[3]);
-        if (!sSaidRobot) {
-            sSaidRobot = true;
-            L.i("taskbar start: the Android robot is on the drawer button");
-        }
-    }
-
-    private static final String BUTTON_CLASS =
-            "com.android.launcher3.taskbar.customization.TaskbarAllAppsButtonContainer";
-    /** The button's class, compared by identity: the hook below sees every text view. */
-    private static Class<?> sButtonClass;
-    /** One robot per button, so a re-set icon keeps its blink rather than starting over. */
-    private static final Map<View, AndroidRobot> ROBOTS = new WeakHashMap<>();
-    private static boolean sSaidGuard;
-
-    /**
-     * Keeps the robot on the button through ZUI setting its own icon again.
-     *
-     * <p>Rotating the tablet - any configuration change - makes ZUI rebuild the button's icon,
-     * and its own showed for a moment until the next taskbar refresh put the robot back. Here the
-     * icon is swapped as ZUI hands it over, before it is ever drawn.
-     */
-    static void guardIcon(ClassLoader loader) {
-        sButtonClass = Reflect.findClass(BUTTON_CLASS, loader);
-        if (sButtonClass == null) {
-            L.d("taskbar start: no " + BUTTON_CLASS + " to guard");
-            return;
-        }
-        try {
-            de.robv.android.xposed.XposedBridge.hookAllMethods(android.widget.TextView.class,
-                    "setCompoundDrawables", new de.robv.android.xposed.XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            Object view = param.thisObject;
-                            if (view == null || view.getClass() != sButtonClass
-                                    || param.args.length != 4 || !Cfg.startButtonRobot()) {
-                                return;
-                            }
-                            for (int i = 0; i < 4; i++) {
-                                Object d = param.args[i];
-                                if (d instanceof android.graphics.drawable.Drawable
-                                        && !(d instanceof AndroidRobot)) {
-                                    param.args[i] = robotFor((View) view, i,
-                                            (android.graphics.drawable.Drawable) d);
-                                    if (!sSaidGuard) {
-                                        sSaidGuard = true;
-                                        L.i("taskbar start: kept the robot on the button through"
-                                                + " the launcher re-setting its icon");
-                                    }
-                                }
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            L.d("taskbar start: could not guard the button's icon (" + t + ")");
-        }
-    }
-
-    /** The button's robot, at the bounds ZUI gave its own icon; ZUI's icon kept for later. */
-    private static AndroidRobot robotFor(View button, int slot,
-            android.graphics.drawable.Drawable zui) {
-        android.graphics.drawable.Drawable[] original = new android.graphics.drawable.Drawable[4];
-        original[slot] = zui;
-        ORIGINAL_ICONS.put(button, original);
-        AndroidRobot robot = ROBOTS.get(button);
-        if (robot == null) {
-            robot = new AndroidRobot();
-            ROBOTS.put(button, robot);
-        }
-        robot.setBounds(zui.getBounds());
-        return robot;
+        return 0;
     }
 
     /**
-     * Whether the drawer is open, per icon row, as last told by the row's own fade.
-     *
-     * <p>ZUI fades its row out as its drawer opens and back in as it closes - the one signal
-     * there is, since the drawer itself is a window of the launcher's own making.
-     */
-    private static final Map<View, Boolean> DRAWER_OPEN = new WeakHashMap<>();
-
-    /** Told by the row's fade: the drawer is opening ({@code open}) or closing. */
-    static void drawerShowing(View row, boolean open) {
-        if (!(row instanceof ViewGroup)) {
-            return;
-        }
-        Boolean was = DRAWER_OPEN.put(row, open);
-        if (was == null || was != open) {
-            eyes((ViewGroup) row, open);
-        }
-    }
-
-    /** The robot's eyes on this row's button, wide or not. */
-    private static void eyes(ViewGroup row, boolean wide) {
-        View button = allAppsButton(row);
-        if (!(button instanceof android.widget.TextView)) {
-            return;
-        }
-        for (android.graphics.drawable.Drawable d
-                : ((android.widget.TextView) button).getCompoundDrawables()) {
-            if (d instanceof AndroidRobot) {
-                ((AndroidRobot) d).setWide(wide);
-            }
-        }
-    }
-
-    private static boolean sSaidToggle;
-
-    /**
-     * Makes the button a toggle: pressed with the drawer open, it closes it.
-     *
-     * <p>ZUI's click only ever opens the drawer. That never mattered while ZUI hid the button
-     * with its row; kept on screen, a second press reopened the drawer instead of closing it,
-     * which no start button does.
-     */
-    private static void toggles(View button) {
-        Object info = Reflect.field(button, "mListenerInfo");
-        Object current = info == null ? null : Reflect.field(info, "mOnClickListener");
-        if (current instanceof StartClick || !(current instanceof View.OnClickListener)) {
-            return;
-        }
-        button.setOnClickListener(new StartClick((View.OnClickListener) current));
-    }
-
-    private static final class StartClick implements View.OnClickListener {
-        private final View.OnClickListener mOriginal;
-
-        StartClick(View.OnClickListener original) {
-            mOriginal = original;
-        }
-
-        @Override
-        public void onClick(View v) {
-            View row = v.getParent() instanceof View ? (View) v.getParent() : null;
-            int display = TaskbarTray.displayIdOf(v);
-            // Open only when both agree: the row's fade says so, and the drawer's window is
-            // really there - a window kept around after closing must not swallow the press.
-            boolean open = !Boolean.FALSE.equals(DRAWER_OPEN.get(row))
-                    && TaskbarBridge.isStockDrawerOpen(display);
-            if (open) {
-                try {
-                    if (TaskbarBridge.closeStockDrawer(display)) {
-                        if (row != null) {
-                            drawerShowing(row, false);
-                        }
-                        if (!sSaidToggle) {
-                            sSaidToggle = true;
-                            L.i("start button: closed the drawer, as a second press should");
-                        }
-                        return;
-                    }
-                } catch (Throwable t) {
-                    L.d("start button: could not close the drawer (" + t + ")");
-                }
-            }
-            if (row != null) {
-                // At the press, not when the fade gets round to it: the eyes answer the finger.
-                drawerShowing(row, true);
-            }
-            mOriginal.onClick(v);
-        }
-    }
-
-    /**
-     * Whether this child of the icon row is the button we moved away.
-     *
-     * <p>Its laid-out slot is still at the end of the cluster, empty now, and anything measuring
-     * where the launcher's icons end has to skip it or it measures to a hole.
+     * Whether this child of ZUI's row is the drawer button we set invisible: anything measuring
+     * where ZUI's icons end skips it.
      */
     static boolean isMoved(View child) {
-        return MOVED.containsKey(child) && (sLayoutHooked || child.getTranslationX() != 0f);
+        return HIDDEN.containsKey(child);
     }
 
     /**
-     * Where the drawer button ends on the bar, in the drag layer's coordinates - where it is
-     * drawn, translation included. Falls back to the end of the navigation keys when there is no
-     * button to be seen; -1 when neither can be measured yet.
+     * Where the start button ends on the bar, in the drag layer's coordinates. Falls back to
+     * ZUI's own button and then to the end of the navigation keys; -1 when nothing can be
+     * measured yet.
      */
     static int rightEdge(ViewGroup dragLayer, ViewGroup icons) {
-        View button = allAppsButton(icons);
-        if (Cfg.startButtonLeft() && button != null && icons.getWidth() > 0) {
-            // Where the button belongs, not where it happens to be drawn this frame: scrolling,
-            // the launcher's animations and its own visibility changes all move it about, and a
-            // row measured from it jumped every time they did. Its slot does not move.
-            int target = targetLeft(dragLayer, icons);
-            if (target >= 0) {
-                int width = button.getWidth() > 0 ? button.getWidth() : 60;
-                return offsetIn(dragLayer, icons) + target + width;
+        StartButton ours = buttonIn(dragLayer);
+        if (ours != null && ours.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            // Where it is placed, not where it is drawn this frame: it follows the bar's own
+            // movements, and a row measured from those jumped with them.
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) ours.getLayoutParams();
+            if (lp.width > 0) {
+                return lp.leftMargin + lp.width;
             }
         }
-        if (button != null && button.getVisibility() == View.VISIBLE && button.getWidth() > 0) {
-            // Where it is laid out. Under the layout route the translation is the launcher's own
-            // and comes and goes with its animations; following it is how the row learned to jump.
-            int shift = sLayoutHooked ? 0 : Math.round(button.getTranslationX());
-            return offsetIn(dragLayer, icons) + button.getRight() + shift;
+        View zui = allAppsButton(icons);
+        if (zui != null && zui.getVisibility() == View.VISIBLE && zui.getWidth() > 0) {
+            return offsetIn(dragLayer, zui) + zui.getRight() - zui.getLeft();
         }
         for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
             if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
@@ -392,47 +195,28 @@ final class TaskbarStart {
         return -1;
     }
 
-    /** The launcher's own all-apps button, by the name its class carries on every build. */
-    private static View allAppsButton(ViewGroup icons) {
+    /**
+     * Whether ZUI's drawer is open on this display, or about to be: pressed in the last moment
+     * and still on its way up.
+     */
+    static boolean drawerOpen(int display) {
+        long pressed = PRESSED.get(display, 0L);
+        return (pressed > 0 && SystemClock.uptimeMillis() - pressed < 600L)
+                || TaskbarBridge.isStockDrawerOpen(display);
+    }
+
+    /** ZUI's own all-apps button, by the name its class carries on every build. */
+    static View allAppsButton(ViewGroup icons) {
         if (icons == null) {
             return null;
         }
         for (View view : Reflect.findByClassFragments(icons, "AllAppsButton")) {
-            // The container, not the icon inside it: it is the row's own child, and only a
-            // child of the row has a left edge in the row's coordinates.
+            // The container, not the icon inside it: it is the row's own child.
             if (view.getParent() == icons) {
                 return view;
             }
         }
         return null;
-    }
-
-    /**
-     * Where the button should start, in the icon row's coordinates.
-     *
-     * <p>Measured against {@code end_nav_buttons} itself and nothing broader. The previous build
-     * also accepted {@code navbuttons_view}, which on this bar is the full 2560px wide - and so
-     * put the button at x=2576, off the edge of the screen.
-     */
-    private static int targetLeft(ViewGroup dragLayer, ViewGroup icons) {
-        // Right against the keys, the way Start sits against the corner: the space belongs
-        // between the button and the apps, not between the button and the keys. The recents
-        // key's own padding already leaves a visible gap.
-        int gap = 0;
-        int navEnd = -1;
-        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
-            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
-                int right = offsetIn(dragLayer, view) + view.getWidth();
-                // Keys on the right-hand side (the tablet's own bar) say nothing about where the
-                // left end of the bar is.
-                if (right < dragLayer.getWidth() / 2) {
-                    navEnd = right;
-                }
-                break;
-            }
-        }
-        int left = (navEnd >= 0 ? navEnd : 0) + gap;
-        return left - offsetIn(dragLayer, icons);
     }
 
     private static int offsetIn(ViewGroup dragLayer, View view) {
@@ -442,5 +226,111 @@ final class TaskbarStart {
             v = v.getParent() instanceof View ? (View) v.getParent() : null;
         }
         return left;
+    }
+
+    /**
+     * The button itself: the Android robot (or ZUI's own icon, with the robot off), a toggle for
+     * ZUI's drawer, and the robot's eyes wide while the drawer is open.
+     */
+    static final class StartButton extends ImageView {
+        private View mZui;
+        private final AndroidRobot mRobot = new AndroidRobot();
+        private boolean mRobotShown;
+        private int mZuiIconWidth = -1;
+
+        private final Runnable mWatchDrawer = new Runnable() {
+            @Override
+            public void run() {
+                // Only while the drawer is up, and a few times a second: the eyes close with it.
+                if (!isAttachedToWindow()) {
+                    return;
+                }
+                if (drawerOpen(TaskbarTray.displayIdOf(StartButton.this))) {
+                    postDelayed(this, 300L);
+                } else {
+                    mRobot.setWide(false);
+                }
+            }
+        };
+
+        StartButton(Context ctx) {
+            super(ctx);
+            setScaleType(ScaleType.FIT_CENTER);
+            setContentDescription("Start");
+            setOnClickListener(v -> press());
+            setOnLongClickListener(v -> mZui != null && mZui.performLongClick());
+            setOnTouchListener(new TaskbarRunning.Press());
+            setOnHoverListener((v, e) -> {
+                int action = e.getActionMasked();
+                if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                    Hover.enter(v);
+                } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                    Hover.exit(v);
+                }
+                return false;
+            });
+        }
+
+        /** Takes ZUI's button: what a press presses, and the icon size to match. */
+        void bind(View zui) {
+            mZui = zui;
+            boolean robot = Cfg.startButtonRobot();
+            int iconWidth = zuiIconWidth(zui);
+            if (robot == mRobotShown && iconWidth == mZuiIconWidth && getDrawable() != null) {
+                return;
+            }
+            mRobotShown = robot;
+            mZuiIconWidth = iconWidth;
+            Drawable icon = robot ? mRobot : copyOfZuiIcon(zui);
+            setImageDrawable(icon != null ? icon : mRobot);
+            // The same margin round the icon as ZUI's button keeps round its own.
+            int inset = iconWidth > 0 && zui.getWidth() > iconWidth
+                    ? (zui.getWidth() - iconWidth) / 2 : 0;
+            setPadding(inset, inset, inset, inset);
+        }
+
+        private void press() {
+            int display = TaskbarTray.displayIdOf(this);
+            if (TaskbarBridge.isStockDrawerOpen(display)) {
+                // A second press closes it, as a start button does.
+                PRESSED.delete(display);
+                if (TaskbarBridge.closeStockDrawer(display)) {
+                    mRobot.setWide(false);
+                    return;
+                }
+            }
+            if (mZui == null) {
+                return;
+            }
+            PRESSED.put(display, SystemClock.uptimeMillis());
+            mRobot.setWide(true);
+            removeCallbacks(mWatchDrawer);
+            postDelayed(mWatchDrawer, 600L);
+            mZui.performClick();
+        }
+
+        /** How wide ZUI draws its own icon inside its button. */
+        private static int zuiIconWidth(View zui) {
+            if (zui instanceof android.widget.TextView) {
+                for (Drawable d : ((android.widget.TextView) zui).getCompoundDrawables()) {
+                    if (d != null && d.getBounds().width() > 0) {
+                        return d.getBounds().width();
+                    }
+                }
+            }
+            return -1;
+        }
+
+        private static Drawable copyOfZuiIcon(View zui) {
+            if (!(zui instanceof android.widget.TextView)) {
+                return null;
+            }
+            for (Drawable d : ((android.widget.TextView) zui).getCompoundDrawables()) {
+                if (d != null && d.getConstantState() != null) {
+                    return d.getConstantState().newDrawable().mutate();
+                }
+            }
+            return null;
+        }
     }
 }
