@@ -28,6 +28,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
                     SystemKeepAlive.install(lpparam.classLoader);
                     SystemBridge.install();
                     SystemNewWindow.install(lpparam.classLoader);
+                    SystemFullscreen.install(lpparam.classLoader);
                 }
                 return;
             }

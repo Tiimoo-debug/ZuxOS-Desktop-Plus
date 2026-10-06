@@ -552,6 +552,9 @@ final class ShotPreview {
             ActivityOptions options = ActivityOptions.makeBasic().setLaunchDisplayId(display);
             if (fullscreen) {
                 Reflect.call(options, "setLaunchWindowingMode", WINDOWING_MODE_FULLSCREEN);
+                // The system part makes it stick: ZUI hands back the app's last floating window
+                // over the launch's own request (17:53 log).
+                intent.putExtra(SystemFullscreen.EXTRA, true);
             }
             ctx.startActivity(intent, options.toBundle());
         } catch (Throwable t) {
