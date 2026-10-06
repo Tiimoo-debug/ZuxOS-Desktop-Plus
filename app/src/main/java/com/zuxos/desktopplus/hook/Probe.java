@@ -125,6 +125,7 @@ public final class Probe {
             sb.append(TaskOverview.describe());
             sb.append(RecentsRoute.describe());
             sb.append(KeepAlive.describe());
+            sb.append(com.zuxos.desktopplus.core.FrameRate.describe(activity));
         } catch (Throwable t) {
             sb.append("\nrecents\n  (unreadable: ").append(t).append(")\n");
         }

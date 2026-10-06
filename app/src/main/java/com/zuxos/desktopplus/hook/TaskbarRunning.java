@@ -79,6 +79,7 @@ final class TaskbarRunning {
         watchGeometry(dragLayer, TaskbarTray.rowReference(dragLayer));
         TaskbarDrop.apply(dragLayer);
         TaskbarNav.apply(dragLayer);
+        fastBar(dragLayer);
 
         boolean onlyOpen = Cfg.taskbarRunningOnly();
         List<Item> pins = TaskbarPins.pins(dragLayer.getContext());
@@ -1578,6 +1579,34 @@ final class TaskbarRunning {
             }
             // Only watching: the click and the hold menu still happen as before.
             return false;
+        }
+    }
+
+    /**
+     * The monitor's bar asks for the monitor's fastest refresh rate - the rate only, never a
+     * mode - so its own motion (hover, the row moving) runs at what the screen can show while
+     * any app is in front.
+     */
+    private static void fastBar(ViewGroup dragLayer) {
+        try {
+            if (TaskbarTray.displayIdOf(dragLayer) == 0
+                    || !(dragLayer.getLayoutParams() instanceof android.view.WindowManager.LayoutParams)
+                    || dragLayer.getDisplay() == null) {
+                return;
+            }
+            android.view.WindowManager.LayoutParams lp =
+                    (android.view.WindowManager.LayoutParams) dragLayer.getLayoutParams();
+            float before = lp.preferredRefreshRate;
+            com.zuxos.desktopplus.core.FrameRate.rateOnly(lp, dragLayer.getDisplay());
+            if (lp.preferredRefreshRate != before) {
+                ((android.view.WindowManager) dragLayer.getContext()
+                        .getSystemService(Context.WINDOW_SERVICE)).updateViewLayout(dragLayer, lp);
+                com.zuxos.desktopplus.core.FrameRate.forView(dragLayer);
+                L.i("taskbar: asking for " + lp.preferredRefreshRate + " Hz on display "
+                        + TaskbarTray.displayIdOf(dragLayer));
+            }
+        } catch (Throwable t) {
+            L.d("taskbar: could not ask for the refresh rate (" + t + ")");
         }
     }
 

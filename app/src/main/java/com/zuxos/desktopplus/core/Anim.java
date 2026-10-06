@@ -13,8 +13,9 @@ import android.view.ViewGroup;
  */
 public final class Anim {
 
-    private static final int FAST = 160;
-    private static final int NORMAL = 220;
+    // iOS fades take about a quarter to a third of a second; shorter reads as a blink.
+    private static final int FAST = 220;
+    private static final int NORMAL = 300;
 
     private Anim() {
     }
@@ -64,8 +65,8 @@ public final class Anim {
         view.setAlpha(0f);
         view.animate().alpha(1f).setDuration(FAST).start();
         sheet.setTranslationY(sheet.getHeight() > 0 ? sheet.getHeight() : 600);
-        sheet.animate().translationY(0f).setDuration(Motion.SPRING_MS)
-                .setInterpolator(Motion.SPRING_FIRM).start();
+        sheet.animate().translationY(0f).setDuration(Motion.SMOOTH_MS)
+                .setInterpolator(Motion.SMOOTH).withLayer().start();
     }
 
     public static void slideDown(View view, View sheet, Runnable onEnd) {
@@ -109,7 +110,7 @@ public final class Anim {
         panel.setScaleY(0.92f);
         view.animate().alpha(1f).setDuration(FAST).start();
         panel.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
-                .setInterpolator(Motion.SPRING).start();
+                .setInterpolator(Motion.SPRING).withLayer().start();
     }
 
     /** Slides the desktop sideways when changing page. */
@@ -120,12 +121,13 @@ public final class Anim {
         }
         int width = Math.max(1, view.getWidth());
         float out = forward ? -width * 0.25f : width * 0.25f;
-        view.animate().translationX(out).alpha(0f).setDuration(120)
+        view.animate().translationX(out).alpha(0f).setDuration(Motion.SHORT)
+                .setInterpolator(Motion.EXIT).withLayer()
                 .withEndAction(() -> {
                     atMidpoint.run();
                     view.setTranslationX(-out);
-                    view.animate().translationX(0f).alpha(1f).setDuration(Motion.MEDIUM)
-                            .setInterpolator(Motion.EASE).start();
+                    view.animate().translationX(0f).alpha(1f).setDuration(Motion.SMOOTH_MS)
+                            .setInterpolator(Motion.SMOOTH).withLayer().start();
                 }).start();
     }
 

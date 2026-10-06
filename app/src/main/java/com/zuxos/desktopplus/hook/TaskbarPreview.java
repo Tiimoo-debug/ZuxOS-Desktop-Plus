@@ -55,6 +55,9 @@ final class TaskbarPreview {
     private static final long FRAME_MS = 33L;
     private static final float FEED_SCALE = 0.4f;
 
+    /** Room round a tile for its hover highlight. */
+    private static final int TILE_PAD_DP = 6;
+
     private static final int TAG_PKG = 0x7A000201;
     private static final int TAG_DISPLAY = 0x7A000202;
 
@@ -267,8 +270,8 @@ final class TaskbarPreview {
             tile.visible = Boolean.TRUE.equals(Reflect.field(task, "isVisible"));
             visibleCount += tile.visible ? 1 : 0;
             tile.view = tileView(ctx, tile, pkg, label, appIcon, display, tileW, tileH, tiles);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(tileW,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    tileW + 2 * Ui.dp(ctx, TILE_PAD_DP), ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.leftMargin = tiles.isEmpty() ? 0 : gap;
             row.addView(tile.view, lp);
             tiles.add(tile);
@@ -320,6 +323,10 @@ final class TaskbarPreview {
         lp.x = x;
         lp.y = TaskbarTray.barInset(icon) + Ui.dp(ctx, 6);
         lp.setTitle("ZuxOS Desktop Plus window preview");
+        // The monitor's fastest refresh rate while this is up: its motion at what the
+        // screen can show.
+        com.zuxos.desktopplus.core.FrameRate.forWindow(lp, wm.getDefaultDisplay());
+        com.zuxos.desktopplus.core.FrameRate.forView(root);
         wm.addView(root, lp);
         sRoot = root;
         sWm = wm;
@@ -334,7 +341,8 @@ final class TaskbarPreview {
         pane.setScaleY(0.9f);
         pane.setTranslationY(Ui.dp(ctx, 8));
         pane.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
-                .setDuration(Motion.IOS_MS).setInterpolator(Motion.IOS).start();
+                .setDuration(Motion.IOS_MS).setInterpolator(Motion.IOS).withLayer().start();
+        com.zuxos.desktopplus.core.FrameRate.measure(root, "window preview");
 
         for (Tile tile : tiles) {
             loadSnapshot(tile, root);
@@ -352,8 +360,10 @@ final class TaskbarPreview {
 
     private static View tileView(Context ctx, Tile tile, String pkg, CharSequence label,
             Drawable appIcon, int display, int tileW, int tileH, List<Tile> tiles) {
-        LinearLayout box = new LinearLayout(ctx);
+        TileBox box = new TileBox(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
+        int boxPad = Ui.dp(ctx, TILE_PAD_DP);
+        box.setPadding(boxPad, boxPad, boxPad, boxPad);
 
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -377,7 +387,21 @@ final class TaskbarPreview {
         x.setTextSize(11);
         x.setGravity(Gravity.CENTER);
         int xPx = Ui.dp(ctx, 22);
-        x.setBackground(Ui.roundRect(0xCCF4F4F8, xPx / 2));
+        android.graphics.drawable.GradientDrawable xBack = Ui.roundRect(0xCCF4F4F8, xPx / 2);
+        x.setBackground(xBack);
+        x.setOnHoverListener((v, e) -> {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                xBack.setColor(0xFFFFFFFF);
+                v.animate().rotation(90f).setDuration(Motion.IOS_MS)
+                        .setInterpolator(Motion.SNAPPY).start();
+            } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                xBack.setColor(0xCCF4F4F8);
+                v.animate().rotation(0f).setDuration(Motion.IOS_MS)
+                        .setInterpolator(Motion.SNAPPY).start();
+            }
+            return false;
+        });
         x.setOnClickListener(v -> {
             TaskOverview.closeTask(tile.taskId, pkg);
             tiles.remove(tile);
@@ -406,7 +430,8 @@ final class TaskbarPreview {
             }
         });
         thumb.setClipToOutline(true);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(tileW, tileH);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, tileH);
         tlp.topMargin = Ui.dp(ctx, 8);
         box.addView(thumb, tlp);
         tile.thumb = thumb;
@@ -415,18 +440,59 @@ final class TaskbarPreview {
             dismiss();
             TaskOverview.bringToFront(tile.taskId, display);
         });
-        box.setOnHoverListener((v, e) -> {
-            int action = e.getActionMasked();
-            if (action == MotionEvent.ACTION_HOVER_ENTER) {
-                v.animate().scaleX(1.03f).scaleY(1.03f).setDuration(Motion.IOS_MS)
-                        .setInterpolator(Motion.IOS).start();
-            } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
-                v.animate().scaleX(1f).scaleY(1f).setDuration(Motion.IOS_MS)
-                        .setInterpolator(Motion.IOS).start();
-            }
-            return false;
-        });
+        box.mThumb = thumb;
         return box;
+    }
+
+    /**
+     * A tile under the pointer: a soft highlight comes up behind it and its picture grows a
+     * little; the icon, name and X stay exactly where they are.
+     *
+     * <p>Hover is read from what reaches the tile as a whole, not from the tile's own
+     * enter/exit: those fire every time the pointer crosses the tile's X or icon, and the tile
+     * used to grow and shrink with each crossing - taking the icon and X with it.
+     */
+    private static final class TileBox extends LinearLayout {
+        ImageView mThumb;
+        private boolean mHovered;
+        private final android.graphics.drawable.GradientDrawable mGlow;
+        private android.animation.ValueAnimator mFade;
+
+        TileBox(Context ctx) {
+            super(ctx);
+            mGlow = Ui.roundRect(0x1FFFFFFF, Ui.dp(ctx, 16));
+            mGlow.setAlpha(0);
+            setBackground(mGlow);
+        }
+
+        @Override
+        public boolean dispatchHoverEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            // Crossing onto the X or the icon is a move within the tile, not an exit from it;
+            // only leaving the tile itself sends one here.
+            boolean inside = action != MotionEvent.ACTION_HOVER_EXIT;
+            if (inside != mHovered) {
+                mHovered = inside;
+                hovered(inside);
+            }
+            return super.dispatchHoverEvent(event);
+        }
+
+        private void hovered(boolean on) {
+            if (mFade != null) {
+                mFade.cancel();
+            }
+            mFade = android.animation.ValueAnimator.ofInt(mGlow.getAlpha(), on ? 255 : 0);
+            mFade.setDuration(Motion.IOS_MS);
+            mFade.setInterpolator(Motion.SMOOTH);
+            mFade.addUpdateListener(a -> mGlow.setAlpha((Integer) a.getAnimatedValue()));
+            mFade.start();
+            if (mThumb != null) {
+                mThumb.animate().scaleX(on ? 1.04f : 1f).scaleY(on ? 1.04f : 1f)
+                        .setDuration(Motion.IOS_MS).setInterpolator(Motion.SNAPPY).withLayer()
+                        .start();
+            }
+        }
     }
 
     private static void loadSnapshot(Tile tile, FrameLayout root) {
@@ -508,8 +574,8 @@ final class TaskbarPreview {
             return;
         }
         View pane = root.getChildCount() > 0 ? root.getChildAt(0) : root;
-        pane.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).setDuration(180L)
-                .setInterpolator(Motion.EXIT).withEndAction(() -> remove(wm, root)).start();
+        pane.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).setDuration(200L)
+                .setInterpolator(Motion.EXIT).withLayer().withEndAction(() -> remove(wm, root)).start();
     }
 
     private static void dismissNow() {

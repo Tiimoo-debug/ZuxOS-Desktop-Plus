@@ -134,6 +134,8 @@ public final class SurfaceAttacher {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         lp.setTitle("ZuxOS Desktop Plus");
+        com.zuxos.desktopplus.core.FrameRate.forWindow(lp,
+                activity.getWindowManager().getDefaultDisplay());
         return lp;
     }
 

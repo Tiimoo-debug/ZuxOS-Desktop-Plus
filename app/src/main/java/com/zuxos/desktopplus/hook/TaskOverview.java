@@ -268,9 +268,14 @@ final class TaskOverview {
             lp.setTitle("ZuxOS Desktop Plus recents");
             Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP * 2);
             root.setAlpha(0f);
+            // The monitor's fastest refresh rate while this is up: its motion at what the
+            // screen can show.
+            com.zuxos.desktopplus.core.FrameRate.forWindow(lp, wm.getDefaultDisplay());
+            com.zuxos.desktopplus.core.FrameRate.forView(root);
             wm.addView(root, lp);
             root.animate().alpha(1f).setDuration(Motion.SHORT).setInterpolator(Motion.EASE)
                     .start();
+            com.zuxos.desktopplus.core.FrameRate.measure(root, "recents");
             root.requestFocus();
             sRoot = root;
             sWm = wm;
@@ -428,8 +433,9 @@ final class TaskOverview {
                 return;
             }
             closing[0] = true;
-            x.animate().rotation(x.getRotation() + 180f).setStartDelay(0).setDuration(200L)
-                    .setInterpolator(Motion.EASE).withEndAction(onClose).start();
+            x.animate().rotation(x.getRotation() + 180f).setStartDelay(0)
+                    .setDuration(Motion.SHORT + 100).setInterpolator(Motion.SNAPPY)
+                    .withEndAction(onClose).start();
         });
         return circle;
     }

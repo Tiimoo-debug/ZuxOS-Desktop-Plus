@@ -19,19 +19,32 @@ public final class Motion {
     /** For things leaving: they accelerate away rather than easing to a stop. */
     public static final TimeInterpolator EXIT = new PathInterpolator(0.4f, 0f, 1f, 1f);
 
-    /** A spring with a small, visible settle - for things appearing and landing. */
-    public static final TimeInterpolator SPRING = spring(0.72f);
+    /*
+     * The three springs SwiftUI names, which is what iOS motion is made of:
+     *   smooth - critically damped, no overshoot: for moving and resizing;
+     *   snappy - one barely-there settle: for appearing, hovering, pressing;
+     *   bouncy - a visible settle: kept for the few playful moments.
+     * The old default here (0.72) was close to bouncy, so everything wobbled a little.
+     */
+    public static final TimeInterpolator SMOOTH = spring(0.99f);
+    public static final TimeInterpolator SNAPPY = spring(0.86f);
+    public static final TimeInterpolator BOUNCY = spring(0.72f);
 
-    /** A firmer spring, no visible overshoot - for things that move but must not wobble. */
-    public static final TimeInterpolator SPRING_FIRM = spring(0.9f);
+    /** For things appearing and landing. */
+    public static final TimeInterpolator SPRING = SNAPPY;
 
-    /** iOS's default spring: damping 0.82 - one soft settle, no wobble. */
-    public static final TimeInterpolator IOS = spring(0.82f);
+    /** For things that move but must not wobble. */
+    public static final TimeInterpolator SPRING_FIRM = SMOOTH;
+
+    /** iOS's default spring, as the hover and preview use it. */
+    public static final TimeInterpolator IOS = SNAPPY;
 
     /** Durations. Springs need a little longer than eases to settle. */
     public static final long SHORT = 160L;
     public static final long MEDIUM = 280L;
     public static final long SPRING_MS = 420L;
+    /** A smooth spring needs a little longer to land than a snappy one. */
+    public static final long SMOOTH_MS = 460L;
     /** How long {@link #IOS} takes to land: iOS's response of about 0.38s. */
     public static final long IOS_MS = 380L;
 

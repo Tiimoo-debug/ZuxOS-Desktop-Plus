@@ -285,6 +285,10 @@ public final class QuickPanel {
             edgeToEdge(lp);
             // No blur behind. On this firmware the flag blurs the entire display whatever the
             // window's size, and there is no public way to blur only under a plain window.
+            // The monitor's fastest refresh rate while this is up: its motion at what the
+            // screen can show.
+            com.zuxos.desktopplus.core.FrameRate.forWindow(lp, wm.getDefaultDisplay());
+            com.zuxos.desktopplus.core.FrameRate.forView(root);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

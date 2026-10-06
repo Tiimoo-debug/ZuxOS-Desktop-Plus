@@ -421,6 +421,10 @@ public final class TaskbarMenu {
             lp.setTitle("ZuxOS Desktop Plus taskbar menu");
             QuickPanel.edgeToEdge(lp);
             // No blur behind: on this firmware it blurs the whole display, whatever the window.
+            // The monitor's fastest refresh rate while this is up: its motion at what the
+            // screen can show.
+            com.zuxos.desktopplus.core.FrameRate.forWindow(lp, wm.getDefaultDisplay());
+            com.zuxos.desktopplus.core.FrameRate.forView(root);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

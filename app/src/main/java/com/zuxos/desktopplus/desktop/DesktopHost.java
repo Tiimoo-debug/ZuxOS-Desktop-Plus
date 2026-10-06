@@ -122,6 +122,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         AppCtx.set(activity);
         mExternal = external;
         com.zuxos.desktopplus.hook.KeepAlive.start(activity);
+        if (external) {
+            // The desktop at the monitor's fastest refresh rate: everything drawn on it - the
+            // folders, the drawer, the icons - moves at what the screen can show.
+            try {
+                android.view.WindowManager.LayoutParams attrs =
+                        activity.getWindow().getAttributes();
+                com.zuxos.desktopplus.core.FrameRate.forWindow(attrs,
+                        activity.getWindowManager().getDefaultDisplay());
+                activity.getWindow().setAttributes(attrs);
+            } catch (Throwable t) {
+                com.zuxos.desktopplus.core.L.d("desktop: could not ask for the refresh rate ("
+                        + t + ")");
+            }
+        }
         mDisplayId = displayIdOf(activity);
         mSortMode = Cfg.drawerSort();
 

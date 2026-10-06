@@ -59,7 +59,8 @@ public class ItemView extends LinearLayout {
             if (parent != null) {
                 parent.requestDisallowInterceptTouchEvent(true);
             }
-            animate().scaleX(1.08f).scaleY(1.08f).setDuration(90).start();
+            animate().scaleX(1.08f).scaleY(1.08f).setDuration(220)
+                    .setInterpolator(com.zuxos.desktopplus.core.Motion.SNAPPY).withLayer().start();
         }
     };
 
@@ -174,7 +175,8 @@ public class ItemView extends LinearLayout {
 
     private void releaseGesture() {
         setPressed(false);
-        animate().scaleX(1f).scaleY(1f).setDuration(90).start();
+        animate().scaleX(1f).scaleY(1f).setDuration(com.zuxos.desktopplus.core.Motion.SPRING_MS)
+                .setInterpolator(com.zuxos.desktopplus.core.Motion.SNAPPY).withLayer().start();
         ViewParent parent = getParent();
         if (parent != null) {
             parent.requestDisallowInterceptTouchEvent(false);

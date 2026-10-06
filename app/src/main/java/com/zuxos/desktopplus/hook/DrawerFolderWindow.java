@@ -163,6 +163,10 @@ public final class DrawerFolderWindow {
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus folder");
             Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            // The monitor's fastest refresh rate while this is up: its motion at what the
+            // screen can show.
+            com.zuxos.desktopplus.core.FrameRate.forWindow(lp, wm.getDefaultDisplay());
+            com.zuxos.desktopplus.core.FrameRate.forView(root);
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;

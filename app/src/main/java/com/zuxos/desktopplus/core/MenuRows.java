@@ -124,7 +124,8 @@ public final class MenuRows {
             pane.setPivotX(pane.getWidth() / 2f);
             pane.setPivotY(fromBelow ? pane.getHeight() : 0f);
             android.view.ViewPropertyAnimator anim = pane.animate().alpha(1f).scaleX(1f)
-                    .scaleY(1f).setDuration(Motion.SPRING_MS).setInterpolator(Motion.SPRING);
+                    .scaleY(1f).setDuration(Motion.SPRING_MS).setInterpolator(Motion.SPRING)
+                    .withLayer();
             if (settled != null) {
                 anim.withEndAction(settled);
             }
