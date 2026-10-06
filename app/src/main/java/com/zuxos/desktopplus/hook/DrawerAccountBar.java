@@ -74,6 +74,8 @@ final class DrawerAccountBar {
     private static final Map<View, Boolean> WATCHED = new WeakHashMap<>();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean sSaidAttached;
+    /** Android's name for this user as root read it; "" once asked. Main thread only. */
+    private static String sRootName;
 
     private DrawerAccountBar() {
     }
@@ -256,8 +258,9 @@ final class DrawerAccountBar {
                     return false;
                 });
             }
-            mName.setText(storedName());
-            if (TextUtils.isEmpty(storedName())) {
+            String stored = storedName();
+            mName.setText(stored);
+            if (TextUtils.isEmpty(stored)) {
                 defaultName();
             }
             loadPicture();
@@ -383,10 +386,21 @@ final class DrawerAccountBar {
                 mName.setText(name);
                 return;
             }
+            if (sRootName != null) {
+                mName.setText(sRootName.isEmpty() ? "User" : sRootName);
+                return;
+            }
             mName.setText("User");
+            // Asked once per process, not once per drawer: every root request can bring
+            // Magisk's own window up for a moment.
+            sRootName = "";
             int me = android.os.Process.myUid() / 100000;
             Su.read((outcome, text) -> {
                 if (!outcome.ok() || text == null) {
+                    if (outcome == Su.Outcome.BUSY) {
+                        // Root was busy, not refused: the next drawer asks again.
+                        MAIN.post(() -> sRootName = null);
+                    }
                     return;
                 }
                 Matcher m = Pattern.compile("UserInfo\\{(\\d+):([^:}]+)").matcher(text);
@@ -394,6 +408,7 @@ final class DrawerAccountBar {
                     if (Integer.parseInt(m.group(1)) == me) {
                         String found = m.group(2).trim();
                         MAIN.post(() -> {
+                            sRootName = found;
                             if (TextUtils.isEmpty(storedName())) {
                                 mName.setText(found);
                             }

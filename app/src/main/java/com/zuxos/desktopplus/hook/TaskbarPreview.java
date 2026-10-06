@@ -76,6 +76,11 @@ final class TaskbarPreview {
     private static Runnable sClose;
     private static boolean sOverPane;
     private static FrameLayout sRoot;
+
+    /** Its window's root while it is up, else null - for a screenshot to leave out. */
+    static View current() {
+        return sRoot;
+    }
     private static WindowManager sWm;
     private static String sPkg;
     /** The icon whose window the preview shows. */

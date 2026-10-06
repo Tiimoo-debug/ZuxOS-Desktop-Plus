@@ -324,7 +324,16 @@ public final class ScreenBackdrop {
                     prime(now);
                 }
                 request(now);
+            } else if (!mInFlight && !onScreen(mPane).equals(mLastCrop)) {
+                // Moved since its last picture: a new one now, not when the idle wait ends.
+                request(now);
+                wakeNow();
             }
+        }
+
+        private void wakeNow() {
+            Choreographer.getInstance().removeFrameCallback(this);
+            Choreographer.getInstance().postFrameCallback(this);
         }
 
         /**
@@ -386,6 +395,10 @@ public final class ScreenBackdrop {
         void wake() {
             mIntervalMs = mBaseIntervalMs;
             mForce = true;
+            if (mRunning && !mParked) {
+                // Now, not when its idle wait would have ended.
+                wakeNow();
+            }
         }
 
         private boolean showing() {
@@ -416,7 +429,15 @@ public final class ScreenBackdrop {
                     maybeSeed(mPane, own, now);
                 }
                 report(now);
-                Choreographer.getInstance().postFrameCallback(this);
+                // Woken when the next check is due, not on every frame: a pane idling at a
+                // quarter-second check kept the CPU up at the monitor's full refresh rate for
+                // nothing. A capture in flight is looked at again on the next frame.
+                long wait = mInFlight ? 0L : Math.max(0L, mLastStart + mIntervalMs - now);
+                if (wait <= 0L) {
+                    Choreographer.getInstance().postFrameCallback(this);
+                } else {
+                    Choreographer.getInstance().postFrameCallbackDelayed(this, wait);
+                }
             } else {
                 // Nothing to show it on. The window drawing it shown again wakes it at once
                 // (onPreDraw); the slow look is only a backstop.
@@ -605,6 +626,19 @@ public final class ScreenBackdrop {
     /** The same, waiting at most {@code waitMs} for the answer. */
     private static Object grab(int display, Rect crop, SurfaceControl own, float scale,
             long uid, long waitMs) {
+        return grab(display, crop, new SurfaceControl[]{own}, scale, uid, waitMs);
+    }
+
+    /**
+     * The whole display at full size, as a screenshot: every layer but {@code leaveOut}. Waits
+     * up to two seconds; null if it failed. Never on the main thread.
+     */
+    public static Object grabWhole(int display, Rect crop, SurfaceControl[] leaveOut) {
+        return grab(display, crop, leaveOut, 1f, -1, 2000L);
+    }
+
+    private static Object grab(int display, Rect crop, SurfaceControl[] exclude, float scale,
+            long uid, long waitMs) {
         Object[] got = new Object[1];
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicBoolean late =
@@ -617,7 +651,7 @@ public final class ScreenBackdrop {
             sBuilder.getMethod("setSourceCrop", Rect.class).invoke(builder, crop);
             sBuilder.getMethod("setFrameScale", float.class).invoke(builder, scale);
             sBuilder.getMethod("setExcludeLayers", SurfaceControl[].class)
-                    .invoke(builder, (Object) new SurfaceControl[]{own});
+                    .invoke(builder, (Object) exclude);
             if (uid >= 0) {
                 try {
                     sBuilder.getMethod("setUid", long.class).invoke(builder, uid);

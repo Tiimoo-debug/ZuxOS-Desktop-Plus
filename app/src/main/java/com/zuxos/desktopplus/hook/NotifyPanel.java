@@ -36,6 +36,11 @@ public final class NotifyPanel {
             new android.os.Handler(android.os.Looper.getMainLooper());
 
     private static View sCurrent;
+
+    /** Its window's root while it is up, else null - for a screenshot to leave out. */
+    static View current() {
+        return sCurrent;
+    }
     private static WindowManager sWm;
     private static ContentObserver sShadeWatcher;
     private static Context sShadeCtx;

@@ -21,6 +21,8 @@ import java.util.Locale;
 public final class FrameRate {
 
     private static final StringBuilder MEASURED = new StringBuilder();
+    /** How many times each pane has been measured; main thread only. */
+    private static final java.util.Map<String, Integer> TIMES = new java.util.HashMap<>();
 
     private FrameRate() {
     }
@@ -83,6 +85,13 @@ public final class FrameRate {
      * against the monitor's rate - the proof that motion here runs at what the screen shows.
      */
     public static void measure(View view, String what) {
+        // Twice per kind of pane is proof enough; after that it would only keep the clock
+        // ticking half a second longer on every open.
+        Integer seen = TIMES.get(what);
+        if (seen != null && seen >= 2) {
+            return;
+        }
+        TIMES.put(what, seen == null ? 1 : seen + 1);
         // Read when the frames are counted, not now: a window just added has no display yet -
         // which is why the first build of this measured nothing at all.
         final long[] first = {0L};

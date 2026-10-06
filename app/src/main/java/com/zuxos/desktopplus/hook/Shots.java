@@ -3,78 +3,157 @@ package com.zuxos.desktopplus.hook;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.view.Display;
+import android.view.SurfaceControl;
+import android.view.View;
 import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.ScreenBackdrop;
 import com.zuxos.desktopplus.core.Su;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The screenshot button.
  *
- * <p>There is no screenshot API for an ordinary app. {@code GLOBAL_ACTION_TAKE_SCREENSHOT} belongs
- * to accessibility services, and the system's own capture is behind a signature permission - so on
- * a device with Magisk, pressing the key the system already listens for is both the simplest route
- * and the one that behaves exactly like a real screenshot: same animation, same save location,
- * same notification.
+ * <p>The launcher captures the display itself - the same capture the liquid glass uses - and
+ * files the picture in Pictures/Screenshots through the media store. No root, no shell and no
+ * wait: the picture is what was on screen the moment the button was pressed.
+ *
+ * <p>Root's {@code screencap} is kept only for a device where that capture is refused. It was
+ * the only route before, and every press went through Magisk, which can flash its own app's
+ * window up for a moment to log the request.
  */
 public final class Shots {
 
     /** Where the system's own screenshots go, relative to shared storage. */
     private static final String RELATIVE = "Pictures/Screenshots";
 
+    /** Encoding a full-screen PNG takes a moment; it never holds up anything else. */
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "zux-desktop-plus-shot");
+        t.setDaemon(true);
+        return t;
+    });
+
     private Shots() {
     }
 
-    /**
-     * Takes a screenshot of the display the taskbar is on.
-     *
-     * <p>Pressing the screenshot key was the first attempt and it always captured the built-in
-     * panel, because a key goes to whichever display has focus and that is not this one. There is
-     * no API for "capture display 2" either - but {@code screencap} takes a display argument, so
-     * root takes the picture.
-     *
-     * <p>Root never writes it to shared storage, though. It used to: {@code mkdir} and
-     * {@code screencap} straight into {@code /storage/emulated/0}. A root shell can run in the
-     * system's own view of storage, where that path is not your storage at all - and folders made
-     * there broke storage for every app started afterwards: downloads failing, file managers
-     * stuck on their logo. Now root writes only into the launcher's own cache, hands the file to
-     * the launcher, and the launcher files it in Pictures/Screenshots through the media store,
-     * exactly as any app saves a picture.
-     */
+    /** Takes a screenshot of the display the taskbar is on. */
     public static void take(Context ctx, int displayId) {
-        final Handler main = new Handler(Looper.getMainLooper());
-        // The panel and any menu would otherwise be in the picture.
+        Handler main = new Handler(Looper.getMainLooper());
+        // Our own panels, menu and preview are left out of the picture rather than waited out of
+        // the screen: their layers are skipped by the capture itself, then they close.
+        List<SurfaceControl> leave = new ArrayList<>();
+        for (View open : new View[]{QuickPanel.current(), NotifyPanel.current(),
+                TaskbarMenu.current(), TaskbarPreview.current()}) {
+            SurfaceControl layer = open != null ? ScreenBackdrop.surfaceOf(open) : null;
+            if (layer != null) {
+                leave.add(layer);
+            }
+        }
+        Rect crop = displayBounds(ctx, displayId);
         QuickPanel.dismiss();
         NotifyPanel.dismiss();
         TaskbarMenu.dismiss();
-        final String name = "Screenshot_"
+        TaskbarPreview.dismiss();
+        String name = "Screenshot_"
                 + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".png";
-        final File temp = new File(ctx.getCacheDir(), "zux_shot.png");
-        final String command = capture(displayId, temp);
-        // A beat for those windows to actually leave the screen before the shutter.
+        if (crop == null) {
+            takeWithRoot(ctx, displayId, name, main);
+            return;
+        }
+        SurfaceControl[] exclude = leave.toArray(new SurfaceControl[0]);
+        IO.execute(() -> {
+            Object shot = ScreenBackdrop.grabWhole(displayId, crop, exclude);
+            Bitmap hardware = shot != null ? ScreenBackdrop.toBitmap(shot) : null;
+            if (hardware == null) {
+                L.i("tray: screenshot capture refused, using root");
+                main.post(() -> takeWithRoot(ctx, displayId, name, main));
+                return;
+            }
+            Bitmap picture = hardware.copy(Bitmap.Config.ARGB_8888, false);
+            hardware.recycle();
+            String saved = picture != null ? file(ctx, name, out ->
+                    picture.compress(Bitmap.CompressFormat.PNG, 100, out)) : null;
+            if (picture != null) {
+                picture.recycle();
+            }
+            report(ctx, main, displayId, saved);
+        });
+    }
+
+    /** The display's full size in pixels, or null when it is not there. */
+    private static Rect displayBounds(Context ctx, int displayId) {
+        try {
+            DisplayManager dm = (DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE);
+            Display display = dm != null ? dm.getDisplay(displayId) : null;
+            if (display == null) {
+                return null;
+            }
+            Point size = new Point();
+            display.getRealSize(size);
+            return size.x > 0 && size.y > 0 ? new Rect(0, 0, size.x, size.y) : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void report(Context ctx, Handler main, int displayId, String saved) {
+        if (saved != null) {
+            L.i("tray: screenshot of display " + displayId + " saved to " + saved);
+            main.post(() -> toast(ctx, "Screenshot saved"));
+        } else {
+            main.post(() -> toast(ctx, "Could not save the screenshot"));
+        }
+    }
+
+    /**
+     * The fallback: root's {@code screencap}.
+     *
+     * <p>Root never writes to shared storage. It used to, and a root shell can run in the
+     * system's own view of storage, where folders it made broke storage for every app started
+     * afterwards. It writes only into the launcher's own cache, and the launcher files the
+     * picture through the media store. The panels were closed by then; a beat lets them leave.
+     */
+    private static void takeWithRoot(Context ctx, int displayId, String name, Handler main) {
+        File temp = new File(ctx.getCacheDir(), "zux_shot.png");
+        String command = capture(displayId, temp);
         main.postDelayed(() -> Su.run(outcome -> {
             if (outcome.ok()) {
-                String saved = file(ctx, temp, name);
+                String saved = file(ctx, name, out -> {
+                    try (InputStream in = new FileInputStream(temp)) {
+                        byte[] buffer = new byte[64 * 1024];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, n);
+                        }
+                        return true;
+                    }
+                });
                 temp.delete();
-                if (saved != null) {
-                    L.i("tray: screenshot of display " + displayId + " saved to " + saved);
-                    main.post(() -> toast(ctx, "Screenshot saved"));
-                } else {
-                    main.post(() -> toast(ctx, "Could not save the screenshot"));
-                }
+                report(ctx, main, displayId, saved);
                 return;
             }
             if (!outcome.shouldFallBack()) {
@@ -111,30 +190,32 @@ public final class Shots {
                 + " && (restorecon " + path + " || true) && test -s " + path;
     }
 
+    /** Writes the picture's bytes; false when it could not. */
+    private interface Writer {
+        boolean write(OutputStream out) throws IOException;
+    }
+
     /** Files the picture in Pictures/Screenshots the way any app saves an image. */
-    private static String file(Context ctx, File temp, String name) {
+    private static String file(Context ctx, String name, Writer writer) {
+        ContentResolver files = ctx.getContentResolver();
+        Uri uri = null;
         try {
-            ContentResolver files = ctx.getContentResolver();
             ContentValues row = new ContentValues();
             row.put(MediaStore.Images.Media.DISPLAY_NAME, name);
             row.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
             row.put(MediaStore.Images.Media.RELATIVE_PATH, RELATIVE);
             row.put(MediaStore.Images.Media.IS_PENDING, 1);
-            Uri uri = files.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, row);
+            uri = files.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, row);
             if (uri == null) {
                 return null;
             }
-            try (InputStream in = new FileInputStream(temp);
-                 OutputStream out = files.openOutputStream(uri)) {
-                if (out == null) {
-                    files.delete(uri, null, null);
-                    return null;
-                }
-                byte[] buffer = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, n);
-                }
+            boolean written;
+            try (OutputStream out = files.openOutputStream(uri)) {
+                written = out != null && writer.write(out);
+            }
+            if (!written) {
+                files.delete(uri, null, null);
+                return null;
             }
             row.clear();
             row.put(MediaStore.Images.Media.IS_PENDING, 0);
@@ -142,6 +223,13 @@ public final class Shots {
             return RELATIVE + "/" + name;
         } catch (Throwable t) {
             L.d("tray: could not file the screenshot (" + t + ")");
+            if (uri != null) {
+                try {
+                    files.delete(uri, null, null);
+                } catch (Throwable ignored) {
+                    // Left pending; the media store clears those itself.
+                }
+            }
             return null;
         }
     }

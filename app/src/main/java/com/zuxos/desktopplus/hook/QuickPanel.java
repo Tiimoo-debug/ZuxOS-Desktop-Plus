@@ -68,6 +68,11 @@ public final class QuickPanel {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static View sCurrent;
+
+    /** Its window's root while it is up, else null - for a screenshot to leave out. */
+    static View current() {
+        return sCurrent;
+    }
     private static WindowManager sWm;
 
     /** Rebuilds the open panel's contents; null when no panel is open. */

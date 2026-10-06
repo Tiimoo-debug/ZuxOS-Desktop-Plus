@@ -43,6 +43,11 @@ public final class TaskbarMenu {
     private static final String TASK_MANAGER_PKG = "com.rk.taskmanager";
 
     private static View sCurrent;
+
+    /** Its window's root while it is up, else null - for a screenshot to leave out. */
+    static View current() {
+        return sCurrent;
+    }
     private static WindowManager sWm;
 
     private static boolean sInstalled;
