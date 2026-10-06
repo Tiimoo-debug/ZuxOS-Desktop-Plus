@@ -28,7 +28,9 @@ import java.util.Set;
  */
 public final class KeepAlive {
 
+    /** The safety-net read: often only when the system's task events cannot be heard. */
     private static final long EVERY_MS = 5000L;
+    private static final long EVERY_HEARD_MS = 60_000L;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static boolean sStarted;
@@ -58,8 +60,31 @@ public final class KeepAlive {
         } catch (Throwable t) {
             L.d("keep alive: " + t);
         }
-        MAIN.postDelayed(KeepAlive::tick, EVERY_MS);
+        MAIN.postDelayed(KeepAlive::tick,
+                TaskbarRebind.hearsTasks() ? EVERY_HEARD_MS : EVERY_MS);
     }
+
+    /**
+     * An app opened, closed or moved: the set to protect is read again in a moment, once the
+     * move has settled - rather than on a five-second poll of every task.
+     */
+    static void soon() {
+        if (!sStarted) {
+            return;
+        }
+        MAIN.removeCallbacks(SOON);
+        MAIN.postDelayed(SOON, 700L);
+    }
+
+    private static final Runnable SOON = () -> {
+        try {
+            if (Cfg.keepAlive()) {
+                update();
+            }
+        } catch (Throwable t) {
+            L.d("keep alive: " + t);
+        }
+    };
 
     private static void update() {
         Context ctx = sCtx;

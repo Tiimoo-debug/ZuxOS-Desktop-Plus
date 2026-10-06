@@ -53,8 +53,13 @@ import java.util.WeakHashMap;
  */
 final class TaskbarRunning {
 
-    /** How often the list is re-read while the taskbar is up. */
+    /**
+     * How often the list is re-read while the taskbar is up: every few seconds only when the
+     * system's task events cannot be heard. With them, a change arrives the moment it happens
+     * ({@link #soon}), and this is no more than a slow safety net.
+     */
     private static final long REFRESH_MS = 3000L;
+    private static final long REFRESH_HEARD_MS = 30_000L;
 
     /** As many open apps as the row will ever draw at once, however many are running. */
     private static final int MOST_ICONS = 24;
@@ -114,8 +119,13 @@ final class TaskbarRunning {
         iconSize(icons);
         spacing(icons);
         if (onlyOpen) {
+            // A no-op while ZUI builds its row without apps; it only catches icons ZUI built
+            // before the setting was switched on.
             hideLauncherApps(icons);
-            keepStill(icons);
+            if (!TaskbarRebind.sAppsAtSource) {
+                // A row with apps of ZUI's in it can scroll; one without them cannot.
+                keepStill(icons);
+            }
         } else {
             showEverythingAgain(icons);
         }
@@ -286,8 +296,9 @@ final class TaskbarRunning {
      * Safe from any thread.
      */
     static void soon() {
-        // The glass behind every pane is about to be stale too.
+        // The glass behind every pane is about to be stale too, and what to keep alive changed.
         com.zuxos.desktopplus.core.ScreenBackdrop.nudge();
+        KeepAlive.soon();
         MAIN.removeCallbacks(sSoonFast);
         MAIN.removeCallbacks(sSoonSettle);
         sSoonFast = TaskbarRunning::applyEverywhere;
@@ -1736,6 +1747,6 @@ final class TaskbarRunning {
                 }
                 apply(dragLayer);
             }
-        }, REFRESH_MS);
+        }, TaskbarRebind.hearsTasks() ? REFRESH_HEARD_MS : REFRESH_MS);
     }
 }

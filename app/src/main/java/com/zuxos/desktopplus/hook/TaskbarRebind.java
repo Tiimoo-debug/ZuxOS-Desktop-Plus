@@ -151,6 +151,11 @@ final class TaskbarRebind {
     /** Held so the listener is not collected; the launcher keeps it only weakly on some builds. */
     private static Object sTaskListener;
 
+    /** Whether the system's task events reach the bar, so it need not poll for them. */
+    static boolean hearsTasks() {
+        return sTaskListener != null;
+    }
+
     /**
      * Hears straight from the system when a task opens, closes or comes to the front.
      *
