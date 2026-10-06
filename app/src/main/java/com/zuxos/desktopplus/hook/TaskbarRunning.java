@@ -1337,6 +1337,12 @@ final class TaskbarRunning {
         if (visible instanceof Boolean && (Boolean) visible) {
             return true;
         }
+        // An app that has just been opened: in front, but not visible yet and, while its process
+        // is still starting, not running yet either. Without this it reached the bar only once
+        // it had drawn - two seconds after it was opened, on a cold start.
+        if (Boolean.TRUE.equals(Reflect.field(task, "isFocused"))) {
+            return true;
+        }
         Object running = Reflect.field(task, "isRunning");
         if (running instanceof Boolean) {
             return (Boolean) running;

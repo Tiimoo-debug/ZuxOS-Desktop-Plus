@@ -119,6 +119,13 @@ final class LaunchDisplay {
     /** Puts the display of the last tap into whichever argument carries the launch options. */
     private static final XC_MethodHook OPTIONS = new XC_MethodHook() {
         @Override
+        protected void afterHookedMethod(MethodHookParam param) {
+            // The new task exists once the start has returned: the bar reads it now rather than
+            // waiting for the system's word that the stack changed.
+            TaskbarRunning.soon();
+        }
+
+        @Override
         protected void beforeHookedMethod(MethodHookParam param) {
             // Whatever is being opened, recents must not be left over it.
             TaskOverview.onLaunch(freshTapDisplay());
