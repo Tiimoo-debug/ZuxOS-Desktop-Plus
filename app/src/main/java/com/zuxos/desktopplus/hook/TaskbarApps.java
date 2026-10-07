@@ -549,8 +549,8 @@ final class TaskbarApps {
 
     /**
      * One window of the app - {@code taskId}, or its front one here when -1 - as big as it can
-     * be, and in front, as ZUI's own maximise does: a floating window goes full screen; a
-     * full-screen one already is as big as it gets.
+     * be, and in front, as ZUI's own maximise does: a floating window fills the screen from its
+     * top edge to the taskbar; a full-screen one already is as big as it gets.
      */
     static void maximize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
@@ -574,28 +574,27 @@ final class TaskbarApps {
             TaskOverview.bringToFront(id, display);
             return;
         }
-        // As ZUI's own maximise in a window's menu does: the window leaves floating for full
-        // screen. Sized to the screen and left floating, as the last version did, it stopped
-        // short of a real maximise, and the window's own menu was needed to finish it.
-        boolean asked = toFullScreen(task);
-        TaskOverview.bringToFront(id, display);
-        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen"
-                + (asked ? "" : " - refused, sizing it to the screen instead"));
-        if (!asked) {
-            sizeToScreen(ctx, task, display);
+        // As ZUI's own maximise in a window's menu does: still floating, from the very top of
+        // the screen - under the status bar - down to the taskbar. Stopping at the status bar,
+        // as before, left it short; going full screen letterboxed apps that keep their shape.
+        android.graphics.Rect area = maximizedArea(ctx, display);
+        if (area == null) {
+            L.i("taskbar apps: could not maximise " + pkg + " (no screen size)");
+            TaskOverview.bringToFront(id, display);
             return;
         }
-        // What it really became: should the system keep it floating after all, it is sized to
-        // the screen instead, the next best thing.
+        String how = resizeBySystem(id, area) ? "system resize"
+                : resizeByTransaction(task, area) ? "window transaction" : null;
+        TaskOverview.bringToFront(id, display);
+        if (how == null) {
+            return;
+        }
+        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to " + area + " by " + how);
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
                 if (t.taskId == id) {
-                    int now = windowingMode(t);
-                    L.i("taskbar apps: maximised " + pkg + " is now mode " + now + " at "
-                            + boundsOf(t));
-                    if (now == WINDOWING_MODE_FREEFORM) {
-                        sizeToScreen(ctx, t, display);
-                    }
+                    L.i("taskbar apps: maximised " + pkg + " is now mode " + windowingMode(t)
+                            + " at " + boundsOf(t) + " (wanted " + area + ")");
                     return;
                 }
             }
@@ -607,47 +606,6 @@ final class TaskbarApps {
         Object window = config == null ? null : Reflect.field(config, "windowConfiguration");
         return window == null ? null : Reflect.call(window, "getBounds");
     }
-
-    /** The fallback: still floating, as big as the screen above the taskbar. */
-    private static void sizeToScreen(Context ctx, android.app.ActivityManager.RunningTaskInfo task,
-            int display) {
-        android.graphics.Rect area = usableArea(ctx, display);
-        if (area == null) {
-            return;
-        }
-        String how = resizeBySystem(task.taskId, area) ? "system resize"
-                : resizeByTransaction(task, area) ? "window transaction" : "nothing";
-        L.i("taskbar apps: task " + task.taskId + " sized to " + area + " by " + how);
-    }
-
-    /** The window organizer's switch to full screen, with no size of its own; false if refused. */
-    private static boolean toFullScreen(android.app.ActivityManager.RunningTaskInfo task) {
-        try {
-            Object token = Reflect.field(task, "token");
-            if (token == null) {
-                return false;
-            }
-            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
-            Object wct = wctClass.getConstructor().newInstance();
-            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
-                    .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
-            wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
-                    .invoke(wct, token, new android.graphics.Rect());
-            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
-            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
-            organizer.getMethod("applyTransaction", wctClass)
-                    .invoke(organizer.getConstructor().newInstance(), wct);
-            return true;
-        } catch (Throwable t) {
-            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
-                    && t.getCause() != null ? t.getCause() : t;
-            L.i("taskbar apps: full screen refused (" + cause + ")");
-            return false;
-        }
-    }
-
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private static final long MAXIMIZE_CHECK_MS = 700L;
 
@@ -705,8 +663,11 @@ final class TaskbarApps {
         return mode instanceof Integer ? (Integer) mode : -1;
     }
 
-    /** The screen less what the system keeps for itself - status bar, taskbar, cutouts. */
-    private static android.graphics.Rect usableArea(Context ctx, int display) {
+    /**
+     * Where ZUI's own maximise puts a window: the whole screen down to the taskbar, under the
+     * status bar, clear only of cutouts at the sides.
+     */
+    private static android.graphics.Rect maximizedArea(Context ctx, int display) {
         try {
             android.hardware.display.DisplayManager dm =
                     ctx.getSystemService(android.hardware.display.DisplayManager.class);
@@ -718,13 +679,13 @@ final class TaskbarApps {
                     .getSystemService(android.view.WindowManager.class);
             android.view.WindowMetrics metrics = wm.getMaximumWindowMetrics();
             android.graphics.Rect area = new android.graphics.Rect(metrics.getBounds());
-            android.graphics.Insets insets = metrics.getWindowInsets()
-                    .getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars()
-                            | android.view.WindowInsets.Type.displayCutout());
-            // The taskbar is ours to measure too: its insets are not always reported.
-            int bottom = Math.max(insets.bottom, Windows.taskbarHeight(display));
-            area.set(area.left + insets.left, area.top + insets.top,
-                    area.right - insets.right, area.bottom - bottom);
+            android.graphics.Insets cutout = metrics.getWindowInsets()
+                    .getInsetsIgnoringVisibility(android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets bars = metrics.getWindowInsets()
+                    .getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
+            int bottom = Math.max(bars.bottom, Windows.taskbarHeight(display));
+            area.set(area.left + cutout.left, area.top, area.right - cutout.right,
+                    area.bottom - bottom);
             return area.isEmpty() ? null : area;
         } catch (Throwable t) {
             L.d("taskbar apps: screen size unreadable (" + t + ")");

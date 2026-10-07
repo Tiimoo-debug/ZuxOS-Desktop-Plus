@@ -331,6 +331,73 @@ public final class Probe {
             sb.append(" visible=").append(root.getVisibility() == View.VISIBLE).append('\n');
             appendTree(sb, root, 2);
         }
+        sb.append(describeDrawables(roots));
+        return sb.toString();
+    }
+
+    /** The home screen's views that can paint things of their own beyond their children. */
+    private static final String[] DRAWING_CLASSES = {
+            "ScrimView", "PageIndicatorDots", "Workspace", "DragLayer", "ZuiHotseat"};
+
+    /**
+     * What the home screen's own painters hold to paint with: each Drawable field's name, class,
+     * size and bounds. What draws a mark that is no view of its own is in this list.
+     */
+    private static String describeDrawables(java.util.List<View> roots) {
+        StringBuilder sb = new StringBuilder("\ndrawables on the home screen\n");
+        java.util.List<View> queue = new java.util.ArrayList<>();
+        for (View root : roots) {
+            queue.add(root);
+        }
+        for (int i = 0; i < queue.size() && i < 4000; i++) {
+            View v = queue.get(i);
+            if (v instanceof android.view.ViewGroup) {
+                android.view.ViewGroup g = (android.view.ViewGroup) v;
+                for (int c = 0; c < g.getChildCount(); c++) {
+                    queue.add(g.getChildAt(c));
+                }
+            }
+            String simple = v.getClass().getSimpleName();
+            boolean wanted = false;
+            for (String name : DRAWING_CLASSES) {
+                wanted |= simple.equals(name);
+            }
+            if (!wanted) {
+                continue;
+            }
+            sb.append("  ").append(v.getClass().getName()).append(" [")
+                    .append(v.getWidth()).append('x').append(v.getHeight()).append("] bg=")
+                    .append(v.getBackground() == null ? "none"
+                            : v.getBackground().getClass().getSimpleName()).append('\n');
+            for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
+                for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                            || !android.graphics.drawable.Drawable.class.isAssignableFrom(
+                                    f.getType())) {
+                        continue;
+                    }
+                    try {
+                        f.setAccessible(true);
+                        Object d = f.get(v);
+                        sb.append("    ").append(c.getSimpleName()).append('.')
+                                .append(f.getName()).append(" = ");
+                        if (d == null) {
+                            sb.append("null\n");
+                            continue;
+                        }
+                        android.graphics.drawable.Drawable dr =
+                                (android.graphics.drawable.Drawable) d;
+                        sb.append(d.getClass().getSimpleName()).append(' ')
+                                .append(dr.getIntrinsicWidth()).append('x')
+                                .append(dr.getIntrinsicHeight()).append(" at ")
+                                .append(dr.getBounds()).append(" alpha ").append(dr.getAlpha())
+                                .append('\n');
+                    } catch (Throwable t) {
+                        sb.append("<unreadable>\n");
+                    }
+                }
+            }
+        }
         return sb.toString();
     }
 
