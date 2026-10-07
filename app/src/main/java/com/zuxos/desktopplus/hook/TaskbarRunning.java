@@ -824,21 +824,8 @@ final class TaskbarRunning {
         if (WATCHING.containsKey(dragLayer)) {
             return;
         }
-        View.OnLayoutChangeListener again = (v, l, t, r, b, ol, ot, or, ob) -> {
-            RunningRow current = rowIn(dragLayer);
-            if (current != null) {
-                place(dragLayer, current, reference);
-            }
-            // The marks sit under the icons that moved, and the drop strip spans the same bar.
-            TaskbarMarks.refresh(dragLayer);
-            TaskbarDrop.apply(dragLayer);
-            // A relayout puts ZUI's drawer button back in its slot as far as the row is
-            // concerned; the move is re-measured from where it now is.
-            ViewGroup row = iconRow(dragLayer);
-            if (row != null) {
-                TaskbarStart.apply(dragLayer, row);
-            }
-        };
+        View.OnLayoutChangeListener again = (v, l, t, r, b, ol, ot, or, ob) ->
+                relayout(dragLayer);
         if (reference != null) {
             reference.addOnLayoutChangeListener(again);
         }
@@ -846,7 +833,32 @@ final class TaskbarRunning {
         if (icons != null && icons != reference) {
             icons.addOnLayoutChangeListener(again);
         }
+        // And the navigation keys, which ZUI moves from one end of the bar to the other.
+        View keys = TaskbarStart.navKeys(dragLayer);
+        if (keys != null && keys != reference && keys != icons) {
+            keys.addOnLayoutChangeListener(again);
+        }
         WATCHING.put(dragLayer, again);
+    }
+
+    /**
+     * Everything of ours on this bar put where it now belongs: after ZUI laid its bar out again,
+     * or moved its navigation keys.
+     */
+    static void relayout(ViewGroup dragLayer) {
+        RunningRow current = rowIn(dragLayer);
+        if (current != null) {
+            place(dragLayer, current, TaskbarTray.rowReference(dragLayer));
+        }
+        // The marks sit under the icons that moved, and the drop strip spans the same bar.
+        TaskbarMarks.refresh(dragLayer);
+        TaskbarDrop.apply(dragLayer);
+        // A relayout puts ZUI's drawer button back in its slot as far as the row is concerned;
+        // the move is re-measured from where it now is.
+        ViewGroup row = iconRow(dragLayer);
+        if (row != null) {
+            TaskbarStart.apply(dragLayer, row);
+        }
     }
 
     /** One geometry listener per taskbar, whether or not our row is up at the moment. */
@@ -1029,7 +1041,8 @@ final class TaskbarRunning {
             if (view.getWidth() <= 0 || view.getWidth() >= half) {
                 continue;
             }
-            int left = offsetIn(dragLayer, view);
+            // Where it is drawn: ZUI slides its navigation keys from end to end.
+            int left = TaskbarStart.drawnLeftIn(dragLayer, view);
             int viewTop = topIn(dragLayer, view);
             if (left < start || viewTop >= bottom || viewTop + view.getHeight() <= top) {
                 continue;
@@ -1777,7 +1790,7 @@ final class TaskbarRunning {
             // The same menu a pinned icon gives, for the same reason: from here on the bar is
             // one row, and one row should not behave two ways.
             view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
-                    android.os.Process.myUserHandle(), displayId));
+                    android.os.Process.myUserHandle(), displayId, taskId));
             view.setOnTouchListener(new Press());
             TaskbarPreview.attach(view, pkg, displayId, taskId);
             return view;

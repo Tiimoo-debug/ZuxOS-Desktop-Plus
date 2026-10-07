@@ -22,6 +22,7 @@ import com.zuxos.desktopplus.core.Reflect;
 final class SystemBridge {
 
     static final String ACTION_MINIMIZE = "com.zuxos.desktopplus.action.MINIMIZE";
+    static final String ACTION_CLOSE_TASK = "com.zuxos.desktopplus.action.CLOSE_TASK";
     static final String EXTRA_TASK = "task";
 
     private static boolean sInstalled;
@@ -51,8 +52,10 @@ final class SystemBridge {
                     return;
                 }
                 try {
-                    ctx.registerReceiver(new Receiver(ctx), new IntentFilter(ACTION_MINIMIZE),
-                            null, handler, Context.RECEIVER_EXPORTED);
+                    IntentFilter filter = new IntentFilter(ACTION_MINIMIZE);
+                    filter.addAction(ACTION_CLOSE_TASK);
+                    ctx.registerReceiver(new Receiver(ctx), filter, null, handler,
+                            Context.RECEIVER_EXPORTED);
                     L.i("system bridge: minimise is available to the launcher");
                 } catch (Throwable t) {
                     L.e("system bridge: could not listen", t);
@@ -79,7 +82,11 @@ final class SystemBridge {
                 if (taskId < 0) {
                     return;
                 }
-                minimize(taskId);
+                if (ACTION_CLOSE_TASK.equals(intent.getAction())) {
+                    closeTask(taskId);
+                } else {
+                    minimize(taskId);
+                }
             } catch (Throwable t) {
                 L.e("system bridge: request failed", t);
             }
@@ -90,6 +97,20 @@ final class SystemBridge {
                 return true;
             }
             return pkg != null && Targets.isCandidate(pkg);
+        }
+
+        /** One window of an app closed, the others left running - what a launcher may not do. */
+        private void closeTask(int taskId) throws Exception {
+            Object atm = Class.forName("android.app.ActivityTaskManager")
+                    .getMethod("getService").invoke(null);
+            long identity = Binder.clearCallingIdentity();
+            try {
+                Object removed = atm.getClass().getMethod("removeTask", int.class)
+                        .invoke(atm, taskId);
+                L.i("system bridge: closed task " + taskId + " (" + removed + ")");
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
         }
 
         private void minimize(int taskId) throws Exception {

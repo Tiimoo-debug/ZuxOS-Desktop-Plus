@@ -60,6 +60,71 @@ final class TaskbarFollow {
         int described;
         /** ZUI's icon row, found once rather than searched for on every frame. */
         java.lang.ref.WeakReference<View> row;
+        /** ZUI's navigation keys, and where they were last drawn across the bar. */
+        java.lang.ref.WeakReference<View> keys;
+        boolean keysLooked;
+        int keysLeft = Integer.MIN_VALUE;
+        boolean relayoutPending;
+        /** Why ZUI's icons are hidden, one channel per reason; null when unreadable. */
+        Channels channels;
+        boolean channelsLooked;
+    }
+
+    /**
+     * The taskbar's icon fade as ZUI keeps it: one value per reason - its home screen, the lock
+     * screen, the bar stashed or switched off, recents, the shade - multiplied together.
+     *
+     * <p>Ours follow every reason but home. On its own home ZUI fades only its icons, handing them
+     * to the home screen, while the bar and its keys stay; following that fade made our open apps
+     * and start button vanish there, and stop taking taps.
+     */
+    private static final class Channels {
+        final Object[] values;
+        final Field value;
+        final int home;
+
+        Channels(Object[] values, Field value, int home) {
+            this.values = values;
+            this.value = value;
+            this.home = home;
+        }
+
+        /** Every reason but home, multiplied; NaN if a value cannot be read. */
+        float allButHome() {
+            return product(home);
+        }
+
+        /** Every reason, home included: what ZUI's icon row itself is faded to. */
+        float all() {
+            return product(-1);
+        }
+
+        private float product(int skip) {
+            float product = 1f;
+            try {
+                for (int i = 0; i < values.length; i++) {
+                    if (i != skip && values[i] != null) {
+                        product *= value.getFloat(values[i]);
+                    }
+                }
+                return product;
+            } catch (Throwable t) {
+                return Float.NaN;
+            }
+        }
+
+        String describe() {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < values.length; i++) {
+                try {
+                    sb.append(i == 0 ? "" : ", ").append(i == home ? "home=" : "")
+                            .append(values[i] == null ? "-" : value.getFloat(values[i]));
+                } catch (Throwable t) {
+                    sb.append("?");
+                }
+            }
+            return sb.append(']').toString();
+        }
     }
 
     /** On a bar of ours; again whenever the bar is refreshed, which re-installs after a re-attach. */
@@ -67,6 +132,10 @@ final class TaskbarFollow {
         ViewTreeObserver observer = dragLayer.getViewTreeObserver();
         State state = STATES.get(dragLayer);
         if (state != null && state.observer == observer && observer.isAlive()) {
+            if (state.keys == null) {
+                // Navigation switched from gestures to keys since: look for them again.
+                state.keysLooked = false;
+            }
             // Back to the end of the line: a bar that registers its own touch region after ours
             // - one built on a window context may, each time it shows - would otherwise
             // overwrite what ours adds, and our icons would take no taps.
@@ -138,14 +207,39 @@ final class TaskbarFollow {
             }
             state.row = new java.lang.ref.WeakReference<>(row);
         }
+        watchKeys(dragLayer, state);
         // ZUI hides a bar by fading or sliding its icon row, or by fading and sliding each icon
         // in it; its drawer button - invisible, ours stands in for it - still gets the latter.
-        float alpha = row.isShown() ? row.getAlpha() : 0f;
-        float shift = row.getTranslationY();
         View zui = row instanceof ViewGroup ? TaskbarStart.allAppsButton((ViewGroup) row) : null;
-        if (zui != null) {
-            alpha *= zui.getAlpha();
-            shift += zui.getTranslationY();
+        float alpha;
+        float shift;
+        float reasons = channelsOf(dragLayer, state);
+        if (!Float.isNaN(reasons) && row.getAlpha() < state.channels.all() - 0.02f) {
+            // Faded further than its channels say: ZUI is hiding the row some other way - the
+            // bar switched off - so ours follow the row itself, as they always did.
+            reasons = Float.NaN;
+        }
+        if (Float.isNaN(reasons)) {
+            alpha = row.isShown() ? row.getAlpha() : 0f;
+            shift = row.getTranslationY();
+            if (zui != null) {
+                alpha *= zui.getAlpha();
+                shift += zui.getTranslationY();
+            }
+        } else {
+            // Every reason ZUI has to hide its icons, except its home screen.
+            alpha = row.isShown() ? reasons : 0f;
+            if (zui != null) {
+                alpha *= zui.getAlpha();
+            }
+            // On its home ZUI slides its icons towards the home screen's; ours stay put, and
+            // slide only when the bar itself is going.
+            shift = reasons >= 0.999f ? 0f : row.getTranslationY()
+                    + (zui != null ? zui.getTranslationY() : 0f);
+        }
+        if (keyboardUp(dragLayer)) {
+            // The keyboard comes up over where the bar is; ours go, as ZUI's icons do.
+            alpha = 0f;
         }
         describe(dragLayer, state, row, zui);
         if ((alpha < 0.999f || shift != 0f)
@@ -174,12 +268,201 @@ final class TaskbarFollow {
                 + row.getTranslationY()
                 + (zui != null ? " button " + zui.getAlpha() + "/" + zui.getTranslationY() : "")
                 + " layer " + dragLayer.getAlpha() + "/" + dragLayer.getTranslationY()
-                + " window " + dragLayer.getWindowVisibility();
+                + " window " + dragLayer.getWindowVisibility()
+                + (state.channels != null ? " channels " + state.channels.describe() : "")
+                + (keyboardUp(dragLayer) ? " keyboard up" : "");
         if (!line.equals(state.lastDescribed)) {
             state.lastDescribed = line;
             state.described++;
             L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " " + line);
         }
+    }
+
+    /**
+     * Re-places our start button and row when ZUI moves its navigation keys - it slides them
+     * from one end of the tablet's bar to the other, between its home and an app - so ours never
+     * end up under them. Measured each frame from where they are drawn, which is a few field
+     * reads; acted on only when they moved.
+     */
+    private static void watchKeys(ViewGroup dragLayer, State state) {
+        View keys = state.keys != null ? state.keys.get() : null;
+        if (keys == null || !isUnder(keys, dragLayer)) {
+            if (state.keysLooked && keys == null) {
+                // None on this bar - gesture navigation. Looked for again on the next install.
+                return;
+            }
+            state.keysLooked = true;
+            keys = TaskbarStart.navKeys(dragLayer);
+            state.keys = keys != null ? new java.lang.ref.WeakReference<>(keys) : null;
+            if (keys == null) {
+                return;
+            }
+        }
+        int left = TaskbarStart.drawnLeftIn(dragLayer, keys);
+        if (left == state.keysLeft) {
+            return;
+        }
+        boolean first = state.keysLeft == Integer.MIN_VALUE;
+        state.keysLeft = left;
+        if (first || state.relayoutPending) {
+            return;
+        }
+        state.relayoutPending = true;
+        // After this frame, not inside it: placing changes layout parameters.
+        dragLayer.post(() -> {
+            state.relayoutPending = false;
+            TaskbarRunning.relayout(dragLayer);
+        });
+    }
+
+    /**
+     * ZUI's icon fade with its home screen left out, or NaN when ZUI's channels cannot be read -
+     * then the row's own fade is followed, as before.
+     */
+    private static float channelsOf(ViewGroup dragLayer, State state) {
+        if (!state.channelsLooked) {
+            state.channelsLooked = true;
+            state.channels = findChannels(dragLayer);
+            L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " - "
+                    + (state.channels == null
+                    ? "ZUI's icon channels unreadable, following the row's fade"
+                    : "following ZUI's icon channels but home " + state.channels.describe()));
+        }
+        return state.channels == null ? Float.NaN : state.channels.allButHome();
+    }
+
+    /** {@code TaskbarViewController}'s icon alpha, through the bar's controllers. */
+    private static Channels findChannels(ViewGroup dragLayer) {
+        try {
+            Object controllers = null;
+            for (android.content.Context ctx = dragLayer.getContext(); ctx != null
+                    && controllers == null; ) {
+                controllers = Reflect.field(ctx, "mControllers");
+                ctx = ctx instanceof android.content.ContextWrapper
+                        ? ((android.content.ContextWrapper) ctx).getBaseContext() : null;
+            }
+            Object view = controllers == null ? null
+                    : Reflect.field(controllers, "taskbarViewController");
+            if (view == null) {
+                return null;
+            }
+            // The icon alpha: the multi-value alpha with the most channels.
+            Object[] best = null;
+            Object bestHolder = null;
+            for (Field f : view.getClass().getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                        || !isMultiValue(f.getType())) {
+                    continue;
+                }
+                f.setAccessible(true);
+                Object holder = f.get(view);
+                Object[] values = holder == null ? null : valuesOf(holder);
+                if (values != null && (best == null || values.length > best.length)) {
+                    best = values;
+                    bestHolder = holder;
+                }
+            }
+            if (best == null || best.length == 0 || best[0] == null) {
+                return null;
+            }
+            Field value = valueField(best, String.valueOf(bestHolder));
+            if (value == null) {
+                return null;
+            }
+            int home = 0;
+            try {
+                Field index = view.getClass().getDeclaredField("ALPHA_INDEX_HOME");
+                index.setAccessible(true);
+                home = index.getInt(null);
+            } catch (Throwable ignored) {
+                // Launcher3 has always put home first.
+            }
+            return new Channels(best, value, home);
+        } catch (Throwable t) {
+            L.d("taskbar follow: no icon channels (" + t + ")");
+            return null;
+        }
+    }
+
+    /**
+     * The float each channel keeps its value in. Names are minified, so it is checked against
+     * the values the holder prints of itself - "[1.0, 0.0, 1.0]" - and the first float field
+     * is taken only when that cannot be read.
+     */
+    private static Field valueField(Object[] values, String printed) {
+        java.util.List<Float> shown = new java.util.ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("-?\\d+(\\.\\d+)?(E-?\\d+)?")
+                .matcher(printed);
+        while (m.find()) {
+            try {
+                shown.add(Float.parseFloat(m.group()));
+            } catch (NumberFormatException ignored) {
+                // Not one of the values.
+            }
+        }
+        Field first = null;
+        for (Class<?> c = values[0].getClass(); c != null && c != Object.class;
+                c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (f.getType() != float.class
+                        || java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                    continue;
+                }
+                f.setAccessible(true);
+                if (first == null) {
+                    first = f;
+                }
+                if (shown.size() != values.length) {
+                    continue;
+                }
+                boolean matches = true;
+                try {
+                    for (int i = 0; i < values.length && matches; i++) {
+                        matches = values[i] != null
+                                && Math.abs(f.getFloat(values[i]) - shown.get(i)) < 0.001f;
+                    }
+                } catch (Throwable t) {
+                    matches = false;
+                }
+                if (matches) {
+                    return f;
+                }
+            }
+        }
+        return shown.size() == values.length ? null : first;
+    }
+
+    private static boolean isMultiValue(Class<?> type) {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            String name = c.getSimpleName();
+            if (name.equals("MultiValueAlpha") || name.equals("MultiPropertyFactory")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The per-reason values inside a multi-value alpha: its one array of objects. */
+    private static Object[] valuesOf(Object holder) throws IllegalAccessException {
+        for (Class<?> c = holder.getClass(); c != null && c != Object.class;
+                c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (f.getType().isArray() && !f.getType().getComponentType().isPrimitive()
+                        && !java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                    f.setAccessible(true);
+                    Object array = f.get(holder);
+                    if (array instanceof Object[]) {
+                        return (Object[]) array;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean keyboardUp(View view) {
+        android.view.WindowInsets insets = view.getRootWindowInsets();
+        return insets != null && insets.isVisible(android.view.WindowInsets.Type.ime());
     }
 
     private static void apply(ViewGroup dragLayer, float alpha, float shift) {

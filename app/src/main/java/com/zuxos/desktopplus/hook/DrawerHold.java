@@ -93,6 +93,7 @@ final class DrawerHold {
             mLeft = false;
             mDroppedHere = false;
             mReorder = null;
+            mAside = null;
         }
 
         /**
@@ -123,9 +124,16 @@ final class DrawerHold {
             if (mReorder != null) {
                 mReorder.cancel();
             }
-            // Posted: the window this view is in is the one being closed.
-            post(TaskbarBridge::closeStockDrawer);
+            // Stepped aside, not closed: this window is the one the drag belongs to, and closing
+            // it mid-drag cancelled the drag - nothing dropped on the desktop or the bar.
+            mAside = TaskbarBridge.stepAsideStockDrawer(this);
+            if (mAside == null) {
+                post(TaskbarBridge::closeStockDrawer);
+            }
         }
+
+        /** Closes the stepped-aside drawer once the drag is over; null when it did not step. */
+        private Runnable mAside;
 
         private boolean onDrag(View v, DragEvent event) {
             if (mSource == null) {
@@ -190,6 +198,10 @@ final class DrawerHold {
                     mReorder = null;
                     mSource = null;
                     mItem = null;
+                    if (mAside != null) {
+                        post(mAside);
+                        mAside = null;
+                    }
                     if (menu && source != null && item != null) {
                         post(() -> showMenu(source, item));
                     }

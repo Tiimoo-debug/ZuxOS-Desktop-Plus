@@ -330,11 +330,16 @@ final class TaskbarApps {
      *         launcher's own popup and leave a long press doing nothing at all
      */
     static boolean showMenu(View icon, String pkg, UserHandle user, int displayId) {
+        return showMenu(icon, pkg, user, displayId, -1);
+    }
+
+    /** The same, for the icon of one window: {@code taskId} is its task, -1 for the app's. */
+    static boolean showMenu(View icon, String pkg, UserHandle user, int displayId, int taskId) {
         try {
             int[] at = new int[2];
             icon.getLocationOnScreen(at);
             return TaskbarMenu.showEntries(icon, displayId, at[0] + icon.getWidth() / 2f,
-                    entriesFor(icon.getContext(), pkg, user, displayId));
+                    entriesFor(icon.getContext(), pkg, user, displayId, taskId));
         } catch (Throwable t) {
             L.e("taskbar apps: could not show the icon menu", t);
             return false;
@@ -349,6 +354,16 @@ final class TaskbarApps {
      */
     static List<TaskbarMenu.Entry> entriesFor(Context ctx, String pkg, UserHandle user,
             int displayId) {
+        return entriesFor(ctx, pkg, user, displayId, -1);
+    }
+
+    /**
+     * The same, for one window of the app: {@code taskId} is that window's task, or -1 for the
+     * app's front window on this display. With more than one window open here, Close closes
+     * this one only, and "Close all windows" closes the app.
+     */
+    static List<TaskbarMenu.Entry> entriesFor(Context ctx, String pkg, UserHandle user,
+            int displayId, int taskId) {
         List<TaskbarMenu.Entry> entries = new ArrayList<>();
         entries.add(new TaskbarMenu.Entry("Open", () -> TaskbarMenu.launch(ctx, pkg, displayId)));
         if (taskOf(ctx, pkg, displayId) != null) {
@@ -360,7 +375,13 @@ final class TaskbarApps {
                     () -> newWindow(ctx, pkg, displayId)));
             entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
         }
-        entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
+        if (windowsOf(ctx, pkg, displayId) > 1) {
+            entries.add(new TaskbarMenu.Entry("Close",
+                    () -> closeWindow(ctx, pkg, displayId, taskId)));
+            entries.add(new TaskbarMenu.Entry("Close all windows", () -> close(ctx, pkg)));
+        } else {
+            entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
+        }
         entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, pkg, displayId)));
         for (ShortcutInfo shortcut : shortcuts(ctx, pkg, user)) {
             CharSequence label = shortcut.getShortLabel() != null
@@ -706,6 +727,44 @@ final class TaskbarApps {
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
                     TaskbarMenu.toast(ctx, "Closing an app needs root"));
         }, "am force-stop " + pkg);
+    }
+
+    /**
+     * Closes one window of the app - {@code taskId}, or its front one here when that is -1 -
+     * and leaves its other windows running: removed by the launcher when it may, otherwise by
+     * the system's part of the module. Never stops the app, which would take every window.
+     */
+    static void closeWindow(Context ctx, String pkg, int display, int taskId) {
+        int task = taskId;
+        if (task < 0) {
+            android.app.ActivityManager.RunningTaskInfo front = taskOf(ctx, pkg, display);
+            if (front == null) {
+                return;
+            }
+            task = front.taskId;
+        }
+        try {
+            Object atm = Class.forName("android.app.ActivityTaskManager")
+                    .getMethod("getService").invoke(null);
+            Object removed = atm.getClass().getMethod("removeTask", int.class).invoke(atm, task);
+            if (!Boolean.FALSE.equals(removed)) {
+                L.i("taskbar apps: closed window " + task + " of " + pkg);
+                return;
+            }
+        } catch (Throwable t) {
+            L.d("taskbar apps: the launcher may not close a window ("
+                    + (t.getCause() != null ? t.getCause() : t) + "); asking the system");
+        }
+        try {
+            Intent intent = new Intent(SystemBridge.ACTION_CLOSE_TASK).setPackage("android")
+                    .putExtra(SystemBridge.EXTRA_TASK, task);
+            android.app.BroadcastOptions options = android.app.BroadcastOptions.makeBasic();
+            options.setShareIdentityEnabled(true);
+            ctx.sendBroadcast(intent, null, options.toBundle());
+            L.i("taskbar apps: asked the system to close window " + task + " of " + pkg);
+        } catch (Throwable t) {
+            L.e("taskbar apps: could not close window " + task + " of " + pkg, t);
+        }
     }
 
     private static void appInfo(Context ctx, String pkg, int displayId) {

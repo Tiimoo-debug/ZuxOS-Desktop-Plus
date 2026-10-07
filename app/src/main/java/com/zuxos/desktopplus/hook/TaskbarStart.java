@@ -157,13 +157,12 @@ final class TaskbarStart {
      * gestures.
      */
     private static int navEnd(ViewGroup dragLayer) {
-        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
-            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
-                int right = offsetIn(dragLayer, view) + view.getWidth();
-                return right < dragLayer.getWidth() / 2 ? right : 0;
-            }
+        View keys = navKeys(dragLayer);
+        if (keys == null) {
+            return 0;
         }
-        return 0;
+        int right = drawnLeftIn(dragLayer, keys) + keys.getWidth();
+        return right < dragLayer.getWidth() / 2 ? right : 0;
     }
 
     /**
@@ -193,12 +192,8 @@ final class TaskbarStart {
         if (zui != null && zui.getVisibility() == View.VISIBLE && zui.getWidth() > 0) {
             return offsetIn(dragLayer, zui) + zui.getRight() - zui.getLeft();
         }
-        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
-            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
-                return offsetIn(dragLayer, view) + view.getWidth();
-            }
-        }
-        return -1;
+        View keys = navKeys(dragLayer);
+        return keys != null ? drawnLeftIn(dragLayer, keys) + keys.getWidth() : -1;
     }
 
     /**
@@ -232,6 +227,30 @@ final class TaskbarStart {
             v = v.getParent() instanceof View ? (View) v.getParent() : null;
         }
         return left;
+    }
+
+    /**
+     * Where a view of ZUI's is drawn across the bar, its slide included: ZUI moves the navigation
+     * keys from one end of the tablet's bar to the other by sliding them, not by laying them out
+     * again, and measuring only their layout left our start button and row where the keys came.
+     */
+    static int drawnLeftIn(ViewGroup dragLayer, View view) {
+        float left = 0f;
+        for (View v = view; v != null && v != dragLayer; ) {
+            left += v.getLeft() + v.getTranslationX();
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return Math.round(left);
+    }
+
+    /** ZUI's navigation keys on this bar, or null when it has none showing. */
+    static View navKeys(ViewGroup dragLayer) {
+        for (View view : Reflect.findByIdNames(dragLayer, "end_nav_buttons")) {
+            if (view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
+                return view;
+            }
+        }
+        return null;
     }
 
     /**

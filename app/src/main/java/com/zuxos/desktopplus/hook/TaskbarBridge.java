@@ -54,6 +54,88 @@ public final class TaskbarBridge {
         return root != null && closeWindow(root);
     }
 
+    /**
+     * Gets the stock drawer out of the way of a drag that started in it, without closing it: its
+     * window fades out and stops taking touches, so the desktop or the taskbar under it gets the
+     * drop. Closing it instead took away the window the drag belonged to, and Android cancels a
+     * drag whose window is gone - only a drop quick enough to beat the closing animation landed.
+     *
+     * @param inDrawer any view in the drawer's window
+     * @return what to run once the drag is over - closes the drawer and puts its window back as
+     *         it was - or null when the window could not be reached
+     */
+    public static Runnable stepAsideStockDrawer(View inDrawer) {
+        View root = inDrawer.getRootView();
+        if (!(root.getLayoutParams() instanceof android.view.WindowManager.LayoutParams)) {
+            return null;
+        }
+        android.view.WindowManager.LayoutParams lp =
+                (android.view.WindowManager.LayoutParams) root.getLayoutParams();
+        android.view.WindowManager wm = (android.view.WindowManager) root.getContext()
+                .getSystemService(android.content.Context.WINDOW_SERVICE);
+        int flags = lp.flags;
+        float dim = lp.dimAmount;
+        int blur = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+                ? lp.getBlurBehindRadius() : 0;
+        try {
+            root.animate().alpha(0f).setDuration(com.zuxos.desktopplus.core.Motion.SHORT)
+                    .setInterpolator(com.zuxos.desktopplus.core.Motion.EXIT).start();
+            lp.flags |= android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            lp.flags &= ~(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                    | android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                lp.setBlurBehindRadius(0);
+            }
+            wm.updateViewLayout(root, lp);
+        } catch (Throwable t) {
+            L.d("taskbar: the drawer could not step aside (" + t + ")");
+            return null;
+        }
+        Runnable restore = () -> {
+            root.animate().cancel();
+            root.setAlpha(1f);
+            lp.flags = flags;
+            lp.dimAmount = dim;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                lp.setBlurBehindRadius(blur);
+            }
+            if (root.isAttachedToWindow()) {
+                try {
+                    wm.updateViewLayout(root, lp);
+                } catch (Throwable ignored) {
+                    // Gone in the meantime: the next one starts from these values anyway.
+                }
+            }
+        };
+        return () -> {
+            closeWindow(root);
+            // Put back once the drawer has gone - its window removed, or, if the launcher keeps
+            // the window, once the close has run - so the next opening is the usual one.
+            boolean[] done = new boolean[1];
+            Runnable once = () -> {
+                if (!done[0]) {
+                    done[0] = true;
+                    restore.run();
+                }
+            };
+            root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override
+                public void onViewAttachedToWindow(View v) {
+                }
+
+                @Override
+                public void onViewDetachedFromWindow(View v) {
+                    v.removeOnAttachStateChangeListener(this);
+                    once.run();
+                }
+            });
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(once,
+                    STEP_ASIDE_RESTORE_MS);
+        };
+    }
+
+    private static final long STEP_ASIDE_RESTORE_MS = 600L;
+
     private static View drawerOn(int displayId) {
         for (View root : Windows.roots()) {
             if (root.isAttachedToWindow() && root.getVisibility() == View.VISIBLE

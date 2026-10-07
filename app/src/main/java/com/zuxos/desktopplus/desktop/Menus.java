@@ -154,53 +154,28 @@ public final class Menus {
             mlp.rightMargin = Math.max(0, root.getWidth() - (int) x);
             mlp.bottomMargin = Math.max(0, root.getHeight() - (int) y);
         } else {
+            // Placed from its own full size, measured before it is added: a pane put at the
+            // pointer first is measured with only the room left below the pointer, so by the
+            // taskbar it read a fraction of its height, moved up by that little and ran on under
+            // the bar. Opens upwards when it would pass the bar, and stays on screen.
+            pane.measure(fitIn(root.getWidth()), fitIn(root.getHeight()));
+            int width = pane.getMeasuredWidth();
+            int height = pane.getMeasuredHeight();
+            // The usable height stops at the taskbar: the activity runs on under it.
+            int usable = root.getHeight() - taskbarOver(root);
+            int top = (int) y;
+            if (top + height > usable) {
+                top -= height;
+            }
             mlp.gravity = Gravity.TOP | Gravity.START;
-            mlp.leftMargin = (int) x;
-            mlp.topMargin = (int) y;
+            mlp.leftMargin = clamp((int) x, root.getWidth() - width);
+            mlp.topMargin = clamp(top, usable - height);
         }
         shade.addView(pane, mlp);
         root.addView(shade, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         shade.requestFocus();
-        if (above) {
-            MenuRows.popIn(pane, true, pane::refresh);
-            return;
-        }
-
-        // Keep it on screen: the size is only known once it has been measured. Opening upwards
-        // when it would run off the bottom, the way a menu by the taskbar has to.
-        // Placed in the last step before its first frame, once it has a size: a posted job can
-        // run before the first layout, see a height of 0 and leave the menu where it was asked
-        // for - the 16:53 recording, a menu near the bottom cut off behind the taskbar.
-        pane.getViewTreeObserver().addOnPreDrawListener(
-                new android.view.ViewTreeObserver.OnPreDrawListener() {
-                    @Override
-                    public boolean onPreDraw() {
-                        if (pane.getHeight() <= 0 || shade.getHeight() <= 0) {
-                            return true;
-                        }
-                        pane.getViewTreeObserver().removeOnPreDrawListener(this);
-                        FrameLayout.LayoutParams lp =
-                                (FrameLayout.LayoutParams) pane.getLayoutParams();
-                        int left = clamp(lp.leftMargin, shade.getWidth() - pane.getWidth());
-                        // The usable height stops at the taskbar: the activity runs on under it.
-                        int usable = shade.getHeight() - taskbarOver(shade);
-                        int top = lp.topMargin;
-                        if (top + pane.getHeight() > usable) {
-                            top = top - pane.getHeight();
-                        }
-                        top = clamp(top, usable - pane.getHeight());
-                        if (left == lp.leftMargin && top == lp.topMargin) {
-                            return true;
-                        }
-                        lp.leftMargin = left;
-                        lp.topMargin = top;
-                        pane.setLayoutParams(lp);
-                        // This frame would show it in the wrong place: skip it.
-                        return false;
-                    }
-                });
-        MenuRows.popIn(pane, false, pane::refresh);
+        MenuRows.popIn(pane, above, pane::refresh);
     }
 
     /** How much of the bottom of this view the taskbar covers. */
@@ -223,6 +198,12 @@ public final class Menus {
         } catch (Throwable t) {
             return 0;
         }
+    }
+
+    /** At most {@code size}, or anything while the host has not been laid out yet. */
+    private static int fitIn(int size) {
+        return size > 0 ? View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.AT_MOST)
+                : View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
     }
 
     private static int clamp(int value, int max) {
