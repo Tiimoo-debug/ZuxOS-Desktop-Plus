@@ -548,9 +548,9 @@ final class TaskbarApps {
     }
 
     /**
-     * Fills the screen with one window of the app - {@code taskId}, or its front one here when -1
-     * - short of the status bar and the taskbar, and brings it to the front, as a desktop's
-     * maximise button does. A window already full screen only comes to the front.
+     * One window of the app - {@code taskId}, or its front one here when -1 - as big as it can
+     * be, and in front, as a desktop's maximise button does: a floating window fills the screen
+     * short of the status bar and the taskbar; any other is made full screen.
      */
     static void maximize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
@@ -564,10 +564,13 @@ final class TaskbarApps {
             L.i("taskbar apps: " + pkg + " has no window on display " + display + " to maximise");
             return;
         }
-        android.graphics.Rect area = usableArea(ctx, display);
+        int mode = windowingMode(task);
+        boolean floating = mode == WINDOWING_MODE_FREEFORM;
+        android.graphics.Rect area = floating
+                ? usableArea(ctx, display) : new android.graphics.Rect();
         try {
             Object token = Reflect.field(task, "token");
-            if (token == null || area == null) {
+            if (token == null || (floating && area == null)) {
                 L.i("taskbar apps: could not maximise " + pkg + " ("
                         + (token == null ? "no window token" : "no screen size") + ")");
                 return;
@@ -575,13 +578,22 @@ final class TaskbarApps {
             Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
             Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
             Object wct = wctClass.getConstructor().newInstance();
+            // A floating window - the monitor's, the tablet's desktop mode - fills the area above
+            // the bar. Anything else - the tablet's own full-screen apps, a split - is made full
+            // screen, with no size of its own: giving a full-screen app a fixed size, as the
+            // first version did, shifted and letterboxed it. The empty size also undoes that.
             wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
                     .invoke(wct, token, area);
+            if (!floating) {
+                wctClass.getMethod("setWindowingMode", tokenClass, int.class)
+                        .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
+            }
             wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
             Class<?> organizer = Class.forName("android.window.WindowOrganizer");
             organizer.getMethod("applyTransaction", wctClass)
                     .invoke(organizer.getConstructor().newInstance(), wct);
-            L.i("taskbar apps: maximized " + pkg + " (task " + task.taskId + ") to " + area);
+            L.i("taskbar apps: maximized " + pkg + " (task " + task.taskId + ", mode " + mode
+                    + ") " + (floating ? "to " + area : "full screen"));
         } catch (Throwable t) {
             Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
                     && t.getCause() != null ? t.getCause() : t;
@@ -589,6 +601,17 @@ final class TaskbarApps {
             // At least in front, where the user can see it.
             TaskOverview.bringToFront(task.taskId, display);
         }
+    }
+
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
+
+    /** The task's windowing mode, from its configuration; -1 when it cannot be read. */
+    private static int windowingMode(android.app.ActivityManager.RunningTaskInfo task) {
+        Object config = Reflect.field(task, "configuration");
+        Object window = config == null ? null : Reflect.field(config, "windowConfiguration");
+        Object mode = window == null ? null : Reflect.call(window, "getWindowingMode");
+        return mode instanceof Integer ? (Integer) mode : -1;
     }
 
     /** The screen less what the system keeps for itself - status bar, taskbar, cutouts. */

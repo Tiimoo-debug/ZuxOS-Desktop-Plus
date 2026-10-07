@@ -48,6 +48,7 @@ public final class Glyphs {
     public static final int NEW_WINDOW = 25;
     public static final int SHARE = 26;
     public static final int MAXIMIZE = 27;
+    public static final int TASKS = 28;
 
     private Glyphs() {
     }
@@ -93,6 +94,8 @@ public final class Glyphs {
             glyph = MINIMIZE;
         } else if (t.startsWith("maximi")) {
             glyph = MAXIMIZE;
+        } else if (t.startsWith("task manager")) {
+            glyph = TASKS;
         } else if (t.contains("new window")) {
             glyph = NEW_WINDOW;
         } else if (t.startsWith("open") || t.startsWith("launch")) {
@@ -354,6 +357,15 @@ public final class Glyphs {
                 p.addRoundRect(new RectF(5, 5, 19, 14), 2f, 2f, Path.Direction.CW);
                 p.moveTo(7, 19);
                 p.lineTo(17, 19);
+                return p;
+            case TASKS:
+                // A window listing what runs: three rows, each with its dot.
+                p.addRoundRect(new RectF(4, 4, 20, 20), 2.5f, 2.5f, Path.Direction.CW);
+                for (float y : new float[]{8.5f, 12, 15.5f}) {
+                    p.addCircle(8, y, 0.9f, Path.Direction.CW);
+                    p.moveTo(11, y);
+                    p.lineTo(17, y);
+                }
                 return p;
             case MAXIMIZE:
                 // A window grown to fill its frame, and the frame's top edge.

@@ -221,6 +221,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         host.mDrawer.setBackdropSource(backdrop);
         host.mFolders.setBackdropSource(backdrop);
         OemBridge.applyTakeover(activity, target.container, host.mRoot, Cfg.takeover());
+        if (!external) {
+            host.followRecents();
+        }
         StockUnlockHooks.loadUserRules(activity);
         if (Cfg.probe()) {
             Probe.dump(activity, target.container);
@@ -694,6 +697,25 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private long mOverviewSearchedAt;
     private static final long OVERVIEW_SEARCH_MS = 5000L;
 
+    /**
+     * On the tablet, Quickstep's Recents draws in this same window, under our desktop: while it
+     * is up our desktop is out of sight, and back once it has gone. One look per frame at a view
+     * already found - a field read or two.
+     */
+    private void followRecents() {
+        mRoot.getViewTreeObserver().addOnPreDrawListener(() -> {
+            boolean showing = overviewShowing();
+            int want = showing ? View.INVISIBLE : View.VISIBLE;
+            if (mRoot.getVisibility() != want) {
+                if (showing) {
+                    closeOverlays();
+                }
+                mRoot.setVisibility(want);
+            }
+            return true;
+        });
+    }
+
     /** Whether the launcher's Recents panel is up; found once by id, then just asked. */
     private boolean overviewShowing() {
         View overview = mOverview;
@@ -710,7 +732,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             overview = found.isEmpty() ? null : found.get(0);
             mOverview = overview;
         }
-        return overview != null && overview.getVisibility() == View.VISIBLE
+        // Shown and not faded out: on the tablet the panel stays in the tree, at nothing, while
+        // the home screen is up.
+        return overview != null && overview.isShown() && overview.getAlpha() > 0.01f
                 && overview.getWidth() > 0;
     }
 
