@@ -595,6 +595,8 @@ final class TaskbarApps {
                     if (now == WINDOWING_MODE_FREEFORM) {
                         // Kept floating after all: as big as a floating window may be.
                         sizeToScreen(ctx, t, display);
+                    } else if (now == WINDOWING_MODE_FULLSCREEN) {
+                        fillIfLetterboxed(pkg, t);
                     }
                     return;
                 }
@@ -635,6 +637,42 @@ final class TaskbarApps {
                     && t.getCause() != null ? t.getCause() : t;
             L.i("taskbar apps: full screen refused (" + cause + ")");
             return false;
+        }
+    }
+
+    /**
+     * An app that keeps the size it was opened at - a phone-sized box on black once its window is
+     * full screen - reopened to fill it, as the system's own restart button for such an app does
+     * and as ZUI's maximise leaves it. Only when the system says it is boxed in.
+     */
+    private static void fillIfLetterboxed(String pkg,
+            android.app.ActivityManager.RunningTaskInfo task) {
+        Object compat = Reflect.field(task, "appCompatTaskInfo");
+        Object boxed = compat == null ? null : Reflect.call(compat, "isTopActivityLetterboxed");
+        Object boxWidth = compat == null ? null : Reflect.field(compat, "topActivityLetterboxWidth");
+        Object bounds = boundsOf(task);
+        if (!Boolean.TRUE.equals(boxed) && boxWidth instanceof Integer
+                && bounds instanceof android.graphics.Rect && (Integer) boxWidth > 0
+                && (Integer) boxWidth < ((android.graphics.Rect) bounds).width()) {
+            // Narrower than its window: boxed in, whatever the flag says yet.
+            boxed = Boolean.TRUE;
+        }
+        if (!Boolean.TRUE.equals(boxed)) {
+            L.i("taskbar apps: " + pkg + " fills its window (" + (boxed == null
+                    ? "letterboxing unreadable" : "not letterboxed") + ")");
+            return;
+        }
+        try {
+            Object token = Reflect.field(task, "token");
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> organizer = Class.forName("android.window.TaskOrganizer");
+            organizer.getMethod("restartTaskTopActivityProcessIfVisible", tokenClass)
+                    .invoke(organizer.getConstructor().newInstance(), token);
+            L.i("taskbar apps: " + pkg + " was letterboxed - relaunched to fill the screen");
+        } catch (Throwable t) {
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            L.i("taskbar apps: " + pkg + " letterboxed, relaunch refused (" + cause + ")");
         }
     }
 

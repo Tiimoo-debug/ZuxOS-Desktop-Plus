@@ -58,63 +58,97 @@ final class HotseatButton {
         }
     }
 
-    // --- the swipe-up arrow, switched off where ZUI decides to show it -----------------------
+    // --- the swipe-up arrow: its image never loaded ------------------------------------------
 
     private static final String SCRIM = "com.android.launcher3.views.ScrimView";
+    private static final String[] ARROW_NAMES = {
+            "drag_handle_indicator_shadow", "drag_handle_indicator",
+            "drag_handle_indicator_no_shadow"};
+
+    /** The arrow's drawable resource id in the launcher; 0 until found or when there is none. */
+    private static volatile int sArrowId;
+    private static boolean sArrowLooked;
 
     /**
-     * Launcher3's swipe-up arrow over the bottom of the home screen. The scrim asks itself one
-     * question before it has one at all - {@code shouldDragHandleBeVisible()} - and loads the
-     * arrow, or drops it, by the answer. While our start button is on, the answer is no: ZUI
-     * itself then never loads it or drops the one it has, through its own code, and nothing of
-     * ours touches the arrow or its drawing.
+     * Launcher3's swipe-up arrow over the bottom of the home screen is an image the scrim loads
+     * from the launcher's own resources - and loads again whenever ZUI decides to. While our
+     * start button is on, that one image loads as nothing: the scrim has no arrow to show,
+     * however often it reloads, and nothing of ours touches ZUI's views or their drawing.
      *
-     * <p>The firmware's R8 pass renamed it; the probe lists the scrim's yes-or-no methods as
-     * {@code c}, {@code hasOverlappingRendering} and {@code isFullyOpaque} - the two framework
-     * ones and it. So: the method by its name where it kept it, else the scrim's one own
-     * no-argument yes-or-no method; when that is not exactly one, nothing is hooked.
+     * <p>The id is looked up once, when the first scrim is made - before it loads the arrow -
+     * from the scrim's own resources; every drawable load then costs one int compare.
      */
     private static void installArrowOff(ClassLoader loader) {
         try {
             Class<?> scrim = Class.forName(SCRIM, false, loader);
-            Method ask = null;
-            int candidates = 0;
-            for (Method m : scrim.getDeclaredMethods()) {
-                if (m.getReturnType() != boolean.class || m.getParameterCount() != 0
-                        || Modifier.isStatic(m.getModifiers())
-                        || Modifier.isAbstract(m.getModifiers())) {
-                    continue;
-                }
-                String name = m.getName();
-                if ("shouldDragHandleBeVisible".equals(name)) {
-                    ask = m;
-                    candidates = 1;
-                    break;
-                }
-                if ("hasOverlappingRendering".equals(name) || "isFullyOpaque".equals(name)
-                        || "isOpaque".equals(name)) {
-                    continue;
-                }
-                ask = m;
-                candidates++;
-            }
-            if (candidates != 1) {
-                L.i("zux home: the scrim's arrow switch not found (" + candidates
-                        + " candidates) - the arrow is left as ZUI shows it");
-                return;
-            }
-            XposedBridge.hookMethod(ask, new XC_MethodHook() {
+            XposedBridge.hookAllConstructors(scrim, new XC_MethodHook() {
                 @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (Cfg.enabled() && Cfg.startButtonLeft()) {
-                        param.setResult(false);
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!sArrowLooked && param.args.length > 0
+                            && param.args[0] instanceof android.content.Context) {
+                        findArrow((android.content.Context) param.args[0]);
                     }
                 }
             });
-            L.i("zux home: the swipe-up arrow switched off where the scrim decides on it ("
-                    + ask.getName() + ")");
+            XposedBridge.hookMethod(android.content.res.Resources.class.getDeclaredMethod(
+                    "getDrawableForDensity", int.class, int.class,
+                    android.content.res.Resources.Theme.class), new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            int id = sArrowId;
+                            if (id != 0 && (Integer) param.args[0] == id && Cfg.enabled()
+                                    && Cfg.startButtonLeft()) {
+                                param.setResult(new android.graphics.drawable.ColorDrawable(
+                                        android.graphics.Color.TRANSPARENT));
+                            }
+                        }
+                    });
         } catch (Throwable t) {
-            L.i("zux home: no scrim of the launcher's (" + t + ")");
+            L.i("zux home: the swipe-up arrow left as ZUI shows it (" + t + ")");
+        }
+    }
+
+    private static synchronized void findArrow(android.content.Context ctx) {
+        if (sArrowLooked) {
+            return;
+        }
+        sArrowLooked = true;
+        try {
+            android.content.res.Resources res = ctx.getResources();
+            String pkg = ctx.getPackageName();
+            for (String name : ARROW_NAMES) {
+                int id = res.getIdentifier(name, "drawable", pkg);
+                if (id != 0) {
+                    sArrowId = id;
+                    L.i("zux home: the swipe-up arrow's image (" + name + ") is never loaded");
+                    return;
+                }
+            }
+            // Renamed by the firmware: the drawable entries named like it, by scanning the type
+            // the launcher's own drawables are in.
+            int any = res.getIdentifier("ic_info_no_shadow", "drawable", pkg);
+            if (any == 0) {
+                any = res.getIdentifier("ic_remove_no_shadow", "drawable", pkg);
+            }
+            if (any != 0) {
+                int base = any & 0xFFFF0000;
+                for (int i = 0; i < 0x4000; i++) {
+                    String name;
+                    try {
+                        name = res.getResourceEntryName(base | i);
+                    } catch (android.content.res.Resources.NotFoundException e) {
+                        break;
+                    }
+                    if (name.contains("drag_handle_indicator")) {
+                        sArrowId = base | i;
+                        L.i("zux home: the swipe-up arrow's image (" + name + ") is never loaded");
+                        return;
+                    }
+                }
+            }
+            L.i("zux home: no swipe-up arrow image found by name - left as ZUI shows it");
+        } catch (Throwable t) {
+            L.i("zux home: the swipe-up arrow's image not looked up (" + t + ")");
         }
     }
 
