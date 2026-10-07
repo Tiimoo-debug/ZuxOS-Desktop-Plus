@@ -150,7 +150,11 @@ final class TaskbarMarks {
 
         /** Over the bar, exactly as high as it is. */
         void place() {
-            View reference = mReference.get();
+            ViewGroup dragLayer = mDragLayer.get();
+            View reference = dragLayer != null ? TaskbarTray.rowReference(dragLayer) : null;
+            if (reference == null) {
+                reference = mReference.get();
+            }
             ViewGroup.LayoutParams raw = getLayoutParams();
             if (reference == null || reference.getHeight() <= 0
                     || !(raw instanceof FrameLayout.LayoutParams)) {

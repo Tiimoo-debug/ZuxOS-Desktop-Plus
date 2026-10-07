@@ -132,10 +132,16 @@ public final class TaskbarMenu {
         // The hook lands on whichever class declares the method, which is the shared BaseDragLayer
         // - and the desktop's own drag layer inherits from it too. Without this the home screen
         // would answer a long press with the taskbar's menu.
-        if (!TaskbarTray.isTaskbar(dragLayer)) {
+        int action = event.getActionMasked();
+        if (action != MotionEvent.ACTION_DOWN && sPending == null) {
+            // Every move of every drag layer in the launcher arrives here: nothing to do unless
+            // a hold on the bar is being timed.
             return;
         }
-        switch (event.getActionMasked()) {
+        if (!isTaskbar(dragLayer)) {
+            return;
+        }
+        switch (action) {
             case MotionEvent.ACTION_DOWN:
                 onDown(dragLayer, event);
                 return;
@@ -148,6 +154,21 @@ public final class TaskbarMenu {
             default:
                 cancelPending();
         }
+    }
+
+    /** Per drag layer, whether it is a taskbar's: asked once, not on every touch. */
+    private static final java.util.Map<View, Boolean> IS_TASKBAR = new java.util.WeakHashMap<>();
+
+    private static boolean isTaskbar(ViewGroup dragLayer) {
+        Boolean known = IS_TASKBAR.get(dragLayer);
+        if (known == null) {
+            if (!dragLayer.isAttachedToWindow()) {
+                return TaskbarTray.isTaskbar(dragLayer);
+            }
+            known = TaskbarTray.isTaskbar(dragLayer);
+            IS_TASKBAR.put(dragLayer, known);
+        }
+        return known;
     }
 
     private static void onDown(ViewGroup dragLayer, MotionEvent event) {

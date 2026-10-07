@@ -201,10 +201,27 @@ final class TaskbarStart {
      * and still on its way up.
      */
     static boolean drawerOpen(int display) {
+        long now = SystemClock.uptimeMillis();
         long pressed = PRESSED.get(display, 0L);
-        return (pressed > 0 && SystemClock.uptimeMillis() - pressed < 600L)
-                || TaskbarBridge.isStockDrawerOpen(display);
+        if (pressed > 0 && now - pressed < 600L) {
+            return true;
+        }
+        // Asked on every frame while the tablet's bar is hidden; the window list is read at most
+        // ten times a second, which a drawer opening or closing never outpaces.
+        long checked = DRAWER_CHECKED.get(display, 0L);
+        if (checked > 0 && now - checked < 100L) {
+            return DRAWER_OPEN.get(display, false);
+        }
+        boolean open = TaskbarBridge.isStockDrawerOpen(display);
+        DRAWER_CHECKED.put(display, now);
+        DRAWER_OPEN.put(display, open);
+        return open;
     }
+
+    private static final android.util.SparseLongArray DRAWER_CHECKED =
+            new android.util.SparseLongArray();
+    private static final android.util.SparseBooleanArray DRAWER_OPEN =
+            new android.util.SparseBooleanArray();
 
     /** ZUI's own all-apps button, by the name its class carries on every build. */
     static View allAppsButton(ViewGroup icons) {

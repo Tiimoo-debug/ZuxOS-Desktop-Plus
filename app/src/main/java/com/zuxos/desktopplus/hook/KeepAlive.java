@@ -118,9 +118,18 @@ public final class KeepAlive {
                     .append("am set-standby-bucket ").append(pkg).append(" active; ");
         }
         for (String pkg : PROTECTED) {
-            if (!now.contains(pkg) && ADDED.remove(pkg)) {
+            if (now.contains(pkg)) {
+                continue;
+            }
+            if (ADDED.remove(pkg)) {
                 cmd.append("cmd deviceidle whitelist -").append(pkg).append(" >/dev/null; ");
             }
+            // Its background allowance back to the system's own, and its standby bucket left to
+            // the system again: off the monitor it is an app like any other, and an app the user
+            // had restricted stays restricted.
+            cmd.append("cmd appops set ").append(pkg)
+                    .append(" RUN_ANY_IN_BACKGROUND default; ")
+                    .append("am set-standby-bucket ").append(pkg).append(" working_set; ");
         }
         PROTECTED.clear();
         PROTECTED.addAll(now);

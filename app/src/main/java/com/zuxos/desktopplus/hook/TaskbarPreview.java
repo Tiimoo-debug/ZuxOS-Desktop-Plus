@@ -139,6 +139,11 @@ final class TaskbarPreview {
     static void rowHover(ViewGroup row, MotionEvent e) {
         int action = e.getActionMasked();
         if (action == MotionEvent.ACTION_HOVER_EXIT) {
+            // Off the row - or onto one of its icons, which takes the hover from the row. Looked
+            // at once that has settled: an icon the pointer is now on keeps its preview; one
+            // only counted as hovered from the gap beside it lets it go. Ignoring this left the
+            // preview open, and the icon lifted, after the pointer had gone up into the app.
+            row.post(() -> leaveRow(row));
             return;
         }
         int near = Ui.dp(row.getContext(), NEAR_DP);
@@ -158,6 +163,16 @@ final class TaskbarPreview {
         }
         if (best != null) {
             on(best);
+        } else {
+            leaveRow(row);
+        }
+    }
+
+    /** The row's hovered icon goes, unless the pointer is on it itself. */
+    private static void leaveRow(ViewGroup row) {
+        View icon = sIcon;
+        if (icon != null && icon.getParent() == row && !icon.isHovered()) {
+            off(icon);
         }
     }
 

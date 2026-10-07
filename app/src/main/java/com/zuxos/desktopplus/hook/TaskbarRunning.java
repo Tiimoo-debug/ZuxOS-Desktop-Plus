@@ -797,7 +797,7 @@ final class TaskbarRunning {
             // the row holds moves where it starts.
             row.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
                 if (r - l != or - ol) {
-                    place(dragLayer, row, reference);
+                    place(dragLayer, row, TaskbarTray.rowReference(dragLayer));
                 }
             });
             place(dragLayer, row, reference);

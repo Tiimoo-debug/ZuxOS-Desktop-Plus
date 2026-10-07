@@ -160,7 +160,7 @@ final class TaskbarNav {
 
         /** Home, sent once - and not at all when the desktop is already in front. */
         private void home(View v) {
-            closeDrawer();
+            closeDrawer(mDisplay);
             // Recents first, in the same press: home then lands on the desktop, not on recents.
             if (TaskOverview.isOpen()) {
                 TaskOverview.close();
@@ -341,11 +341,12 @@ final class TaskbarNav {
 
     /**
      * The launcher's drawer is a window of the taskbar's, not of the desktop, so going home
-     * leaves it open on top unless it is closed too.
+     * leaves it open on top unless it is closed too. This screen's only: home on the monitor
+     * closed the tablet's drawer as well.
      */
-    private static void closeDrawer() {
+    private static void closeDrawer(int display) {
         try {
-            TaskbarBridge.closeStockDrawer();
+            TaskbarBridge.closeStockDrawer(display);
         } catch (Throwable ignored) {
             // No drawer open, or none to reach. Either way home has happened.
         }

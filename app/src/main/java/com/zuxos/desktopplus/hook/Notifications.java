@@ -149,15 +149,46 @@ final class Notifications {
     private static int sCount;
     private static long sCountedAt;
 
-    static int count(Context ctx) {
+    /**
+     * The last count, at once; a stale one is asked again off the UI thread - it is a call into
+     * another process - and {@code onChange} runs on the UI thread if the answer differs.
+     */
+    static int count(Context ctx, Runnable onChange) {
         long now = android.os.SystemClock.uptimeMillis();
-        if (now - sCountedAt < COUNT_TTL_MS) {
+        if (now - sCountedAt < COUNT_TTL_MS || sCounting) {
             return sCount;
         }
         sCountedAt = now;
-        sCount = available(ctx) ? list(ctx, 0).size() : 0;
+        sCounting = true;
+        Context app = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
+        COUNTER.execute(() -> {
+            int counted;
+            try {
+                counted = available(app) ? list(app, 0).size() : 0;
+            } catch (Throwable t) {
+                counted = sCount;
+            }
+            int result = counted;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                sCounting = false;
+                if (result != sCount) {
+                    sCount = result;
+                    if (onChange != null) {
+                        onChange.run();
+                    }
+                }
+            });
+        });
         return sCount;
     }
+
+    private static boolean sCounting;
+    private static final java.util.concurrent.Executor COUNTER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "zux-desktop-plus-notify-count");
+                t.setDaemon(true);
+                return t;
+            });
 
     /** Called when the shade moves, so the next ask is answered fresh. */
     static void countChanged() {

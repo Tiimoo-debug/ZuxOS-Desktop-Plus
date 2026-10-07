@@ -119,7 +119,7 @@ final class SystemKeepAlive {
         HandlerThread thread = new HandlerThread("zux-keepalive");
         thread.start();
         Handler handler = new Handler(thread.getLooper());
-        handler.postDelayed(new Runnable() {
+        Runnable loop = new Runnable() {
             @Override
             public void run() {
                 if (sOff) {
@@ -127,9 +127,61 @@ final class SystemKeepAlive {
                     return;
                 }
                 refresh();
-                handler.postDelayed(this, REFRESH_MS);
+                // Every few seconds while a second screen is connected or anything is held;
+                // otherwise rarely. This is the system server, and with no monitor there is
+                // nothing to look for - the task list it reads takes the window manager's lock.
+                handler.postDelayed(this, sUids.isEmpty() && !secondScreen()
+                        ? IDLE_REFRESH_MS : REFRESH_MS);
             }
-        }, FIRST_MS);
+        };
+        handler.postDelayed(loop, FIRST_MS);
+        watchDisplays(handler, loop);
+    }
+
+    private static final long IDLE_REFRESH_MS = 30_000L;
+
+    /** A screen plugged in or out: looked at now, not at the next slow tick. */
+    private static void watchDisplays(Handler handler, Runnable loop) {
+        try {
+            Context ctx = systemContext();
+            android.hardware.display.DisplayManager dm = ctx == null ? null
+                    : ctx.getSystemService(android.hardware.display.DisplayManager.class);
+            if (dm == null) {
+                return;
+            }
+            dm.registerDisplayListener(new android.hardware.display.DisplayManager
+                    .DisplayListener() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                    handler.removeCallbacks(loop);
+                    handler.post(loop);
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                    handler.removeCallbacks(loop);
+                    handler.post(loop);
+                }
+
+                @Override
+                public void onDisplayChanged(int displayId) {
+                }
+            }, handler);
+        } catch (Throwable t) {
+            // The steady tick still finds a new screen, a little later.
+            L.d("system keep-alive: displays not watched (" + t + ")");
+        }
+    }
+
+    private static boolean secondScreen() {
+        try {
+            Context ctx = systemContext();
+            android.hardware.display.DisplayManager dm = ctx == null ? null
+                    : ctx.getSystemService(android.hardware.display.DisplayManager.class);
+            return dm == null || dm.getDisplays().length > 1;
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
     /** The importance the system is about to give a process. */
@@ -305,7 +357,14 @@ final class SystemKeepAlive {
         }
     }
 
+    private static String sPublished;
+
     private static void publish(String state) {
+        if (state.equals(sPublished)) {
+            // Unchanged: a property write wakes every watcher of properties on the device.
+            return;
+        }
+        sPublished = state;
         try {
             Class.forName("android.os.SystemProperties")
                     .getMethod("set", String.class, String.class).invoke(null, PROPERTY, state);

@@ -170,9 +170,21 @@ public final class TaskbarTray {
         }
     }
 
+    /** Per bar: the row the tray follows, and the listener that does it. */
+    private static final java.util.Map<View, Object[]> TRAY_FOLLOW = new java.util.WeakHashMap<>();
+
     private static void detach(View root) {
         try {
             TRAYS.remove(root);
+            Object[] follow = TRAY_FOLLOW.remove(root);
+            if (follow != null) {
+                View reference = ((WeakReference<?>) follow[0]).get() instanceof View
+                        ? (View) ((WeakReference<?>) follow[0]).get() : null;
+                if (reference != null) {
+                    reference.removeOnLayoutChangeListener(
+                            (View.OnLayoutChangeListener) follow[1]);
+                }
+            }
             View tray = root.findViewWithTag(TAG_TRAY);
             if (tray != null && tray.getParent() instanceof ViewGroup) {
                 ((ViewGroup) tray.getParent()).removeView(tray);
@@ -301,8 +313,12 @@ public final class TaskbarTray {
             TRAYS.put(root, new WeakReference<>(tray));
             syncGeometry(dragLayer, tray, reference);
             if (reference != null) {
-                reference.addOnLayoutChangeListener(
-                        (v, l, t, r, b, ol, ot, or, ob) -> syncGeometry(dragLayer, tray, reference));
+                View.OnLayoutChangeListener follow =
+                        (v, l, t, r, b, ol, ot, or, ob) -> syncGeometry(dragLayer, tray, reference);
+                reference.addOnLayoutChangeListener(follow);
+                // Taken off again in detach: each toggle of the setting left one behind,
+                // holding a dead tray and setting its layout on every layout of the bar.
+                TRAY_FOLLOW.put(root, new Object[]{new WeakReference<>(reference), follow});
             }
             L.i("tray: attached to the taskbar drag layer");
         } catch (Throwable t) {
@@ -310,12 +326,12 @@ public final class TaskbarTray {
         }
     }
 
-    /** How much of the bar's right-hand end the tray occupies, margin included. */
     /** Our tray in this taskbar, or null when it is not up. */
     static View trayOf(ViewGroup dragLayer) {
         return dragLayer.findViewWithTag(TAG_TRAY);
     }
 
+    /** How much of the bar's right-hand end the tray occupies, margin included. */
     static int trayWidth(ViewGroup dragLayer) {
         View tray = dragLayer.findViewWithTag(TAG_TRAY);
         int width = tray != null ? tray.getWidth() : 0;
@@ -734,7 +750,7 @@ public final class TaskbarTray {
             mBell.setVisibility(VISIBLE);
             boolean waiting = false;
             try {
-                waiting = Notifications.count(getContext()) > 0;
+                waiting = Notifications.count(getContext(), this::render) > 0;
             } catch (Throwable t) {
                 L.d("tray: could not count notifications (" + t + ")");
             }

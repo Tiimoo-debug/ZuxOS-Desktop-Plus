@@ -5,6 +5,7 @@ import android.view.View;
 import com.zuxos.desktopplus.core.L;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,26 +25,7 @@ public final class Windows {
     /** The root view of every window in this process, or an empty list if they are unreadable. */
     public static List<View> roots() {
         try {
-            Class<?> global = Class.forName("android.view.WindowManagerGlobal");
-            Object instance = global.getMethod("getInstance").invoke(null);
-            List<?> list = null;
-            try {
-                // Present on some builds only; the backing field is the reliable route.
-                Object roots = global.getMethod("getRootViews").invoke(instance);
-                if (roots instanceof List) {
-                    list = (List<?>) roots;
-                }
-            } catch (Throwable ignored) {
-                // Fall through to the field.
-            }
-            if (list == null) {
-                Field views = global.getDeclaredField("mViews");
-                views.setAccessible(true);
-                Object value = views.get(instance);
-                if (value instanceof List) {
-                    list = (List<?>) value;
-                }
-            }
+            List<?> list = liveList();
             if (list == null) {
                 return Collections.emptyList();
             }
@@ -60,6 +42,52 @@ public final class Windows {
             L.d("window list unreadable: " + t);
             return Collections.emptyList();
         }
+    }
+
+    /** Looked up once: this is asked several times a second while the tablet's bar is hidden. */
+    private static Object sGlobal;
+    private static Method sGetRoots;
+    private static Field sViews;
+    private static boolean sResolved;
+
+    private static List<?> liveList() throws Exception {
+        if (!sResolved) {
+            sResolved = true;
+            Class<?> global = Class.forName("android.view.WindowManagerGlobal");
+            sGlobal = global.getMethod("getInstance").invoke(null);
+            try {
+                // Present on some builds only; the backing field is the reliable route.
+                sGetRoots = global.getMethod("getRootViews");
+            } catch (Throwable ignored) {
+                // Fall through to the field.
+            }
+            try {
+                sViews = global.getDeclaredField("mViews");
+                sViews.setAccessible(true);
+            } catch (Throwable ignored) {
+                // The method, then, or nothing.
+            }
+        }
+        if (sGlobal == null) {
+            return null;
+        }
+        if (sGetRoots != null) {
+            try {
+                Object roots = sGetRoots.invoke(sGlobal);
+                if (roots instanceof List) {
+                    return (List<?>) roots;
+                }
+            } catch (Throwable ignored) {
+                // The field below.
+            }
+        }
+        if (sViews != null) {
+            Object value = sViews.get(sGlobal);
+            if (value instanceof List) {
+                return (List<?>) value;
+            }
+        }
+        return null;
     }
 
     /**

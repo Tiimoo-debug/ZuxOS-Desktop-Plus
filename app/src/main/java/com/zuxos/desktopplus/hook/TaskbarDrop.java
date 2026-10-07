@@ -96,18 +96,24 @@ final class TaskbarDrop {
         }
 
         void place() {
+            // The bar's row as it is now: the one found when the strip went in may have been the
+            // keys' row, standing in while ZUI's icons were hidden for its drawer.
+            View reference = TaskbarTray.rowReference(mDragLayer);
+            if (reference == null) {
+                reference = mReference;
+            }
             ViewGroup.LayoutParams raw = getLayoutParams();
-            if (!(raw instanceof FrameLayout.LayoutParams) || mReference == null
-                    || mReference.getHeight() <= 0) {
+            if (!(raw instanceof FrameLayout.LayoutParams) || reference == null
+                    || reference.getHeight() <= 0) {
                 return;
             }
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-            if (lp.topMargin == mReference.getTop() && lp.height == mReference.getHeight()) {
+            if (lp.topMargin == reference.getTop() && lp.height == reference.getHeight()) {
                 return;
             }
             lp.gravity = Gravity.TOP | Gravity.START;
-            lp.topMargin = mReference.getTop();
-            lp.height = mReference.getHeight();
+            lp.topMargin = reference.getTop();
+            lp.height = reference.getHeight();
             setLayoutParams(lp);
         }
 

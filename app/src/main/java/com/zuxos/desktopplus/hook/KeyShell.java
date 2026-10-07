@@ -111,6 +111,11 @@ final class KeyShell {
             sLastError = "the root setting is off";
             return false;
         }
+        if (sFailedAt > 0 && SystemClock.uptimeMillis() - sFailedAt < RETRY_AFTER_MS) {
+            // Root just refused or did not answer: asking again at once is another prompt or
+            // denial toast, and another twenty seconds the keys queued behind it wait.
+            return false;
+        }
         try {
             sStarts++;
             Process process = new ProcessBuilder("su").redirectErrorStream(true).start();
@@ -127,17 +132,24 @@ final class KeyShell {
                 sLastError = process.isAlive() ? "no answer from root" : "root refused";
                 L.w("taskbar nav: the key shell did not start (" + sLastError + ")");
                 stop();
+                sFailedAt = SystemClock.uptimeMillis();
                 return false;
             }
+            sFailedAt = 0;
             L.i("taskbar nav: key shell ready (start " + sStarts + ")");
             return true;
         } catch (Throwable t) {
             sLastError = String.valueOf(t);
             L.w("taskbar nav: the key shell did not start (" + t + ")");
             stop();
+            sFailedAt = SystemClock.uptimeMillis();
             return false;
         }
     }
+
+    /** When root last failed to start; none is asked for again within the next half minute. */
+    private static long sFailedAt;
+    private static final long RETRY_AFTER_MS = 30_000L;
 
     /** Reads everything the shell prints, so its pipe never fills; spots the ready marker. */
     private static void drain(InputStream out) {

@@ -122,6 +122,7 @@ final class TaskOverview {
     private static void open(View anchor, int display) {
         final Context ctx = Overlays.windowContext(anchor.getContext());
         final List<Card> cards = tasksOn(ctx, display);
+        sCards = cards;
         try {
             FrameLayout root = new FrameLayout(ctx);
             root.setBackgroundColor(0x400A0A0E);
@@ -991,11 +992,14 @@ final class TaskOverview {
                     // Not into the system's cache: these are for this view only.
                     Bitmap b = snapshot(card.taskId, "takeTaskSnapshot", false);
                     MAIN.post(() -> {
-                        if (b == null || sRoot != root) {
+                        if (b == null) {
                             return;
                         }
                         View thumb = card.view.findViewWithTag("thumb");
-                        if (thumb instanceof ImageView && !card.screenFed) {
+                        if (sRoot != root || !(thumb instanceof ImageView) || card.screenFed) {
+                            // Closed meanwhile, or fed from the screen now: never shown.
+                            b.recycle();
+                        } else {
                             Bitmap old = card.thumb;
                             card.thumb = b;
                             ((ImageView) thumb).setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -1317,8 +1321,10 @@ final class TaskOverview {
     static void close() {
         FrameLayout root = sRoot;
         WindowManager wm = sWm;
+        List<Card> cards = sCards;
         sRoot = null;
         sWm = null;
+        sCards = null;
         if (root == null || wm == null) {
             return;
         }
@@ -1329,7 +1335,28 @@ final class TaskOverview {
                     } catch (Throwable ignored) {
                         // Already gone.
                     }
+                    recycle(cards);
                 }).start();
+    }
+
+    /** The cards of the open overview, so their pictures can be freed when it closes. */
+    private static List<Card> sCards;
+
+    /** Every picture the cards held, once their window - the last thing drawing them - is gone. */
+    private static void recycle(List<Card> cards) {
+        if (cards == null) {
+            return;
+        }
+        for (Card c : cards) {
+            for (Bitmap b : c.frames) {
+                b.recycle();
+            }
+            c.frames.clear();
+            if (c.thumb != null) {
+                c.thumb.recycle();
+                c.thumb = null;
+            }
+        }
     }
 
     private static synchronized void record(String what) {

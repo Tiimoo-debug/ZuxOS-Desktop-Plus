@@ -122,8 +122,6 @@ public final class ScreenBackdrop {
      * replaces it on the next.
      */
     private static final float SEED_SCALE = 0.125f;
-    /** How often the seed is renewed while the screen may be changing under it. */
-    private static final long SEED_MS = 2000L;
 
     private static final class Seed {
         Bitmap bitmap;
@@ -167,7 +165,9 @@ public final class ScreenBackdrop {
             return;
         }
         seed.inFlight = true;
-        seed.due = now + SEED_MS;
+        // Renewed when the screen is said to change (seedSoon), not on a timer: a timer kept a
+        // whole-screen capture going every two seconds for as long as the bar was on screen.
+        seed.due = Long.MAX_VALUE;
         Point size = new Point();
         pane.getDisplay().getRealSize(size);
         Rect crop = new Rect(0, 0, size.x, size.y);
@@ -222,7 +222,13 @@ public final class ScreenBackdrop {
         /** Past this many pixels a pane is captured smaller: the frost would hide the detail. */
         private static final int LARGE_AREA = 600_000;
         /** Slowest the glass checks for change while nothing behind it moves. */
-        private static final long IDLE_MS = 250L;
+        /**
+         * The slowest a pane checks an unchanged backdrop, reached by doubling after a few
+         * seconds of nothing changing. A quarter of a second kept four probes a second going
+         * behind the always-on bar; an app opening or moving wakes it at once (nudge), and
+         * anything else is seen within a second.
+         */
+        private static final long IDLE_MS = 1000L;
 
         private final View mPane;
         private final Sink mSink;
@@ -490,6 +496,7 @@ public final class ScreenBackdrop {
             }
             Bitmap frame = shot != null && status == 0 ? toBitmap(shot) : null;
             if (frame == null) {
+                close(shot);
                 if (sState == UNKNOWN) {
                     refuse("the window manager answered with status " + status);
                     mRunning = false;
@@ -567,18 +574,31 @@ public final class ScreenBackdrop {
             sBuilder.getMethod("setExcludeLayers", SurfaceControl[].class)
                     .invoke(builder, (Object) new SurfaceControl[]{own});
             Object args = sBuilder.getMethod("build").invoke(builder);
+            boolean[] late = new boolean[1];
             ObjIntConsumer<Object> answer = (shot, status) -> {
-                got[0] = status == 0 ? shot : null;
-                if (status != 0) {
-                    close(shot);
+                synchronized (got) {
+                    if (status == 0 && !late[0]) {
+                        got[0] = shot;
+                    } else {
+                        // Failed, or arrived after we stopped waiting: nobody else will free
+                        // its buffer, and a busy GPU is when that happens most.
+                        close(shot);
+                    }
                 }
                 done.countDown();
             };
             sCapture.invoke(sWm, display, args, sListener.newInstance(answer));
-            if (!done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS) || got[0] == null) {
+            boolean answered = done.await(250, java.util.concurrent.TimeUnit.MILLISECONDS);
+            Object shot;
+            synchronized (got) {
+                late[0] = !answered;
+                shot = got[0];
+                got[0] = null;
+            }
+            if (shot == null) {
                 return 0;
             }
-            Bitmap hardware = toBitmap(got[0]);
+            Bitmap hardware = toBitmap(shot);
             if (hardware == null) {
                 return 0;
             }
