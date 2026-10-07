@@ -47,19 +47,26 @@ jobs:
           path: logic/build/reports/tests/test
           if-no-files-found: ignore
 
+      - name: Version
+        # The same number the build gives itself: 1.0.<commit count>.
+        run: echo "VERSION=1.0.$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
       - name: Build
         run: ./gradlew --no-daemon assembleRelease assembleDebug
 
       - name: Report version and signer
         run: |
+          echo "Version $VERSION"
           ls -l app/build/outputs/apk/release/
-          "$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs \
-            app/build/outputs/apk/release/app-release.apk | grep -i "SHA-256" || true
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          "$ANDROID_HOME"/build-tools/36.0.0/aapt2 dump badging "$APK" | head -n 1 || true
+          "$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs "$APK" \
+            | grep -i "SHA-256" || true
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: zuxos-desktop-plus-apk
+          name: zuxos-desktop-plus-${{ env.VERSION }}
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk

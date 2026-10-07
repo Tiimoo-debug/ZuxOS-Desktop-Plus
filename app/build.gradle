@@ -66,6 +66,14 @@ android {
     lint {
         abortOnError false
     }
+
+    // The version on the outside of the file too: every download used to be app-release.apk,
+    // and an older one opened by mistake looked exactly like the new one.
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "zuxos-desktop-plus-${variant.versionName}-${variant.buildType.name}.apk"
+        }
+    }
 }
 
 dependencies {
