@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -143,8 +144,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mRepo.reload();
         mStore = new DesktopStore(activity, external);
         mStore.load();
-        mDrawerStore = new DrawerStore(activity);
-        mDrawerStore.load();
+        mDrawerStore = DrawerStore.shared(activity);
 
         mRoot = new FrameLayout(activity) {
             @Override
@@ -237,6 +237,16 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     public static synchronized DesktopHost of(Activity activity) {
         return ACTIVE.get(activity);
+    }
+
+    /** The desktop on this display, or null when there is none. */
+    public static synchronized DesktopHost on(int displayId) {
+        for (DesktopHost host : ACTIVE.values()) {
+            if (host.mDisplayId == displayId) {
+                return host;
+            }
+        }
+        return null;
     }
 
     /** The desktop currently on screen, for hooks with no activity of their own. */
@@ -681,11 +691,17 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     private View mOverview;
     private boolean mOverviewShowing;
+    private long mOverviewSearchedAt;
+    private static final long OVERVIEW_SEARCH_MS = 5000L;
 
     /** Whether the launcher's Recents panel is up; found once by id, then just asked. */
     private boolean overviewShowing() {
         View overview = mOverview;
-        if (overview == null || overview.getParent() == null) {
+        if ((overview == null || overview.getParent() == null)
+                && SystemClock.uptimeMillis() - mOverviewSearchedAt > OVERVIEW_SEARCH_MS) {
+            // Not found, or gone: looked for again at most every few seconds. A window with no
+            // Recents panel at all - the monitor's - was searched in full on every touch.
+            mOverviewSearchedAt = SystemClock.uptimeMillis();
             View top = mRoot;
             while (top.getParent() instanceof View) {
                 top = (View) top.getParent();
@@ -727,11 +743,30 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     // --- items -----------------------------------------------------------
 
+    /** A rebuild is waiting for the grid's first layout. */
+    private boolean mRebuildWaiting;
+
     /** Rebuilds every desktop view from the store; safe to call at any time. */
     public void rebuildItems() {
         if (mGrid.getWidth() == 0 || mGrid.getHeight() == 0) {
-            // Cell geometry is only known after the first measure pass.
-            mGrid.post(this::rebuildItems);
+            // Cell geometry is only known after the first measure pass, so the rebuild waits
+            // for it - once, from a layout listener. Re-posting itself until then spun the main
+            // thread for as long as the launcher sat stopped and never laid out.
+            if (!mRebuildWaiting) {
+                mRebuildWaiting = true;
+                mGrid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                    @Override
+                    public void onLayoutChange(View v, int l, int t, int r, int b, int ol,
+                            int ot, int or, int ob) {
+                        if (r - l <= 0 || b - t <= 0) {
+                            return;
+                        }
+                        v.removeOnLayoutChangeListener(this);
+                        mRebuildWaiting = false;
+                        v.post(DesktopHost.this::rebuildItems);
+                    }
+                });
+            }
             return;
         }
         // Read from the field, not from the grid: two rebuilds in a row would otherwise capture
@@ -780,6 +815,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         return frames;
     }
 
+    /** How long after boot a widget with no provider yet is waited for, not deleted. */
+    private static final long WIDGETS_SETTLE_MS = 3 * 60_000L;
+
     private boolean addItemView(Item item) {
         int iconSize = iconSizePx();
         if (item.type == Item.TYPE_WIDGET) {
@@ -799,6 +837,12 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             // what a launcher restart does - so it gets a fresh view rather than a resize.
             AppWidgetHostView view = mWidgets.createView(item);
             if (view == null) {
+                if (SystemClock.uptimeMillis() < WIDGETS_SETTLE_MS) {
+                    // Just after boot a widget's provider may not be known yet: left out of this
+                    // pass and kept, rather than deleted for good over a moment's wait.
+                    L.d("widget " + item.widgetId + " not ready yet, kept for the next rebuild");
+                    return true;
+                }
                 mWidgets.deleteWidget(item.widgetId);
                 return false;
             }
@@ -917,8 +961,13 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             // is exactly what "I can drag from the drawer but not from the home screen" was.
             // Drags that stay in this window still find the local state first and keep every
             // reference it holds, the folder and the multiple selection included.
-            source.startDragAndDrop(payload.toClip(), shadow, payload,
-                    DragPayload.FLAGS);
+            if (!source.startDragAndDrop(payload.toClip(), shadow, payload,
+                    DragPayload.FLAGS)) {
+                // Refused - another drag still running, or the view detached. No drag-ended will
+                // come for this one, so nothing may be hidden or shown waiting for it.
+                L.d("desktop: the drag did not start");
+                return;
+            }
             if (dragSource == DragPayload.SRC_DESKTOP) {
                 mDragView = source;
                 source.setVisibility(View.INVISIBLE);
@@ -995,6 +1044,11 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     public void onDropOnItem(DragPayload payload, Item target) {
         if (!Cfg.foldersEnabled()) {
             onDropOnCell(payload, target.x, target.y);
+            return;
+        }
+        if (payload.source == DragPayload.SRC_FOLDER && target == payload.folder) {
+            // Back onto the folder it came out of: it stays where it was. Going on would take
+            // it out, dissolve a two-app folder, and then add it to the folder just removed.
             return;
         }
         try {
@@ -1076,7 +1130,43 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
     }
 
+    /** Whether a folder is one of the drawer's, rather than one on this desktop. */
+    private boolean inDrawer(Item folder) {
+        return folder != null && mDrawerStore.folders().contains(folder);
+    }
+
+    /**
+     * Saves wherever the folder lives. A drawer folder opened in the same overlay as the
+     * desktop's was saved into the desktop's store, which does not hold it: a rename or a new
+     * order was lost at the next restart.
+     */
+    private void saveFolder(Item folder) {
+        if (inDrawer(folder)) {
+            mDrawerStore.save();
+            mDrawer.rebuild();
+        } else {
+            save();
+        }
+    }
+
     private void dissolveIfEmpty(Item folder) {
+        if (inDrawer(folder)) {
+            // A drawer folder down to one app is that app again, back in the drawer's list - not
+            // put onto the desktop - and the drawer's own store records it either way.
+            if (folder.children.size() <= 1) {
+                for (Item remaining : folder.children) {
+                    mDrawerStore.order().add(remaining.key());
+                }
+                mDrawerStore.folders().remove(folder);
+                mDrawerStore.order().remove(folder.key());
+                if (mFolders.getFolder() == folder) {
+                    mFolders.close();
+                }
+            }
+            mDrawerStore.save();
+            mDrawer.rebuild();
+            return;
+        }
         if (folder.children.size() > 1) {
             return;
         }
@@ -1626,7 +1716,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         entries.add(new Menus.Entry("Rename", () -> Dialogs.prompt(mActivity, "Rename",
                 child.label, name -> {
                     child.label = name;
-                    save();
+                    saveFolder(folder);
                     mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
                 })));
         entries.add(new Menus.Entry("Move to desktop", () -> {
@@ -1652,14 +1742,14 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     @Override
     public void onChildrenReordered(Item folder) {
-        save();
+        saveFolder(folder);
         mFolders.rebuild(iconSizePx(), Cfg.showLabels(), Cfg.labelShadow());
     }
 
     @Override
     public void onRenamed(Item folder, String name) {
         folder.label = name;
-        save();
+        saveFolder(folder);
     }
 
     @Override
@@ -1690,7 +1780,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         float[] local = Menus.toLocal(mRoot, rawX, rawY);
         List<Menus.Entry> entries = Menus.list();
         entries.add(new Menus.Entry("Add to desktop", () -> {
-            Item copy = copyForDesktop(item);
+            // On the page in view: unset, it showed here and then jumped to page one.
+            Item copy = adopt(copyForDesktop(item));
             mStore.add(copy);
             addItemView(copy);
             save();

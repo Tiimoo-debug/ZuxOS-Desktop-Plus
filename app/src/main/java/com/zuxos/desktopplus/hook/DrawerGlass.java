@@ -130,6 +130,7 @@ final class DrawerGlass {
             try {
                 root.getViewTreeObserver().addOnGlobalLayoutListener(listener);
                 WATCHED.put(root, listener);
+                forgetOnDetach(root, WATCHED);
             } catch (Throwable t) {
                 L.d("drawer glass: could not watch this window (" + t + ")");
             }
@@ -224,6 +225,25 @@ final class DrawerGlass {
      * across the bar and stray icons beside the open apps. Only drawing is clipped; touches are
      * untouched.
      */
+    /**
+     * Drops a window's entry once the window is gone. The listener kept as the entry's value
+     * holds the window itself, so a weak map alone never let go of it: every drawer opened on
+     * the monitor - a new window each time - stayed in memory.
+     */
+    private static void forgetOnDetach(View window, Map<View, ?> map) {
+        window.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                v.removeOnAttachStateChangeListener(this);
+                map.remove(v);
+            }
+        });
+    }
+
     private static void stopAtTheBar(ViewGroup window) {
         if (CLIPPED.containsKey(window)) {
             return;
@@ -237,6 +257,7 @@ final class DrawerGlass {
                 (v, l, t, r, b, ol, ot, or, ob) -> clipAboveTheBar(window);
         window.addOnLayoutChangeListener(listener);
         CLIPPED.put(window, listener);
+        forgetOnDetach(window, CLIPPED);
         clipAboveTheBar(window);
         noWindowBlur(window);
     }

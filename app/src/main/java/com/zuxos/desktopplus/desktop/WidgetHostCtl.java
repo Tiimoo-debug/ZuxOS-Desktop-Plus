@@ -63,16 +63,38 @@ public class WidgetHostCtl {
         mActivity = activity;
         mListener = listener;
         mManager = AppWidgetManager.getInstance(activity);
-        mHost = new AppWidgetHost(activity, Const.WIDGET_HOST_ID);
+        mHost = sharedHost(activity);
     }
 
+    /**
+     * One host for the whole process. The system knows a host by its id, so a second host with
+     * the same id - the other screen's desktop - took the first one's place: its widgets stopped
+     * updating, and either desktop stopping silenced both. The widget ids already placed belong
+     * to this id, so it stays; the two desktops share it, and it listens while either does.
+     */
+    private static synchronized AppWidgetHost sharedHost(Activity activity) {
+        if (sHost == null) {
+            android.content.Context app = activity.getApplicationContext();
+            sHost = new AppWidgetHost(app != null ? app : activity, Const.WIDGET_HOST_ID);
+        }
+        return sHost;
+    }
+
+    private static AppWidgetHost sHost;
+    private static int sListening;
+
     public void start() {
-        if (mListening) {
-            return;
+        synchronized (WidgetHostCtl.class) {
+            if (mListening) {
+                return;
+            }
+            mListening = true;
+            if (sListening++ > 0) {
+                return;
+            }
         }
         try {
             mHost.startListening();
-            mListening = true;
         } catch (Throwable t) {
             // Thrown when the host has stale ids after an uninstall; safe to continue.
             L.e("widget host startListening failed", t);
@@ -80,15 +102,20 @@ public class WidgetHostCtl {
     }
 
     public void stop() {
-        if (!mListening) {
-            return;
+        synchronized (WidgetHostCtl.class) {
+            if (!mListening) {
+                return;
+            }
+            mListening = false;
+            if (--sListening > 0) {
+                return;
+            }
         }
         try {
             mHost.stopListening();
         } catch (Throwable t) {
             L.e("widget host stopListening failed", t);
         }
-        mListening = false;
     }
 
     public AppWidgetProviderInfo infoFor(int widgetId) {

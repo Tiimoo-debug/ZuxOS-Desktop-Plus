@@ -28,8 +28,30 @@ public final class DrawerStore {
     private final List<Item> mFolders = new ArrayList<>();
     private final Set<String> mHidden = new HashSet<>();
 
-    public DrawerStore(Context ctx) {
+    private DrawerStore(Context ctx) {
         mCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
+    }
+
+    private static DrawerStore sShared;
+
+    /**
+     * The one drawer state of the process, loaded once. Each desktop and the stock drawer's
+     * hooks used to keep a copy of their own and write it back whole, so whichever saved last
+     * undid the others' changes - a reordered drawer, an app taken out of a folder.
+     */
+    public static synchronized DrawerStore shared(Context ctx) {
+        if (sShared == null) {
+            sShared = new DrawerStore(ctx);
+            sShared.load();
+        }
+        return sShared;
+    }
+
+    private volatile int mVersion;
+
+    /** Goes up on every save, so whatever is derived from the state knows to look again. */
+    public int version() {
+        return mVersion;
     }
 
     public List<String> order() {
@@ -99,6 +121,7 @@ public final class DrawerStore {
     }
 
     public synchronized void save() {
+        mVersion++;
         try {
             JSONObject root = new JSONObject();
             root.put("version", 1);

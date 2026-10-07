@@ -236,7 +236,9 @@ public class FolderOverlay extends FrameLayout {
     }
 
     public void close() {
-        if (getVisibility() != VISIBLE) {
+        if (getVisibility() != VISIBLE || mFolder == null) {
+            // Not open, or already closing: a second close cancelled the first's animation, and
+            // with it the end that clears the wallpaper blur and rebuilds the desktop.
             return;
         }
         final Item folder = mFolder;

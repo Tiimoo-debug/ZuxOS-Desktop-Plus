@@ -59,9 +59,7 @@ public final class NativeDrawerHooks {
 
     private static boolean sInstalled;
 
-    private static DrawerStore sStore;
-    private static long sStoreStamp = -1;
-    private static long sStoreChecked;
+    private static int sStoreVersion = -1;
     private static AppsRepo sRepo;
 
     private static Field sAppsField;
@@ -835,19 +833,15 @@ public final class NativeDrawerHooks {
 
     /** Re-read the drawer state whenever our own drawer has written to it. */
     private static synchronized DrawerStore store(Context ctx) {
-        long now = android.os.SystemClock.uptimeMillis();
-        if (sStore != null && now - sStoreChecked < 500) {
-            return sStore;
-        }
-        sStoreChecked = now;
-        long stamp = Storage.file(ctx, Const.FILE_DRAWER).lastModified();
-        if (sStore == null || stamp != sStoreStamp) {
-            sStore = new DrawerStore(ctx);
-            sStore.load();
-            sStoreStamp = stamp;
+        DrawerStore store = DrawerStore.shared(ctx);
+        int version = store.version();
+        if (version != sStoreVersion) {
+            // Saved since - by our drawer, a folder window or these hooks: the entries made from
+            // it are made again.
+            sStoreVersion = version;
             sFolderEntries.clear();
         }
-        return sStore;
+        return store;
     }
 
     /** The app repository, built once. Shared with the taskbar, which opens folders too. */

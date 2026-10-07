@@ -186,7 +186,11 @@ public class WidgetResizeFrame extends View {
                 || cellX + spanX > mGrid.getCols() || cellY + spanY > mGrid.getRows()) {
             return;
         }
-        if (!mGrid.isFree(cellX, cellY, spanX, spanY, mTarget)) {
+        // The widget's view as it is now: each release rebuilds it, and the view this frame
+        // opened on, gone from the grid, made the widget's own cells count as taken - so a
+        // second drag of a handle did nothing.
+        View current = mGrid.viewForItem(mItem);
+        if (!mGrid.isFree(cellX, cellY, spanX, spanY, current != null ? current : mTarget)) {
             return;
         }
         if (cellX == mItem.x && cellY == mItem.y && spanX == mItem.spanX && spanY == mItem.spanY) {

@@ -244,7 +244,8 @@ final class DrawerHold {
                 TaskbarPins.pin(ctx, item, PinList.AT_THE_END);
                 TaskbarRunning.refreshAll();
             }));
-            DesktopHost desktop = DesktopHost.current();
+            // This screen's desktop: the last one attached could be the other screen's.
+            DesktopHost desktop = DesktopHost.on(display);
             if (desktop != null) {
                 entries.add(new TaskbarMenu.Entry("Add to desktop", () -> {
                     desktop.addPinnedItem(copyOf(item));
