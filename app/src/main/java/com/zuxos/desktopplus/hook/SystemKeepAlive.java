@@ -32,6 +32,11 @@ import de.robv.android.xposed.XposedBridge;
  *
  * <p>This runs in system_server, so every hook is wrapped, and repeated failure switches the whole
  * thing off for the boot rather than risk the system.
+ *
+ * <p>Nothing here may ask for a system service while the module is being loaded - only from the
+ * delayed refresh, once boot has moved on. Asking for the display service that early cached a
+ * display manager with no service behind it in the system's own context; the system server's
+ * first real use of it crashed, on every boot, until LSPosed went into safe mode.
  */
 final class SystemKeepAlive {
 
@@ -127,62 +132,25 @@ final class SystemKeepAlive {
                     return;
                 }
                 refresh();
-                // Every few seconds while a second screen is connected or anything is held;
-                // otherwise rarely. This is the system server, and with no monitor there is
-                // nothing to look for - the task list it reads takes the window manager's lock.
-                handler.postDelayed(this, sUids.isEmpty() && !secondScreen()
+                // Every few seconds while an app is on another screen or anything is held;
+                // otherwise less often. This is the system server, and the task list it reads
+                // takes the window manager's lock.
+                handler.postDelayed(this, sUids.isEmpty() && !sAnyOther
                         ? IDLE_REFRESH_MS : REFRESH_MS);
             }
         };
         handler.postDelayed(loop, FIRST_MS);
-        watchDisplays(handler, loop);
     }
 
-    private static final long IDLE_REFRESH_MS = 30_000L;
+    /**
+     * Without anything to protect or any app on another screen: the task list is read this
+     * often, rather than every few seconds. A new app on the monitor is then held within this
+     * long at worst; the launcher's root half reacts at once anyway.
+     */
+    private static final long IDLE_REFRESH_MS = 10_000L;
 
-    /** A screen plugged in or out: looked at now, not at the next slow tick. */
-    private static void watchDisplays(Handler handler, Runnable loop) {
-        try {
-            Context ctx = systemContext();
-            android.hardware.display.DisplayManager dm = ctx == null ? null
-                    : ctx.getSystemService(android.hardware.display.DisplayManager.class);
-            if (dm == null) {
-                return;
-            }
-            dm.registerDisplayListener(new android.hardware.display.DisplayManager
-                    .DisplayListener() {
-                @Override
-                public void onDisplayAdded(int displayId) {
-                    handler.removeCallbacks(loop);
-                    handler.post(loop);
-                }
-
-                @Override
-                public void onDisplayRemoved(int displayId) {
-                    handler.removeCallbacks(loop);
-                    handler.post(loop);
-                }
-
-                @Override
-                public void onDisplayChanged(int displayId) {
-                }
-            }, handler);
-        } catch (Throwable t) {
-            // The steady tick still finds a new screen, a little later.
-            L.d("system keep-alive: displays not watched (" + t + ")");
-        }
-    }
-
-    private static boolean secondScreen() {
-        try {
-            Context ctx = systemContext();
-            android.hardware.display.DisplayManager dm = ctx == null ? null
-                    : ctx.getSystemService(android.hardware.display.DisplayManager.class);
-            return dm == null || dm.getDisplays().length > 1;
-        } catch (Throwable t) {
-            return true;
-        }
-    }
+    /** Whether the last read of the task list found anything on a screen other than the tablet. */
+    private static volatile boolean sAnyOther;
 
     /** The importance the system is about to give a process. */
     private static final XC_MethodHook CUR_ADJ = new XC_MethodHook() {
@@ -308,17 +276,20 @@ final class SystemKeepAlive {
             }
             ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
             Set<Integer> uids = new HashSet<>();
+            boolean anyOther = false;
             for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(100)) {
                 Object d = Reflect.field(task, "displayId");
                 if (!(d instanceof Integer) || (Integer) d == 0) {
                     continue;
                 }
+                anyOther = true;
                 int uid = uidOf(ctx, task);
                 if (uid >= 10000) {
                     // Apps only: the system and the launcher look after themselves.
                     uids.add(uid);
                 }
             }
+            sAnyOther = anyOther;
             if (!uids.equals(sUids)) {
                 sUids = Collections.unmodifiableSet(uids);
                 L.i("system keep-alive: protecting " + uids.size() + " app(s) on the monitor");
