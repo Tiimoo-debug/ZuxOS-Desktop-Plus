@@ -10,12 +10,19 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Whether a taskbar is on the tablet's own screen.
+ * Which of ZUI's three bars a taskbar is.
+ *
+ * <ul>
+ *   <li>The tablet's, in its regular mode: home is ZUI's {@code DrawerLauncher}.</li>
+ *   <li>The tablet's, in its desktop mode: home is ZUI's {@code CustomModeLauncher}; the bar is
+ *       made by the same class as the regular one, and only ZUI's search box in its row
+ *       ({@code ZuiTaskbarSearchContainer}) tells them apart.</li>
+ *   <li>The monitor's: ZUI's {@code ...Dp} classes, on a screen of its own.</li>
+ * </ul>
  *
  * <p>The tablet's bars come and go in ways the monitor's does not - switched off, stashed into a
- * gesture handle - so ours follow them there ({@link TaskbarFollow}). Which of ZUI's two tablet
- * bars it is - the regular one, or its desktop mode's, built from ZUI's {@code ...Dp} classes -
- * is named in the log once per bar; both are treated alike.
+ * gesture handle - so ours follow them there ({@link TaskbarFollow}). Each bar's mode is named
+ * in the log once, so a log says which of the three it is about.
  */
 final class TaskbarScope {
 
@@ -24,22 +31,53 @@ final class TaskbarScope {
     private TaskbarScope() {
     }
 
-    /** Whether {@code view} is part of a bar on the tablet's own screen. */
+    /** Whether {@code view} is part of a bar on the tablet's own screen, in either mode. */
     static boolean tablet(View view) {
         if (view == null || TaskbarTray.displayIdOf(view) != 0) {
             return false;
         }
-        String made = className(view.getContext());
-        if (SAID.add(made)) {
-            L.i("taskbar scope: a bar on the tablet's screen, made by " + made
-                    + (made.endsWith("Dp") ? " (desktop mode)" : ""));
+        String mode = mode(view);
+        if (SAID.add(mode)) {
+            L.i("taskbar scope: a bar on the tablet's screen - " + mode + ", made by "
+                    + className(view.getContext()));
         }
         return true;
     }
 
-    /** A bar's name for the log: its display and the class it is made from. */
+    /** A bar's name for the log: its mode, display and the class it is made from. */
     static String label(View view) {
-        return "display " + TaskbarTray.displayIdOf(view) + "/" + className(view.getContext());
+        return mode(view) + " (display " + TaskbarTray.displayIdOf(view) + "/"
+                + className(view.getContext()) + ")";
+    }
+
+    /**
+     * The bar's mode: the monitor's by its screen; on the tablet, desktop mode when ZUI's search
+     * box is in its row - the one thing that differs between the tablet's two bars.
+     */
+    static String mode(View view) {
+        if (view == null) {
+            return "unknown";
+        }
+        if (TaskbarTray.displayIdOf(view) != 0) {
+            return "monitor desktop";
+        }
+        return hasSearch(view.getRootView(), 6) ? "tablet desktop mode" : "tablet";
+    }
+
+    private static boolean hasSearch(View v, int depth) {
+        if (v.getClass().getSimpleName().equals("ZuiTaskbarSearchContainer")) {
+            return true;
+        }
+        if (depth <= 0 || !(v instanceof android.view.ViewGroup)) {
+            return false;
+        }
+        android.view.ViewGroup g = (android.view.ViewGroup) v;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            if (hasSearch(g.getChildAt(i), depth - 1)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The bar's context class, or one it wraps when that is one of ZUI's desktop-mode ones. */
