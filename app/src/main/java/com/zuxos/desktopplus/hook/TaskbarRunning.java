@@ -68,8 +68,8 @@ final class TaskbarRunning {
     private static final Map<View, Boolean> HIDDEN = new WeakHashMap<>();
 
     /** The last list we acted on. Written on the UI thread, but published for safety. */
-    private static volatile Set<String> sShowing = new LinkedHashSet<>();
-    private static int sSource = -1;
+    /** Per display: where its open apps were last read from, so a change is said once. */
+    private static final Map<Integer, Integer> SOURCE = new java.util.concurrent.ConcurrentHashMap<>();
     /** Per taskbar: with two displays, one ticking must not stand for the other. */
     private static final Map<View, Boolean> TICKING = new WeakHashMap<>();
 
@@ -1230,25 +1230,29 @@ final class TaskbarRunning {
     private static Set<String> running(Context ctx, ViewGroup icons, int displayId) {
         Set<String> out = fromActivityManager(ctx, displayId);
         if (!out.isEmpty()) {
-            source(0, "the activity manager");
-            sShowing = out;
+            source(displayId, 0, "the activity manager");
             return out;
         }
         out = fromLauncher(icons);
         if (!out.isEmpty()) {
-            source(1, "the launcher's own running-app state (open apps that are not pinned "
-                    + "cannot be added this way)");
-            sShowing = out;
+            source(displayId, 1, "the launcher's own running-app state (open apps that are not "
+                    + "pinned cannot be added this way)");
             return out;
         }
-        source(2, "nothing open on this screen, or nowhere readable - no open apps shown");
+        source(displayId, 2, "nothing open on this screen, or nowhere readable - no open apps "
+                + "shown");
         return out;
     }
 
-    private static void source(int which, String what) {
-        if (sSource != which) {
-            sSource = which;
-            L.i("taskbar running: reading what is open from " + what);
+    /**
+     * Said once per display and change. It was one value for every bar: the tablet with apps
+     * open and the monitor with none took turns changing it, and every refresh wrote two lines
+     * to the log - 156 in an hour.
+     */
+    private static void source(int displayId, int which, String what) {
+        Integer before = SOURCE.put(displayId, which);
+        if (before == null || before != which) {
+            L.d("taskbar running: display " + displayId + " reads what is open from " + what);
         }
     }
 
