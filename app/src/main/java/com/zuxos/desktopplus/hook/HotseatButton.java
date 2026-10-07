@@ -51,10 +51,64 @@ final class HotseatButton {
                 }
             }
             L.i("zux home: watching its dock x" + hooked);
+            installDrawSkip(hotseat);
         } catch (Throwable t) {
             L.i("zux home: no dock of ZUI's on this build (" + t + ")");
         }
     }
+
+    private static Class<?> sDock;
+    private static boolean sSkipSaid;
+
+    /**
+     * The dock's drawing, skipped while it has nothing of its own to show: the most specific
+     * override in its chain, or View's and ViewGroup's, which then let every other view straight
+     * through after one class compare - and run only when a drawing is re-recorded, not every
+     * frame.
+     */
+    private static void installDrawSkip(Class<?> hotseat) {
+        sDock = hotseat;
+        // draw() when the dock paints anything of its own; dispatchDraw() alone when it does not,
+        // as Android then goes straight to its children.
+        for (String name : new String[]{"draw", "dispatchDraw"}) {
+            Method m = null;
+            for (Class<?> c = hotseat; c != null && m == null; c = c.getSuperclass()) {
+                try {
+                    m = c.getDeclaredMethod(name, android.graphics.Canvas.class);
+                } catch (NoSuchMethodException ignored) {
+                    // Not overridden here; the next class up.
+                }
+            }
+            if (m == null) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(m, SKIP_DRAW);
+                L.i("zux home: its dock's drawing held back while empty, at "
+                        + m.getDeclaringClass().getSimpleName() + "." + name);
+            } catch (Throwable t) {
+                L.i("zux home: " + name + " of its dock could not be held back (" + t + ")");
+            }
+        }
+    }
+
+    private static final XC_MethodHook SKIP_DRAW = new XC_MethodHook() {
+        @Override
+        protected void beforeHookedMethod(MethodHookParam param) {
+            Object view = param.thisObject;
+            if (view == null || view.getClass() != sDock) {
+                return;
+            }
+            ViewGroup dock = (ViewGroup) view;
+            if (Cfg.enabled() && Cfg.startButtonLeft() && showsNothing(dock)) {
+                param.setResult(null);
+                if (!sSkipSaid) {
+                    sSkipSaid = true;
+                    L.i("zux home: its empty dock not drawn - no pill, no arrow");
+                }
+            }
+        }
+    };
 
     private static final XC_MethodHook AFTER = new XC_MethodHook() {
         @Override
@@ -90,7 +144,6 @@ final class HotseatButton {
                     }
                 }
             }
-            holdDock(hotseat, ours && showsNothing(hotseat));
         } catch (Throwable ignored) {
             // The dock as ZUI left it.
         }
@@ -99,8 +152,8 @@ final class HotseatButton {
     /**
      * In ZUI's desktop mode the dock holds no apps - those are in the taskbar - and what it still
      * draws is its own: the drawer pill and the arrow above it, painted by the dock itself around
-     * a view that hiding took nothing away from. Then the whole dock goes, on home and in Recents
-     * alike; with apps in it, as outside desktop mode, it stays.
+     * a view that hiding took nothing away from. Then the dock simply does not draw, on home and
+     * in Recents alike - its visibility and state stay ZUI's. With apps in it, it draws as ever.
      */
     private static boolean showsNothing(ViewGroup hotseat) {
         for (int i = 0; i < hotseat.getChildCount(); i++) {
@@ -118,38 +171,7 @@ final class HotseatButton {
         return true;
     }
 
-    private static void holdDock(ViewGroup hotseat, boolean hide) {
-        boolean hidden = hotseat.getTag(TAG_HIDDEN) != null;
-        if (hide) {
-            if (hotseat.getVisibility() == View.VISIBLE) {
-                hotseat.setVisibility(View.INVISIBLE);
-            }
-            if (!hidden) {
-                hotseat.setTag(TAG_HIDDEN, Boolean.TRUE);
-                L.i("zux home: its empty dock hidden - the pill and arrow it draws go with it");
-            }
-            if (hotseat.getTag(TAG_WATCHED) == null) {
-                hotseat.setTag(TAG_WATCHED, Boolean.TRUE);
-                // ZUI shows its dock again in state changes of its own, not only through the
-                // dock's methods: checked before each frame of the launcher's window, a field
-                // read and a compare.
-                hotseat.getViewTreeObserver().addOnPreDrawListener(() -> {
-                    if (hotseat.getTag(TAG_HIDDEN) != null
-                            && hotseat.getVisibility() == View.VISIBLE) {
-                        hotseat.setVisibility(View.INVISIBLE);
-                        return false;
-                    }
-                    return true;
-                });
-            }
-        } else if (hidden) {
-            hotseat.setTag(TAG_HIDDEN, null);
-            hotseat.setVisibility(View.VISIBLE);
-        }
-    }
-
     /** Marks a button we hid, so turning the setting off shows only what we took away. */
     private static final int TAG_HIDDEN = 0x7A000401;
-    /** Marks a dock whose frames are already checked, so the check is added once. */
-    private static final int TAG_WATCHED = 0x7A000402;
+
 }

@@ -549,8 +549,8 @@ final class TaskbarApps {
 
     /**
      * One window of the app - {@code taskId}, or its front one here when -1 - as big as it can
-     * be, and in front, as a desktop's maximise button does: a floating window fills the screen
-     * short of the status bar and the taskbar; a full-screen one already is as big as it gets.
+     * be, and in front, as ZUI's own maximise does: a floating window goes full screen; a
+     * full-screen one already is as big as it gets.
      */
     static void maximize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
@@ -574,38 +574,80 @@ final class TaskbarApps {
             TaskOverview.bringToFront(id, display);
             return;
         }
-        android.graphics.Rect area = usableArea(ctx, display);
-        if (area == null) {
-            L.i("taskbar apps: could not maximise " + pkg + " (no screen size)");
-            TaskOverview.bringToFront(id, display);
-            return;
-        }
-        // The system's own resize - what "am task resize" does - first: a window-transaction
-        // bounds change came back as it was on ZUI's desktops. The transaction is the fallback.
-        String how = resizeBySystem(id, area) ? "system resize"
-                : resizeByTransaction(task, area) ? "window transaction" : null;
-        if (how == null) {
-            TaskOverview.bringToFront(id, display);
-            return;
-        }
+        // As ZUI's own maximise in a window's menu does: the window leaves floating for full
+        // screen. Sized to the screen and left floating, as the last version did, it stopped
+        // short of a real maximise, and the window's own menu was needed to finish it.
+        boolean asked = toFullScreen(task);
         TaskOverview.bringToFront(id, display);
-        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to " + area + " by " + how);
-        // What it really became, for the log: the only way to tell a refused resize from a done
-        // one on a build that answers both the same.
+        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen"
+                + (asked ? "" : " - refused, sizing it to the screen instead"));
+        if (!asked) {
+            sizeToScreen(ctx, task, display);
+            return;
+        }
+        // What it really became: should the system keep it floating after all, it is sized to
+        // the screen instead, the next best thing.
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
                 if (t.taskId == id) {
-                    Object config = Reflect.field(t, "configuration");
-                    Object window = config == null ? null
-                            : Reflect.field(config, "windowConfiguration");
-                    Object bounds = window == null ? null : Reflect.call(window, "getBounds");
-                    L.i("taskbar apps: maximised " + pkg + " is now mode " + windowingMode(t)
-                            + " at " + bounds + " (wanted " + area + ")");
+                    int now = windowingMode(t);
+                    L.i("taskbar apps: maximised " + pkg + " is now mode " + now + " at "
+                            + boundsOf(t));
+                    if (now == WINDOWING_MODE_FREEFORM) {
+                        sizeToScreen(ctx, t, display);
+                    }
                     return;
                 }
             }
         }, MAXIMIZE_CHECK_MS);
     }
+
+    private static Object boundsOf(android.app.ActivityManager.RunningTaskInfo task) {
+        Object config = Reflect.field(task, "configuration");
+        Object window = config == null ? null : Reflect.field(config, "windowConfiguration");
+        return window == null ? null : Reflect.call(window, "getBounds");
+    }
+
+    /** The fallback: still floating, as big as the screen above the taskbar. */
+    private static void sizeToScreen(Context ctx, android.app.ActivityManager.RunningTaskInfo task,
+            int display) {
+        android.graphics.Rect area = usableArea(ctx, display);
+        if (area == null) {
+            return;
+        }
+        String how = resizeBySystem(task.taskId, area) ? "system resize"
+                : resizeByTransaction(task, area) ? "window transaction" : "nothing";
+        L.i("taskbar apps: task " + task.taskId + " sized to " + area + " by " + how);
+    }
+
+    /** The window organizer's switch to full screen, with no size of its own; false if refused. */
+    private static boolean toFullScreen(android.app.ActivityManager.RunningTaskInfo task) {
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null) {
+                return false;
+            }
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
+                    .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
+            wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
+                    .invoke(wct, token, new android.graphics.Rect());
+            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
+            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+            organizer.getMethod("applyTransaction", wctClass)
+                    .invoke(organizer.getConstructor().newInstance(), wct);
+            return true;
+        } catch (Throwable t) {
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            L.i("taskbar apps: full screen refused (" + cause + ")");
+            return false;
+        }
+    }
+
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private static final long MAXIMIZE_CHECK_MS = 700L;
 
