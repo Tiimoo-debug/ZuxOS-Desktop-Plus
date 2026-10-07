@@ -284,6 +284,16 @@ final class TaskbarFollow {
             alpha = 1f;
             shift = 0f;
         }
+        float parked = 0f;
+        if (alpha > 0f && alpha < SNAP) {
+            // ZUI parks its bar at a few percent rather than at nothing - stashed for the
+            // keyboard it rests near 5%. Ours there were invisible yet still counted as touchable,
+            // and the taskbar's window took the keyboard's bottom row. Below a tenth they are
+            // gone, and take nothing; a fade in or out passes through too fast to see the step.
+            parked = alpha;
+            alpha = 0f;
+            shift = 0f;
+        }
         if (alpha == state.alpha && shift == state.shift) {
             // Unchanged - but a piece put in since (a row added while the bar was stashed) still
             // stands at full alpha over the app and would take its taps. A dozen field reads.
@@ -299,6 +309,7 @@ final class TaskbarFollow {
             L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " ours "
                     + (hidden ? "hide" : "show") + " - "
                     + (keyboardUp(dragLayer) ? "keyboard up"
+                    : parked > 0f ? "parked by ZUI at " + parked
                     : hidden && phoneStyleHome(dragLayer, state) ? "home in the phone layout"
                     : state.channels != null ? state.channels.why() : "the row's fade"));
         }
@@ -368,6 +379,9 @@ final class TaskbarFollow {
     }
 
     private static final long KEYS_SETTLE_MS = 50L;
+
+    /** Below this ours count as gone: drawn at nothing and taking no touches. */
+    private static final float SNAP = 0.1f;
 
     /**
      * Whether this bar is on the home screen in ZUI's phone-style layout: the launcher's home in
@@ -719,7 +733,7 @@ final class TaskbarFollow {
             boolean added = false;
             for (View piece : new View[]{TaskbarRunning.scrollerOf(dragLayer),
                     TaskbarStart.buttonIn(dragLayer), TaskbarTray.trayOf(dragLayer)}) {
-                if (piece == null || !piece.isShown() || piece.getAlpha() < 0.05f
+                if (piece == null || !piece.isShown() || piece.getAlpha() < SNAP
                         || piece.getWidth() <= 0) {
                     continue;
                 }

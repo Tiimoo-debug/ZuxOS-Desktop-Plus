@@ -45,6 +45,47 @@ public final class Probe {
         }
     }
 
+    /**
+     * The probe from the taskbar, with whatever app open: no activity of the launcher's is at
+     * hand there, so it is the bars, the tasks, the windows and what the bar has logged - the
+     * part of the probe that is about the taskbar - written to the same file.
+     */
+    public static void dumpFromBar(android.content.Context ctx, int displayId) {
+        try {
+            StringBuilder sb = new StringBuilder("ZuxOS Desktop Plus probe (from the taskbar)\n");
+            sb.append("display : ").append(displayId).append('\n');
+            String front = TaskbarRunning.frontPackage(displayId);
+            sb.append("front   : ").append(front).append('\n');
+            try {
+                sb.append(describeTaskbarModel());
+            } catch (Throwable t) {
+                sb.append("\ntaskbar model\n  (unreadable: ").append(t).append(")\n");
+            }
+            try {
+                sb.append(describeTasks(ctx, "  asked from the bar on display " + displayId
+                        + "\n"));
+            } catch (Throwable t) {
+                sb.append("\nrunning tasks\n  (unreadable: ").append(t).append(")\n");
+            }
+            sb.append(TaskbarDiag.describeTraces());
+            try {
+                sb.append(TaskbarNav.describe());
+                sb.append(RecentsRoute.describe());
+                sb.append(KeepAlive.describe());
+            } catch (Throwable ignored) {
+                // The rest still goes out.
+            }
+            sb.append(describeAllWindows());
+            String text = sb.toString();
+            String out = Storage.export(ctx, Const.FILE_PROBE, text);
+            Storage.write(Storage.file(ctx, Const.FILE_PROBE), text);
+            L.i("probe from the taskbar" + (out != null ? " written to " + out : ""));
+            TaskbarMenu.toast(ctx, out != null ? "Probe saved to Download" : "Probe saved");
+        } catch (Throwable t) {
+            L.e("probe from the taskbar failed", t);
+        }
+    }
+
     public static String describe(Activity activity, ViewGroup content) {
         StringBuilder sb = new StringBuilder();
         sb.append("ZuxOS Desktop Plus probe\n");
@@ -149,16 +190,20 @@ public final class Probe {
      * the same way {@code TaskbarRunning} reads them.
      */
     private static String describeTasks(Activity activity) {
+        int thisDisplay = activity.getDisplay() != null ? activity.getDisplay().getDisplayId() : -1;
+        return describeTasks(activity, "  this activity is on display " + thisDisplay + "\n");
+    }
+
+    private static String describeTasks(android.content.Context ctx, String where) {
         StringBuilder sb = new StringBuilder("\nrunning tasks\n");
         android.app.ActivityManager am = (android.app.ActivityManager)
-                activity.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+                ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE);
         java.util.List<android.app.ActivityManager.RunningTaskInfo> tasks =
                 am == null ? null : am.getRunningTasks(25);
         if (tasks == null || tasks.isEmpty()) {
             return sb.append("  (the activity manager will not list them)\n").toString();
         }
-        int thisDisplay = activity.getDisplay() != null ? activity.getDisplay().getDisplayId() : -1;
-        sb.append("  this activity is on display ").append(thisDisplay).append('\n');
+        sb.append(where);
         for (android.app.ActivityManager.RunningTaskInfo task : tasks) {
             sb.append("  ")
                     .append(task.baseActivity == null ? "?" : task.baseActivity.flattenToShortString())

@@ -1289,7 +1289,10 @@ final class TaskbarRunning {
                     // The list is most recent first: this screen's first task is the one in
                     // front, which the bar's fade asks about on every frame.
                     front = false;
-                    FRONT.put(displayId, pkg);
+                    String before = FRONT.put(displayId, pkg);
+                    if (displayId == 0 && before != null && !before.equals(pkg)) {
+                        TaskbarDiag.onFrontChanged(before, pkg);
+                    }
                 }
                 everything.add(pkg);
                 if (isOpen(task)) {

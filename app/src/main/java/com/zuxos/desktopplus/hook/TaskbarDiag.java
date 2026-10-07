@@ -55,6 +55,162 @@ final class TaskbarDiag {
             }
         }
         L.i("taskbar diag: layout factory watched x" + hooked);
+        installTrace(loader);
+    }
+
+    // --- what ZUI calls when home and an app trade places -------------------------------------
+
+    private static final String NAV_CONTROLLER =
+            "com.android.launcher3.taskbar.NavbarButtonsViewController";
+    /** The last calls into ZUI's nav button controller: names and times, oldest overwritten. */
+    private static final int RING = 160;
+    private static final String[] RING_NAMES = new String[RING];
+    private static final long[] RING_TIMES = new long[RING];
+    private static int sRingNext;
+    private static int sTraced;
+    private static final java.util.ArrayDeque<String> TRACES = new java.util.ArrayDeque<>();
+    private static final android.os.Handler MAIN =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private static void installTrace(ClassLoader loader) {
+        try {
+            Class<?> cls = Class.forName(NAV_CONTROLLER, false, loader);
+            int hooked = 0;
+            for (Method m : cls.getDeclaredMethods()) {
+                if (Modifier.isAbstract(m.getModifiers())) {
+                    continue;
+                }
+                try {
+                    XposedBridge.hookMethod(m, RECORD);
+                    hooked++;
+                } catch (Throwable ignored) {
+                    // One method less.
+                }
+            }
+            L.i("taskbar diag: nav controller traced x" + hooked);
+        } catch (Throwable t) {
+            L.i("taskbar diag: no nav controller to trace (" + t + ")");
+        }
+    }
+
+    /** Two array writes per call: cheap enough to leave on. */
+    private static final XC_MethodHook RECORD = new XC_MethodHook() {
+        @Override
+        protected void afterHookedMethod(MethodHookParam param) {
+            if (sTraced >= MAX_TRACES) {
+                return;
+            }
+            synchronized (RING_NAMES) {
+                RING_NAMES[sRingNext] = param.method.getName();
+                RING_TIMES[sRingNext] = android.os.SystemClock.uptimeMillis();
+                sRingNext = (sRingNext + 1) % RING;
+            }
+        }
+    };
+
+    private static final int MAX_TRACES = 6;
+
+    /**
+     * The task in front of the tablet changed - home to an app, or back. The bar's keys as they
+     * are now, and a second later the calls ZUI made around the change and the keys as they
+     * ended up: the method that lays the keys out for home is in that list.
+     */
+    static void onFrontChanged(String from, String to) {
+        if (sTraced >= MAX_TRACES) {
+            return;
+        }
+        MAIN.post(() -> {
+            ViewGroup bar = tabletBar();
+            String before = bar != null ? geometry(bar) : "no bar";
+            long since = android.os.SystemClock.uptimeMillis() - 1500L;
+            MAIN.postDelayed(() -> {
+                if (sTraced >= MAX_TRACES) {
+                    return;
+                }
+                sTraced++;
+                StringBuilder calls = new StringBuilder();
+                synchronized (RING_NAMES) {
+                    for (int i = 0; i < RING; i++) {
+                        int at = (sRingNext + i) % RING;
+                        if (RING_NAMES[at] != null && RING_TIMES[at] >= since) {
+                            calls.append(calls.length() == 0 ? "" : " ").append(RING_NAMES[at]);
+                        }
+                    }
+                }
+                ViewGroup now = tabletBar();
+                String line = from + " -> " + to + ": keys before " + before + "; calls ["
+                        + calls + "]; keys after " + (now != null ? geometry(now) : "no bar");
+                L.i("taskbar diag: front " + line);
+                synchronized (TRACES) {
+                    TRACES.addLast(line);
+                    while (TRACES.size() > MAX_TRACES) {
+                        TRACES.removeFirst();
+                    }
+                }
+            }, 1000L);
+        });
+    }
+
+    /** The traces so far, for the probe. */
+    static String describeTraces() {
+        StringBuilder sb = new StringBuilder("\nhome and app switches\n");
+        synchronized (TRACES) {
+            if (TRACES.isEmpty()) {
+                sb.append("  (none yet - go home and back to an app)\n");
+            }
+            for (String t : TRACES) {
+                sb.append("  ").append(t).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private static ViewGroup tabletBar() {
+        for (android.view.View root : Windows.roots()) {
+            ViewGroup bar = TaskbarTray.dragLayerOf(root);
+            if (bar != null && TaskbarTray.displayIdOf(bar) == 0) {
+                return bar;
+            }
+        }
+        return null;
+    }
+
+    /** Where the keys and ZUI's icon row are, and how they are laid out. */
+    private static String geometry(ViewGroup bar) {
+        StringBuilder sb = new StringBuilder();
+        java.util.List<android.view.View> keys =
+                com.zuxos.desktopplus.core.Reflect.findByIdNames(bar, "end_nav_buttons");
+        if (keys.isEmpty()) {
+            sb.append("[none]");
+        } else {
+            android.view.View k = keys.get(0);
+            sb.append("[x ").append(TaskbarStart.drawnLeftIn(bar, k)).append(" w ")
+                    .append(k.getWidth());
+            if (k.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
+                android.widget.FrameLayout.LayoutParams lp =
+                        (android.widget.FrameLayout.LayoutParams) k.getLayoutParams();
+                sb.append(" g 0x").append(Integer.toHexString(lp.gravity)).append(" lw ")
+                        .append(lp.width).append(" ms ").append(lp.getMarginStart())
+                        .append(" me ").append(lp.getMarginEnd());
+            }
+            if (k instanceof ViewGroup) {
+                sb.append(" kids");
+                ViewGroup g = (ViewGroup) k;
+                for (int i = 0; i < g.getChildCount(); i++) {
+                    sb.append(' ').append(g.getChildAt(i).getWidth());
+                }
+            }
+            sb.append(']');
+        }
+        java.util.List<android.view.View> row =
+                com.zuxos.desktopplus.core.Reflect.findByIdNames(bar, "taskbar_view");
+        if (!row.isEmpty()) {
+            android.view.View r = row.get(0);
+            sb.append(" row[vis ").append(r.getVisibility()).append(" a ").append(r.getAlpha())
+                    .append(" s ").append(r.getScaleX()).append(" ty ")
+                    .append(r.getTranslationY()).append(']');
+        }
+        return sb.toString();
     }
 
     /** One line per distinct call: every argument that is a flag or a number, and the result. */

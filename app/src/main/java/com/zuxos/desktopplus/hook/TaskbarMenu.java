@@ -328,6 +328,10 @@ public final class TaskbarMenu {
                 () -> launch(ctx, Const.MODULE_PKG, displayId)));
         entries.add(new Entry("Display settings",
                 () -> open(ctx, Settings.ACTION_DISPLAY_SETTINGS, displayId)));
+        // Here as well as on the desktop: with an app open the desktop's menu is out of reach,
+        // and what the bar does inside an app is exactly what a probe is often wanted for.
+        entries.add(new Entry("Save probe to Downloads",
+                () -> Probe.dumpFromBar(ctx, displayId)));
         showEntries(source, displayId, rawX, entries);
     }
 
