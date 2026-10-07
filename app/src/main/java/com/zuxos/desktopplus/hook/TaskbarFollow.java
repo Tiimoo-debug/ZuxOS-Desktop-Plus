@@ -59,9 +59,6 @@ final class TaskbarFollow {
         String lastDescribed;
         int described;
         int transitions;
-        /** The bar's own navigation keys' container, and when it was last looked for. */
-        java.lang.ref.WeakReference<View> navContainer;
-        long navLookedAt;
         /** ZUI's icon row, found once rather than searched for on every frame. */
         java.lang.ref.WeakReference<View> row;
         /** ZUI's navigation keys, and where they were last drawn across the bar. */
@@ -270,11 +267,10 @@ final class TaskbarFollow {
             // The keyboard comes up over where the bar is; ours go, as ZUI's icons do.
             alpha = 0f;
         }
-        if (phoneStyleHome(dragLayer, state)) {
-            // The home screen in ZUI's phone-style layout: no taskbar there at all, the keys are
-            // the system's navigation bar. Ours go too. Nothing of ZUI's says so once the screen
-            // has been unlocked, and the row sat on the home screen over the keys.
-            alpha = 0f;
+        boolean home = onTabletHome(dragLayer);
+        if (home && !keyboardUp(dragLayer)) {
+            // ZUI's home on the tablet: ZUI hides its own icon row there, ours stay, as in apps.
+            alpha = Float.isNaN(reasons) ? 1f : reasons;
             shift = 0f;
         }
         describe(dragLayer, state, row, zui);
@@ -310,7 +306,6 @@ final class TaskbarFollow {
                     + (hidden ? "hide" : "show") + " - "
                     + (keyboardUp(dragLayer) ? "keyboard up"
                     : parked > 0f ? "parked by ZUI at " + parked
-                    : hidden && phoneStyleHome(dragLayer, state) ? "home in the phone layout"
                     : state.channels != null ? state.channels.why() : "the row's fade"));
         }
         state.alpha = alpha;
@@ -384,43 +379,18 @@ final class TaskbarFollow {
     private static final float SNAP = 0.1f;
 
     /**
-     * Whether this bar is on the home screen in ZUI's phone-style layout: the launcher's home in
-     * front, and the bar drawing no navigation keys of its own - none, or spread across the
-     * middle - because the system's navigation bar has them. With a taskbar on its home, as in
-     * ZUI's desktop mode, the bar keeps its keys at one end and this is false.
+     * Whether this is the tablet's bar with the home screen in front. ZUI shows no icons of its
+     * own there; ours show as they do over an app. Only while the bar's window is up: on the
+     * lock screen it is not.
      */
-    private static boolean phoneStyleHome(ViewGroup dragLayer, State state) {
-        String front = TaskbarRunning.frontPackage(TaskbarTray.displayIdOf(dragLayer));
-        if (front == null || !isHome(dragLayer.getContext(), front)) {
+    private static boolean onTabletHome(ViewGroup dragLayer) {
+        int display = TaskbarTray.displayIdOf(dragLayer);
+        if (display != android.view.Display.DEFAULT_DISPLAY || !dragLayer.isShown()
+                || dragLayer.getWindowVisibility() != View.VISIBLE) {
             return false;
         }
-        View keys = navContainer(dragLayer, state);
-        int width = dragLayer.getWidth();
-        if (keys == null || keys.getWidth() <= 0 || keys.getVisibility() != View.VISIBLE) {
-            return true;
-        }
-        if (width <= 0 || keys.getWidth() > width * 0.9f) {
-            return false;
-        }
-        float centre = TaskbarStart.drawnLeftIn(dragLayer, keys) + keys.getWidth() / 2f;
-        return Math.abs(centre - width / 2f) < width * 0.08f;
-    }
-
-    /** The bar's own keys' container, found once and kept; looked for again every few seconds. */
-    private static View navContainer(ViewGroup dragLayer, State state) {
-        View keys = state.navContainer != null ? state.navContainer.get() : null;
-        if (keys != null && isUnder(keys, dragLayer)) {
-            return keys;
-        }
-        long now = android.os.SystemClock.uptimeMillis();
-        if (now - state.navLookedAt < 3000L) {
-            return null;
-        }
-        state.navLookedAt = now;
-        List<View> found = Reflect.findByIdNames(dragLayer, "end_nav_buttons");
-        keys = found.isEmpty() ? null : found.get(0);
-        state.navContainer = keys != null ? new java.lang.ref.WeakReference<>(keys) : null;
-        return keys;
+        String front = TaskbarRunning.frontPackage(display);
+        return front != null && isHome(dragLayer.getContext(), front);
     }
 
     /** The launcher itself, or whatever is the default home now - Lawnchair, some days. */

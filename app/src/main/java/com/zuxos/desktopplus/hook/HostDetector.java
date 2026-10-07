@@ -18,6 +18,8 @@ public final class HostDetector {
     private static final String[] CLASS_HINTS = {
             "launcher", "home", "desktop", "secondary", "workspace", "pcmode"};
 
+    private static final String ZUI_LAUNCHER = "com.zui.launcher";
+
     private HostDetector() {
     }
 
@@ -37,6 +39,12 @@ public final class HostDetector {
             return false;
         }
         if (mode == Const.DISPLAY_INTERNAL && external) {
+            return false;
+        }
+        if (!external && ZUI_LAUNCHER.equals(activity.getPackageName())) {
+            // ZUI's own home on the tablet stays ZUI's: covering it put a second desktop, second
+            // folders and our Apps pill over it, and took Recents' buttons and gestures with it.
+            // The tablet gets our taskbar only.
             return false;
         }
         if (Cfg.attachAnyActivity()) {

@@ -565,7 +565,11 @@ final class TaskbarApps {
             return;
         }
         int mode = windowingMode(task);
-        boolean floating = mode == WINDOWING_MODE_FREEFORM;
+        // Only the monitor's floating windows are sized. On the tablet ZUI keeps its own sizes
+        // for floating windows - one sized to the screen came back as it was - so there, as with
+        // ZUI's own maximise button, every window is made full screen.
+        boolean floating = mode == WINDOWING_MODE_FREEFORM
+                && display != android.view.Display.DEFAULT_DISPLAY;
         android.graphics.Rect area = floating
                 ? usableArea(ctx, display) : new android.graphics.Rect();
         try {
@@ -578,10 +582,10 @@ final class TaskbarApps {
             Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
             Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
             Object wct = wctClass.getConstructor().newInstance();
-            // A floating window - the monitor's, the tablet's desktop mode - fills the area above
-            // the bar. Anything else - the tablet's own full-screen apps, a split - is made full
-            // screen, with no size of its own: giving a full-screen app a fixed size, as the
-            // first version did, shifted and letterboxed it. The empty size also undoes that.
+            // A floating window on the monitor fills the area above the bar. Anything else - the
+            // tablet's windows, floating or not, a split - is made full screen, with no size of
+            // its own: giving a full-screen app a fixed size, as the first version did, shifted
+            // and letterboxed it. The empty size also undoes that.
             wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
                     .invoke(wct, token, area);
             if (!floating) {

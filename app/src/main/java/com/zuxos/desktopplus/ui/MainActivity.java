@@ -57,6 +57,8 @@ public class MainActivity extends Activity {
                         "Tablet screen only",
                         "Both"},
                 Const.KEY_DISPLAY_MODE, Const.DISPLAY_EXTERNAL);
+        addSummary("ZUI's own home on the tablet is never covered - it keeps its icons, folders "
+                + "and Recents, and gets the taskbar only.");
         addSpinner("Stock home content", new String[]{
                         "Leave it alone (overlay on top)",
                         "Hide the stock icon grid (recommended)",
