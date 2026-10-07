@@ -104,6 +104,24 @@ final class TaskbarFollow {
             return product(false);
         }
 
+        /**
+         * Every reason but home and stashing: what holds ours down on the tablet's home and
+         * Recents. ZUI stashes its bar for its Recents; ours stay there, as over an app.
+         */
+        float onHome() {
+            float product = 1f;
+            try {
+                for (int i = 0; i < values.length; i++) {
+                    if (!home[i] && !"STASH".equals(names[i]) && values[i] != null) {
+                        product *= value.getFloat(values[i]);
+                    }
+                }
+                return product;
+            } catch (Throwable t) {
+                return Float.NaN;
+            }
+        }
+
         private float product(boolean skipHome) {
             float product = 1f;
             try {
@@ -269,8 +287,10 @@ final class TaskbarFollow {
         }
         boolean home = onTabletHome(dragLayer);
         if (home && !keyboardUp(dragLayer)) {
-            // ZUI's home on the tablet: ZUI hides its own icon row there, ours stay, as in apps.
-            alpha = Float.isNaN(reasons) ? 1f : reasons;
+            // ZUI's home or Recents on the tablet - its own, or Lawnchair's home: ZUI hides or
+            // stashes its own icon row there, ours stay, as in apps.
+            float held = state.channels != null ? state.channels.onHome() : Float.NaN;
+            alpha = Float.isNaN(held) ? 1f : held;
             shift = 0f;
         }
         describe(dragLayer, state, row, zui);
@@ -379,7 +399,8 @@ final class TaskbarFollow {
     private static final float SNAP = 0.1f;
 
     /**
-     * Whether this is the tablet's bar with the home screen in front. ZUI shows no icons of its
+     * Whether this is the tablet's bar with the home screen or Recents in front - the launcher's
+     * own package, which Recents is part of, or the default home. ZUI shows no icons of its
      * own there; ours show as they do over an app. Only while the bar's window is up: on the
      * lock screen it is not.
      */
