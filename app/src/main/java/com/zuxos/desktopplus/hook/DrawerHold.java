@@ -96,8 +96,8 @@ final class DrawerHold {
         }
 
         /**
-         * Held still a moment longer after the drag lifted the icon: from here on it rearranges
-         * the drawer. The gap opens under the finger straight away, and a tick says so.
+         * Held still a moment longer after the drag lifted the icon: from here on, moving it
+         * rearranges the drawer.
          */
         private final Runnable mArrange = () -> {
             if (mSource == null || mMoved || mReorder != null) {
@@ -108,10 +108,9 @@ final class DrawerHold {
                 L.d("drawer hold: this entry cannot be rearranged here");
                 return;
             }
+            // Only the tick: the gap opens once it moves, so a hold that ends in the menu looks
+            // the same as it always did.
             performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            if (mStartX >= 0) {
-                mReorder.moveTo(mStartX, mStartY);
-            }
         };
 
         /** The drawer steps aside, once, for a drag on its way to the desktop or the taskbar. */

@@ -116,13 +116,19 @@ public final class TaskbarTray {
         if (root == null) {
             return;
         }
-        clearWrapper(windowRoot.getRootView(), root);
-        if (Cfg.taskbarTray()) {
-            attach(root);
-        } else {
-            detach(root);
+        View window = windowRoot.getRootView();
+        clearWrapper(window, root);
+        // The tray and the glass are for bars whose window is the drag layer itself - the
+        // monitor's. The tablet's bars are wrapped, were never given either, and still are not:
+        // recognising those bars here is for our row and start button, not a new look for them.
+        if (window == root) {
+            if (Cfg.taskbarTray()) {
+                attach(root);
+            } else {
+                detach(root);
+            }
+            TaskbarGlass.apply(root);
         }
-        TaskbarGlass.apply(root);
         TaskbarRunning.apply(root);
         // After the glass, because whether it went on is half of what decides the tone, and the
         // tray only repaints itself when the battery or the network moves - which could be
