@@ -634,8 +634,8 @@ public final class NativeDrawerHooks {
 
     /**
      * An app tapped in the stock drawer that is already open on this screen: its window comes
-     * forward instead of ZUI's launch, which in desktop mode opens another window of it. Only
-     * where our desktop is; the tablet's own home behaves as ZUI made it.
+     * forward instead of ZUI's launch, which in desktop mode opens another window of it. Only on
+     * the monitor's desktop; the tablet behaves as ZUI made it.
      */
     private static boolean bringIfOpen(View view) {
         Object tag = view.getTag();
@@ -646,7 +646,7 @@ public final class NativeDrawerHooks {
         }
         String pkg = IconInfo.packageOf(tag);
         int display = view.getDisplay().getDisplayId();
-        return pkg != null && DesktopHost.isOnDisplay(display) && inStockDrawer(view)
+        return pkg != null && DesktopHost.isExternalOn(display) && inStockDrawer(view)
                 && TaskbarApps.bringIfOpen(view.getContext(), pkg, display);
     }
 

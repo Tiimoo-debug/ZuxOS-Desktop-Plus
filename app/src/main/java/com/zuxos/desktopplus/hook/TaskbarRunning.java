@@ -1027,7 +1027,9 @@ final class TaskbarRunning {
         }
         while (!pending.isEmpty()) {
             View view = pending.poll();
-            if (view.getVisibility() != View.VISIBLE || view.getAlpha() <= 0f
+            // Faded out still counts: ZUI fades its search pill in when an app opens, and a row
+            // placed while it was at nothing ran on under it once it showed.
+            if (view.getVisibility() != View.VISIBLE
                     || view.getClass().getName().startsWith("com.zuxos.desktopplus.")) {
                 continue;
             }
@@ -1049,9 +1051,29 @@ final class TaskbarRunning {
                 continue;
             }
             found = found < 0 ? left : Math.min(found, left);
+            watchBoundary(dragLayer, view);
         }
         return found;
     }
+
+    /**
+     * Something of ZUI's our row stops short of: when it moves or resizes - the search pill
+     * sliding in as an app opens - the row is placed again, at once rather than at the next
+     * refresh.
+     */
+    private static void watchBoundary(ViewGroup dragLayer, View view) {
+        if (BOUNDARIES.containsKey(view)) {
+            return;
+        }
+        BOUNDARIES.put(view, Boolean.TRUE);
+        view.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (l != ol || r != or) {
+                dragLayer.post(() -> relayout(dragLayer));
+            }
+        });
+    }
+
+    private static final Map<View, Boolean> BOUNDARIES = new WeakHashMap<>();
 
     /** How far a view's top edge is from the drag layer's. */
     private static int topIn(ViewGroup dragLayer, View view) {
@@ -1259,8 +1281,12 @@ final class TaskbarRunning {
                 }
                 describeTaskFields(task);
                 String pkg = task.baseActivity.getPackageName();
+                if (!onDisplay(task, displayId)) {
+                    // Another screen's: never on this bar, whatever the test below makes of it.
+                    continue;
+                }
                 everything.add(pkg);
-                if (isOpen(task) && onDisplay(task, displayId)) {
+                if (isOpen(task)) {
                     out.add(pkg);
                     List<Integer> ids = windows.get(pkg);
                     if (ids == null) {
@@ -1281,12 +1307,13 @@ final class TaskbarRunning {
                 return new LinkedHashSet<>();
             }
             if (out.isEmpty()) {
-                // The tests threw everything away, which means they are reading something other
-                // than what they are named after on this build. A bar of every task is wrong;
-                // an empty one is worse.
+                // The open test threw away everything on this screen, which means it is reading
+                // something other than what it is named after on this build. A bar of every task
+                // here is wrong; an empty one is worse. Other screens' tasks never count - that
+                // filled the monitor's bar with the tablet's apps.
                 if (sSaidUnfiltered.add("")) {
-                    L.i("taskbar running: nothing survived the running/display tests, so every "
-                            + "task in the list counts");
+                    L.i("taskbar running: nothing on this screen survived the open test, so every "
+                            + "task on it counts");
                 }
                 return everything;
             }

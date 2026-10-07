@@ -273,8 +273,8 @@ public final class DrawerFolderWindow {
         if (item == null || repo == null) {
             return;
         }
-        // Where our desktop is, an app already open there is brought forward, not opened again.
-        if (item.type != Item.TYPE_APP || !DesktopHost.isOnDisplay(sDisplayId)
+        // On the monitor, an app already open there is brought forward, not opened again.
+        if (item.type != Item.TYPE_APP || !DesktopHost.isExternalOn(sDisplayId)
                 || !TaskbarApps.bringIfOpen(source.getContext(), item.pkg, sDisplayId)) {
             repo.launch(item, source, sDisplayId);
         }

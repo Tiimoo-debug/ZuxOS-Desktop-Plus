@@ -96,6 +96,14 @@ public final class ActivityWatcher {
             TaskbarTray.refresh();
             DesktopHost existing = DesktopHost.of(activity);
             if (existing != null) {
+                if (!HostDetector.shouldAttach(activity)) {
+                    // The desktop mode setting no longer covers this screen: the launcher's own
+                    // home comes back now, not after the launcher is next restarted.
+                    DesktopHost.detach(activity);
+                    L.i("desktop: taken off " + activity.getClass().getSimpleName()
+                            + " - the desktop mode setting no longer includes this screen");
+                    return;
+                }
                 existing.onResume();
                 return;
             }

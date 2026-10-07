@@ -27,7 +27,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = ["app/src/main/java", "logic/src/main/java", "xposed-api"]
 
-VERSION = "15-robolectric-12650502"
+VERSION = "16-robolectric-13921718"
 URL = ("https://repo.maven.apache.org/maven2/org/robolectric/android-all/"
        "{v}/android-all-{v}.jar".format(v=VERSION))
 CACHE = os.path.join(os.path.expanduser("~"), ".cache", "zuxos-desktop-plus")

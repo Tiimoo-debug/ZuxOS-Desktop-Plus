@@ -262,6 +262,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     }
 
     /**
+     * Whether the desktop on this display is the external one - the monitor's - rather than the
+     * tablet's. Desktop-style behaviour (an open app's window brought forward on a tap, the
+     * window entries in app menus) is for the monitor only; the tablet keeps ZUI's.
+     */
+    public static synchronized boolean isExternalOn(int displayId) {
+        for (DesktopHost host : ACTIVE.values()) {
+            if (host.mDisplayId == displayId && host.mExternal) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Back, on this display's desktop: closes what is open on it - resize, a folder, the drawer.
      *
      * @return whether anything was closed
@@ -863,13 +877,14 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     }
 
     /**
-     * Opens an app, or - when it already has a window on this screen - brings that window
-     * forward: a tap on an open app is a switch to it, not a second copy. New windows are what
-     * the menu's "New window" is for.
+     * Opens an app, or - on the monitor, when it already has a window there - brings that
+     * window forward: a tap on an open app is a switch to it, not a second copy. New windows are
+     * what the menu's "New window" is for. The tablet's desktop launches as it always did.
      */
     private boolean launch(Item item, View source) {
-        if (item.type == Item.TYPE_APP && com.zuxos.desktopplus.hook.AppMenu.bringIfOpen(
-                mActivity, item.pkg, mDisplayId)) {
+        if (item.type == Item.TYPE_APP && mExternal
+                && com.zuxos.desktopplus.hook.AppMenu.bringIfOpen(mActivity, item.pkg,
+                mDisplayId)) {
             return true;
         }
         return mRepo.launch(item, source, mDisplayId);

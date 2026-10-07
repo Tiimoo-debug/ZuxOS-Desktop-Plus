@@ -592,8 +592,12 @@ final class TaskbarApps {
      */
     static android.app.ActivityManager.RunningTaskInfo frontTask(Context ctx, int display) {
         List<android.app.ActivityManager.RunningTaskInfo> tasks = tasksOn(ctx, display);
+        // Focused and showing. A window sent to the back keeps the focus when nothing else on
+        // its screen takes it, and counting it as in front made every tap on its icon minimise
+        // it again - the window could never be brought back from the bar.
         for (android.app.ActivityManager.RunningTaskInfo t : tasks) {
-            if (Boolean.TRUE.equals(Reflect.field(t, "isFocused"))) {
+            if (Boolean.TRUE.equals(Reflect.field(t, "isFocused"))
+                    && !Boolean.FALSE.equals(Reflect.field(t, "isVisible"))) {
                 return t;
             }
         }

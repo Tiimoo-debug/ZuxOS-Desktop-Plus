@@ -249,6 +249,35 @@ public final class TaskbarGlass {
         return sb.length() == 0 ? "none" : sb.toString();
     }
 
+    /** Bars waiting for their first layout before the glass goes on. */
+    private static final Map<View, Boolean> WAITING = new java.util.WeakHashMap<>();
+    private static boolean sSaidWaiting;
+
+    private static void waitForGeometry(ViewGroup dragLayer, View reference) {
+        if (WAITING.containsKey(dragLayer)) {
+            return;
+        }
+        WAITING.put(dragLayer, Boolean.TRUE);
+        if (!sSaidWaiting) {
+            sSaidWaiting = true;
+            L.d("taskbar glass: the bar's geometry is not known yet - waiting for its layout");
+        }
+        View watched = reference != null ? reference : dragLayer;
+        watched.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot,
+                    int or, int ob) {
+                View now = TaskbarTray.rowReference(dragLayer);
+                if (now == null || now.getHeight() <= 0) {
+                    return;
+                }
+                v.removeOnLayoutChangeListener(this);
+                WAITING.remove(dragLayer);
+                dragLayer.post(() -> apply(dragLayer));
+            }
+        });
+    }
+
     /** Applies or removes the glass on one taskbar, following the setting. */
     static void apply(View root) {
         if (!(root instanceof ViewGroup)) {
@@ -267,8 +296,9 @@ public final class TaskbarGlass {
             if (reference == null || reference.getHeight() <= 0) {
                 // Without the row's geometry the pane has no height to take, and a plain View
                 // asked to wrap its content fills the space it is offered - which is the whole
-                // drag layer. Wait for a layout pass instead; this runs again on every resume.
-                L.d("taskbar glass: the bar's geometry is not known yet");
+                // drag layer. Applied once the bar has been laid out, by a listener that then
+                // goes: retrying on every resume logged and searched the bar twice a second.
+                waitForGeometry(dragLayer, reference);
                 return;
             }
             ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);

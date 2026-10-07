@@ -302,6 +302,13 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
 
     // --- drag & drop -----------------------------------------------------
 
+    /** Whether the drag now under way was dropped on this grid. */
+    private boolean mHeardDrop;
+
+    private static int displayIdOf(View v) {
+        return v.getDisplay() != null ? v.getDisplay().getDisplayId() : -1;
+    }
+
     @Override
     public boolean onDrag(View v, DragEvent event) {
         // Asked of the description, not of the payload: a drag from another window - the stock
@@ -313,6 +320,7 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         DragPayload payload = DragPayload.of(event);
         switch (event.getAction()) {
             case DragEvent.ACTION_DRAG_STARTED:
+                mHeardDrop = false;
                 return true;
             case DragEvent.ACTION_DRAG_LOCATION:
                 if (payload != null) {
@@ -324,12 +332,20 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
                 return true;
             case DragEvent.ACTION_DROP:
                 clearHint();
+                mHeardDrop = true;
                 // A drag from another window is only readable now, and unreadable means a drop
                 // that does nothing rather than one that throws in the launcher's face.
                 return payload != null && payload.item != null
                         && handleDrop(payload, event.getX(), event.getY());
             case DragEvent.ACTION_DRAG_ENDED:
                 clearHint();
+                if (payload != null && payload.source == DragPayload.SRC_DRAWER) {
+                    // Whether a drag from the drawer reached the desktop at all: a drop that
+                    // never arrives here is decided by the windows above it, not by the grid.
+                    L.i("desktop on display " + displayIdOf(this) + ": drawer drag "
+                            + (mHeardDrop ? "dropped here" : "ended elsewhere")
+                            + (event.getResult() ? ", accepted" : ", not accepted"));
+                }
                 mGrabX = 0;
                 mGrabY = 0;
                 if (mCallbacks != null && payload != null) {
