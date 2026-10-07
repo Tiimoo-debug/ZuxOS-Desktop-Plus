@@ -77,7 +77,12 @@ final class TaskbarRunning {
     }
 
     /** Called whenever a taskbar is (re)attached, and then on its own every few seconds. */
-    static void apply(ViewGroup dragLayer) {
+    static void apply(ViewGroup bar) {
+        // Always onto the drag layer itself: a bar's window root can be a wrapper around it.
+        ViewGroup dragLayer = TaskbarTray.dragLayerOf(bar);
+        if (dragLayer == null) {
+            return;
+        }
         // Both of these come first, and before any setting is read: the strip is what catches an
         // app dropped on the bar, and nothing can be pinned until it is there - so a taskbar with
         // every one of these settings off still has to be able to receive the first pin.
@@ -238,11 +243,12 @@ final class TaskbarRunning {
      */
     static void rebound(ViewGroup icons) {
         try {
-            View root = icons.getRootView();
-            if (!(root instanceof ViewGroup)) {
+            // Up from the row, not the window's root: on the tablet's desktop-mode bar that root
+            // is a wrapper, and a second set of our pieces went onto it, over the whole bar.
+            ViewGroup dragLayer = TaskbarTray.dragLayerOf(icons);
+            if (dragLayer == null) {
                 return;
             }
-            ViewGroup dragLayer = (ViewGroup) root;
             TaskbarApps.installRowMenu(icons);
             // ZUI rebuilt its row, and with it its drawer button: ours stays the one shown.
             TaskbarStart.apply(dragLayer, icons);
@@ -304,9 +310,9 @@ final class TaskbarRunning {
 
     private static void applyEverywhere() {
         for (View root : Windows.roots()) {
-            if (root instanceof ViewGroup && root.isAttachedToWindow()
-                    && TaskbarTray.isTaskbar(root)) {
-                apply((ViewGroup) root);
+            ViewGroup dragLayer = root.isAttachedToWindow() ? TaskbarTray.dragLayerOf(root) : null;
+            if (dragLayer != null) {
+                apply(dragLayer);
             }
         }
     }
@@ -1680,18 +1686,20 @@ final class TaskbarRunning {
      */
     private static void fastBar(ViewGroup dragLayer) {
         try {
+            // The window's own root carries its parameters, wrapped bar or not.
+            View window = dragLayer.getRootView();
             if (TaskbarTray.displayIdOf(dragLayer) == 0
-                    || !(dragLayer.getLayoutParams() instanceof android.view.WindowManager.LayoutParams)
+                    || !(window.getLayoutParams() instanceof android.view.WindowManager.LayoutParams)
                     || dragLayer.getDisplay() == null) {
                 return;
             }
             android.view.WindowManager.LayoutParams lp =
-                    (android.view.WindowManager.LayoutParams) dragLayer.getLayoutParams();
+                    (android.view.WindowManager.LayoutParams) window.getLayoutParams();
             float before = lp.preferredRefreshRate;
             com.zuxos.desktopplus.core.FrameRate.rateOnly(lp, dragLayer.getDisplay());
             if (lp.preferredRefreshRate != before) {
                 ((android.view.WindowManager) dragLayer.getContext()
-                        .getSystemService(Context.WINDOW_SERVICE)).updateViewLayout(dragLayer, lp);
+                        .getSystemService(Context.WINDOW_SERVICE)).updateViewLayout(window, lp);
                 com.zuxos.desktopplus.core.FrameRate.forView(dragLayer);
                 L.i("taskbar: asking for " + lp.preferredRefreshRate + " Hz on display "
                         + TaskbarTray.displayIdOf(dragLayer));
@@ -1704,8 +1712,9 @@ final class TaskbarRunning {
     /** Re-reads every taskbar, for when what the row should hold has just changed. */
     static void refreshAll() {
         for (View root : Windows.roots()) {
-            if (root instanceof ViewGroup && rowIn((ViewGroup) root) != null) {
-                apply((ViewGroup) root);
+            ViewGroup dragLayer = TaskbarTray.dragLayerOf(root);
+            if (dragLayer != null && rowIn(dragLayer) != null) {
+                apply(dragLayer);
             }
         }
     }

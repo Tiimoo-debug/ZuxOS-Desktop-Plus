@@ -111,23 +111,24 @@ public final class TaskbarTray {
     }
 
     /** Puts each piece in or takes it out, following its setting. */
-    private static void applyAll(View root) {
+    private static void applyAll(View windowRoot) {
+        ViewGroup root = dragLayerOf(windowRoot);
+        if (root == null) {
+            return;
+        }
+        clearWrapper(windowRoot.getRootView(), root);
         if (Cfg.taskbarTray()) {
             attach(root);
         } else {
             detach(root);
         }
         TaskbarGlass.apply(root);
-        if (root instanceof ViewGroup) {
-            TaskbarRunning.apply((ViewGroup) root);
-        }
+        TaskbarRunning.apply(root);
         // After the glass, because whether it went on is half of what decides the tone, and the
         // tray only repaints itself when the battery or the network moves - which could be
         // minutes away.
         retint();
-        if (root instanceof ViewGroup) {
-            TaskbarApps.describeLongPress((ViewGroup) root);
-        }
+        TaskbarApps.describeLongPress(root);
     }
 
     /** Repaints every tray, for when the reason its colour might change is not its own state. */
@@ -190,13 +191,79 @@ public final class TaskbarTray {
                 && y >= tray.getTop() && y <= tray.getBottom();
     }
 
+    /** Whether a window root is a taskbar: its drag layer, or a wrapper holding one. */
     static boolean isTaskbar(View root) {
-        for (Class<?> c = root.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
+        return dragLayerOf(root) != null;
+    }
+
+    /**
+     * The bar's own {@code TaskbarDragLayer} for any view of it: the view itself, else the
+     * nearest one above it, else - for a window root that wraps it, as the tablet's desktop-mode
+     * bar does - the first one inside it. Null for anything that is not part of a taskbar.
+     *
+     * <p>Everything of ours goes on this, never on the window's root: on a wrapped bar the root
+     * is not the drag layer, and pieces put there were drawn a second time over the whole bar.
+     */
+    static ViewGroup dragLayerOf(View view) {
+        for (View v = view; v != null; ) {
+            if (isDragLayer(v)) {
+                return (ViewGroup) v;
+            }
+            v = v.getParent() instanceof View ? (View) v.getParent() : null;
+        }
+        return view instanceof ViewGroup ? dragLayerBelow((ViewGroup) view, 3) : null;
+    }
+
+    private static ViewGroup dragLayerBelow(ViewGroup group, int depth) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (isDragLayer(child)) {
+                return (ViewGroup) child;
+            }
+        }
+        if (depth > 1) {
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View child = group.getChildAt(i);
+                if (child instanceof ViewGroup) {
+                    ViewGroup found = dragLayerBelow((ViewGroup) child, depth - 1);
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDragLayer(View view) {
+        if (!(view instanceof ViewGroup)) {
+            return false;
+        }
+        for (Class<?> c = view.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
             if (c.getSimpleName().contains("TaskbarDragLayer")) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Takes away any of our pieces left directly on a wrapping window root, which an earlier
+     * build put there; they drew over the whole bar and took the start button's touches.
+     */
+    private static void clearWrapper(View root, ViewGroup dragLayer) {
+        if (root == dragLayer || !(root instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup wrapper = (ViewGroup) root;
+        for (int i = wrapper.getChildCount() - 1; i >= 0; i--) {
+            View child = wrapper.getChildAt(i);
+            if (child.getClass().getName().startsWith("com.zuxos.desktopplus.")) {
+                wrapper.removeViewAt(i);
+                L.i("tray: took " + child.getClass().getSimpleName()
+                        + " off the bar's wrapping root");
+            }
+        }
     }
 
     private static void attach(View root) {

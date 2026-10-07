@@ -305,14 +305,15 @@ public final class Probe {
         StringBuilder sb = new StringBuilder("\ntaskbar model\n");
         int found = 0;
         for (View root : Windows.roots()) {
-            if (TaskbarTray.isTaskbar(root) && root instanceof ViewGroup) {
+            ViewGroup bar = TaskbarTray.dragLayerOf(root);
+            if (bar != null) {
                 found++;
                 // Every one of them. With an external display the launcher runs a taskbar per
                 // display, and describing the built-in one would say nothing about the one being
                 // worked on.
                 sb.append("\n  --- taskbar on display ").append(displayOf(root)).append('\n');
                 try {
-                    describeTaskbar(sb, (ViewGroup) root);
+                    describeTaskbar(sb, bar);
                 } catch (Throwable t) {
                     sb.append("  (unreadable: ").append(t).append(")\n");
                 }

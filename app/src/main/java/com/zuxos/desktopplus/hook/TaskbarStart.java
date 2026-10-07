@@ -52,8 +52,12 @@ final class TaskbarStart {
     }
 
     /** Puts our button on this bar, or ZUI's back, following the setting and the bar. */
-    static void apply(ViewGroup dragLayer, ViewGroup icons) {
+    static void apply(ViewGroup bar, ViewGroup icons) {
         try {
+            ViewGroup dragLayer = TaskbarTray.dragLayerOf(bar);
+            if (dragLayer == null) {
+                return;
+            }
             View zui = allAppsButton(icons);
             if (!Cfg.startButtonLeft()) {
                 unapply(dragLayer, icons);

@@ -131,7 +131,7 @@ final class TaskbarFollow {
     /** Just before a frame: our pieces take the row's fade and slide, unless the drawer is up. */
     private static void follow(ViewGroup dragLayer, State state) {
         View row = state.row != null ? state.row.get() : null;
-        if (row == null || row.getRootView() != dragLayer) {
+        if (row == null || !isUnder(row, dragLayer)) {
             row = iconRow(dragLayer);
             if (row == null) {
                 return;
@@ -195,6 +195,19 @@ final class TaskbarFollow {
 
     private static boolean isOurs(View child) {
         return child.getClass().getName().startsWith("com.zuxos.desktopplus.");
+    }
+
+    /** Whether {@code view} is still attached somewhere inside {@code group}. */
+    private static boolean isUnder(View view, ViewGroup group) {
+        if (!view.isAttachedToWindow()) {
+            return false;
+        }
+        for (Object p = view.getParent(); p instanceof View; p = ((View) p).getParent()) {
+            if (p == group) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static View iconRow(ViewGroup dragLayer) {
