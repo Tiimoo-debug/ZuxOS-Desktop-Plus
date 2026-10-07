@@ -595,14 +595,28 @@ final class TaskbarApps {
                     if (now == WINDOWING_MODE_FREEFORM) {
                         // Kept floating after all: as big as a floating window may be.
                         sizeToScreen(ctx, t, display);
-                    } else if (now == WINDOWING_MODE_FULLSCREEN) {
-                        fillIfLetterboxed(pkg, t);
+                    } else if (now == WINDOWING_MODE_FULLSCREEN
+                            && !fillIfLetterboxed(pkg, t, "at once")) {
+                        // The monitor reports the app's own state later than the window's:
+                        // asked once more when it has settled.
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                                () -> {
+                                    for (android.app.ActivityManager.RunningTaskInfo t2
+                                            : tasksOn(ctx, display)) {
+                                        if (t2.taskId == id) {
+                                            fillIfLetterboxed(pkg, t2, "settled");
+                                            return;
+                                        }
+                                    }
+                                }, MAXIMIZE_SETTLE_MS);
                     }
                     return;
                 }
             }
         }, MAXIMIZE_CHECK_MS);
     }
+
+    private static final long MAXIMIZE_SETTLE_MS = 2000L;
 
     /**
      * The window and its app's activity full screen, with no size of their own, in front - one
@@ -643,24 +657,30 @@ final class TaskbarApps {
     /**
      * An app that keeps the size it was opened at - a phone-sized box on black once its window is
      * full screen - reopened to fill it, as the system's own restart button for such an app does
-     * and as ZUI's maximise leaves it. Only when the system says it is boxed in.
+     * and as ZUI's maximise leaves it. The system says so three ways: letterboxed, in size
+     * compatibility, or a main window smaller than its task; any one is enough. True when it was
+     * restarted.
      */
-    private static void fillIfLetterboxed(String pkg,
-            android.app.ActivityManager.RunningTaskInfo task) {
+    private static boolean fillIfLetterboxed(String pkg,
+            android.app.ActivityManager.RunningTaskInfo task, String when) {
+        String state = appState(task);
         Object compat = Reflect.field(task, "appCompatTaskInfo");
-        Object boxed = compat == null ? null : Reflect.call(compat, "isTopActivityLetterboxed");
-        Object boxWidth = compat == null ? null : Reflect.field(compat, "topActivityLetterboxWidth");
+        boolean boxed = compat != null
+                && (Boolean.TRUE.equals(Reflect.call(compat, "isTopActivityLetterboxed"))
+                || Boolean.TRUE.equals(Reflect.call(compat, "isTopActivityInSizeCompat")));
         Object bounds = boundsOf(task);
-        if (!Boolean.TRUE.equals(boxed) && boxWidth instanceof Integer
-                && bounds instanceof android.graphics.Rect && (Integer) boxWidth > 0
-                && (Integer) boxWidth < ((android.graphics.Rect) bounds).width()) {
-            // Narrower than its window: boxed in, whatever the flag says yet.
-            boxed = Boolean.TRUE;
+        Object frame = Reflect.field(task, "topActivityMainWindowFrame");
+        if (!boxed && bounds instanceof android.graphics.Rect
+                && frame instanceof android.graphics.Rect
+                && !((android.graphics.Rect) frame).isEmpty()) {
+            android.graphics.Rect b = (android.graphics.Rect) bounds;
+            android.graphics.Rect f = (android.graphics.Rect) frame;
+            // Narrower or shorter than its window by more than bars can explain.
+            boxed = f.width() < b.width() * 0.9f || f.height() < b.height() * 0.75f;
         }
-        if (!Boolean.TRUE.equals(boxed)) {
-            L.i("taskbar apps: " + pkg + " fills its window (" + (boxed == null
-                    ? "letterboxing unreadable" : "not letterboxed") + ")");
-            return;
+        if (!boxed) {
+            L.i("taskbar apps: " + pkg + " fills its window " + when + " (" + state + ")");
+            return false;
         }
         try {
             Object token = Reflect.field(task, "token");
@@ -668,12 +688,27 @@ final class TaskbarApps {
             Class<?> organizer = Class.forName("android.window.TaskOrganizer");
             organizer.getMethod("restartTaskTopActivityProcessIfVisible", tokenClass)
                     .invoke(organizer.getConstructor().newInstance(), token);
-            L.i("taskbar apps: " + pkg + " was letterboxed - relaunched to fill the screen");
+            L.i("taskbar apps: " + pkg + " kept its old size " + when + " (" + state
+                    + ") - relaunched to fill the screen");
+            return true;
         } catch (Throwable t) {
             Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
                     && t.getCause() != null ? t.getCause() : t;
-            L.i("taskbar apps: " + pkg + " letterboxed, relaunch refused (" + cause + ")");
+            L.i("taskbar apps: " + pkg + " kept its old size (" + state + "), relaunch refused ("
+                    + cause + ")");
+            return false;
         }
+    }
+
+    /** What the system says of an app's fit in its window, for the log and the probe. */
+    static String appState(android.app.ActivityManager.RunningTaskInfo task) {
+        Object compat = Reflect.field(task, "appCompatTaskInfo");
+        return "letterboxed=" + (compat == null ? "?"
+                : Reflect.call(compat, "isTopActivityLetterboxed"))
+                + " sizeCompat=" + (compat == null ? "?"
+                : Reflect.call(compat, "isTopActivityInSizeCompat"))
+                + " frame=" + Reflect.field(task, "topActivityMainWindowFrame")
+                + " window=" + boundsOf(task);
     }
 
     private static final int WINDOWING_MODE_UNDEFINED = 0;

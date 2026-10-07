@@ -214,6 +214,7 @@ public final class Probe {
                     .append(" activities=").append(Reflect.field(task, "numActivities"))
                     .append("\n    mode=").append(windowingMode(task))
                     .append(" bounds=").append(bounds(task))
+                    .append("\n    fit: ").append(TaskbarApps.appState(task))
                     .append('\n');
         }
         return sb.toString();
