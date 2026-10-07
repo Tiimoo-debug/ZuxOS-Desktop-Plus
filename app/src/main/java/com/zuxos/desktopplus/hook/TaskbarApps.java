@@ -574,130 +574,21 @@ final class TaskbarApps {
             TaskOverview.bringToFront(id, display);
             return;
         }
-        // What ZUI's own maximise in a window's menu leaves - the probe after it says so: the
-        // window full screen, the whole screen. The app's activity is put back to following its
-        // window too: switching the window alone left the activity floating inside it at its old
-        // size, an app the size of a phone on black.
-        boolean asked = toFullScreen(task);
+        // Still floating, grown by the system's own task resize to all a floating window may
+        // cover. Switching the window to full screen from here, as 1.0.125-1.0.133 did, went
+        // round ZUI's own window handling: its window menu then opened on the wrong screen, and
+        // apps that keep their shape sat in a box on black.
+        sizeToScreen(ctx, task, display);
         TaskOverview.bringToFront(id, display);
-        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen"
-                + (asked ? "" : " - refused, sizing it to the screen instead"));
-        if (!asked) {
-            sizeToScreen(ctx, task, display);
-            return;
-        }
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
                 if (t.taskId == id) {
-                    int now = windowingMode(t);
-                    L.i("taskbar apps: maximised " + pkg + " is now mode " + now + " at "
-                            + boundsOf(t));
-                    if (now == WINDOWING_MODE_FREEFORM) {
-                        // Kept floating after all: as big as a floating window may be.
-                        sizeToScreen(ctx, t, display);
-                    } else if (now == WINDOWING_MODE_FULLSCREEN
-                            && !fillIfLetterboxed(pkg, t, "at once")) {
-                        // The monitor reports the app's own state later than the window's:
-                        // asked once more when it has settled.
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                                () -> {
-                                    for (android.app.ActivityManager.RunningTaskInfo t2
-                                            : tasksOn(ctx, display)) {
-                                        if (t2.taskId == id) {
-                                            fillIfLetterboxed(pkg, t2, "settled");
-                                            return;
-                                        }
-                                    }
-                                }, MAXIMIZE_SETTLE_MS);
-                    }
+                    L.i("taskbar apps: maximised " + pkg + " is now mode " + windowingMode(t)
+                            + " at " + boundsOf(t));
                     return;
                 }
             }
         }, MAXIMIZE_CHECK_MS);
-    }
-
-    private static final long MAXIMIZE_SETTLE_MS = 2000L;
-
-    /**
-     * The window and its app's activity full screen, with no size of their own, in front - one
-     * transaction, so it lands as one step. False when refused.
-     */
-    private static boolean toFullScreen(android.app.ActivityManager.RunningTaskInfo task) {
-        try {
-            Object token = Reflect.field(task, "token");
-            if (token == null) {
-                return false;
-            }
-            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
-            Object wct = wctClass.getConstructor().newInstance();
-            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
-                    .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
-            try {
-                wctClass.getMethod("setActivityWindowingMode", tokenClass, int.class)
-                        .invoke(wct, token, WINDOWING_MODE_UNDEFINED);
-            } catch (NoSuchMethodException ignored) {
-                // An older build: the window alone, as before.
-            }
-            wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
-                    .invoke(wct, token, new android.graphics.Rect());
-            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
-            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
-            organizer.getMethod("applyTransaction", wctClass)
-                    .invoke(organizer.getConstructor().newInstance(), wct);
-            return true;
-        } catch (Throwable t) {
-            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
-                    && t.getCause() != null ? t.getCause() : t;
-            L.i("taskbar apps: full screen refused (" + cause + ")");
-            return false;
-        }
-    }
-
-    /**
-     * An app that keeps the size it was opened at - a phone-sized box on black once its window is
-     * full screen - reopened to fill it, as the system's own restart button for such an app does
-     * and as ZUI's maximise leaves it. The system says so three ways: letterboxed, in size
-     * compatibility, or a main window smaller than its task; any one is enough. True when it was
-     * restarted.
-     */
-    private static boolean fillIfLetterboxed(String pkg,
-            android.app.ActivityManager.RunningTaskInfo task, String when) {
-        String state = appState(task);
-        Object compat = Reflect.field(task, "appCompatTaskInfo");
-        boolean boxed = compat != null
-                && (Boolean.TRUE.equals(Reflect.call(compat, "isTopActivityLetterboxed"))
-                || Boolean.TRUE.equals(Reflect.call(compat, "isTopActivityInSizeCompat")));
-        Object bounds = boundsOf(task);
-        Object frame = Reflect.field(task, "topActivityMainWindowFrame");
-        if (!boxed && bounds instanceof android.graphics.Rect
-                && frame instanceof android.graphics.Rect
-                && !((android.graphics.Rect) frame).isEmpty()) {
-            android.graphics.Rect b = (android.graphics.Rect) bounds;
-            android.graphics.Rect f = (android.graphics.Rect) frame;
-            // Narrower or shorter than its window by more than bars can explain.
-            boxed = f.width() < b.width() * 0.9f || f.height() < b.height() * 0.75f;
-        }
-        if (!boxed) {
-            L.i("taskbar apps: " + pkg + " fills its window " + when + " (" + state + ")");
-            return false;
-        }
-        try {
-            Object token = Reflect.field(task, "token");
-            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-            Class<?> organizer = Class.forName("android.window.TaskOrganizer");
-            organizer.getMethod("restartTaskTopActivityProcessIfVisible", tokenClass)
-                    .invoke(organizer.getConstructor().newInstance(), token);
-            L.i("taskbar apps: " + pkg + " kept its old size " + when + " (" + state
-                    + ") - relaunched to fill the screen");
-            return true;
-        } catch (Throwable t) {
-            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
-                    && t.getCause() != null ? t.getCause() : t;
-            L.i("taskbar apps: " + pkg + " kept its old size (" + state + "), relaunch refused ("
-                    + cause + ")");
-            return false;
-        }
     }
 
     /** What the system says of an app's fit in its window, for the log and the probe. */
@@ -711,8 +602,6 @@ final class TaskbarApps {
                 + " window=" + boundsOf(task);
     }
 
-    private static final int WINDOWING_MODE_UNDEFINED = 0;
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     /**
      * The fallback: still floating, as big as the system lets one be - below the status bar,

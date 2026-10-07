@@ -338,7 +338,8 @@ public final class Probe {
 
     /** The home screen's views that can paint things of their own beyond their children. */
     private static final String[] DRAWING_CLASSES = {
-            "ScrimView", "PageIndicatorDots", "Workspace", "DragLayer", "ZuiHotseat"};
+            "ScrimView", "PageIndicatorDots", "Workspace", "DragLayer", "ZuiHotseat",
+            "StaticBlurView"};
 
     /**
      * What the home screen's own painters hold to paint with: each Drawable field's name, class,
@@ -369,7 +370,24 @@ public final class Probe {
             sb.append("  ").append(v.getClass().getName()).append(" [")
                     .append(v.getWidth()).append('x').append(v.getHeight()).append("] bg=")
                     .append(v.getBackground() == null ? "none"
-                            : v.getBackground().getClass().getSimpleName()).append('\n');
+                            : v.getBackground().getClass().getSimpleName())
+                    .append(" alpha=").append(v.getAlpha())
+                    .append(v.isShown() ? " shown" : " not shown").append('\n');
+            if (simple.equals("ZuiHotseat") && v instanceof android.view.ViewGroup) {
+                // What each of the dock's own children paints with: the pill is one of them.
+                android.view.ViewGroup dock = (android.view.ViewGroup) v;
+                for (int c = 0; c < dock.getChildCount(); c++) {
+                    View kid = dock.getChildAt(c);
+                    sb.append("    child ").append(kid.getClass().getSimpleName()).append(" [")
+                            .append(kid.getWidth()).append('x').append(kid.getHeight())
+                            .append("] vis=").append(kid.getVisibility())
+                            .append(" bg=").append(kid.getBackground() == null ? "none"
+                                    : kid.getBackground().getClass().getSimpleName())
+                            .append(" fg=").append(kid.getForeground() == null ? "none"
+                                    : kid.getForeground().getClass().getSimpleName())
+                            .append('\n');
+                }
+            }
             for (Class<?> c = v.getClass(); c != null && c != View.class; c = c.getSuperclass()) {
                 for (java.lang.reflect.Field f : c.getDeclaredFields()) {
                     if (java.lang.reflect.Modifier.isStatic(f.getModifiers())

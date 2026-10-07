@@ -53,6 +53,7 @@ final class HotseatButton {
             L.i("zux home: watching its dock x" + hooked);
             installDrawSkip(hotseat);
             installArrowOff(loader);
+            installDockBlurOff();
         } catch (Throwable t) {
             L.i("zux home: no dock of ZUI's on this build (" + t + ")");
         }
@@ -149,6 +150,86 @@ final class HotseatButton {
             L.i("zux home: no swipe-up arrow image found by name - left as ZUI shows it");
         } catch (Throwable t) {
             L.i("zux home: the swipe-up arrow's image not looked up (" + t + ")");
+        }
+    }
+
+    // --- the dock's background blur: never shown --------------------------------------------
+
+    private static final String BLUR =
+            "com.android.internal.graphics.drawable.BackgroundBlurDrawable";
+    /** The blurs the dock asked its window for: held at nothing while our start button is on. */
+    private static final java.util.Map<Object, Boolean> DOCK_BLURS =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+    private static boolean sBlurSaid;
+
+    /**
+     * The pill's dark remainder: with the dock's drawing held back, what was left is a blur the
+     * dock asks its window for, which the system draws behind the window on its own. Where the
+     * window hands one out ({@code ViewRootImpl.createBackgroundBlurDrawable}), one asked for by
+     * ZUI's dock is noted, and its strength and colour are held at nothing - at creation and on
+     * every later setting of them. No other blur is touched, and nothing runs per frame.
+     */
+    private static void installDockBlurOff() {
+        try {
+            Class<?> root = Class.forName("android.view.ViewRootImpl");
+            XposedBridge.hookMethod(root.getDeclaredMethod("createBackgroundBlurDrawable"),
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            Object blur = param.getResult();
+                            if (blur == null || !fromDock()) {
+                                return;
+                            }
+                            DOCK_BLURS.put(blur, Boolean.TRUE);
+                            if (blockDockBlur()) {
+                                silence(blur);
+                                if (!sBlurSaid) {
+                                    sBlurSaid = true;
+                                    L.i("zux home: the dock's background blur switched off");
+                                }
+                            }
+                        }
+                    });
+            Class<?> blur = Class.forName(BLUR);
+            XC_MethodHook clamp = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (param.thisObject != null && DOCK_BLURS.containsKey(param.thisObject)
+                            && blockDockBlur()) {
+                        param.args[0] = 0;
+                    }
+                }
+            };
+            for (String name : new String[]{"setBlurRadius", "setColor", "setAlpha"}) {
+                XposedBridge.hookMethod(blur.getDeclaredMethod(name, int.class), clamp);
+            }
+        } catch (Throwable t) {
+            L.i("zux home: the dock's background blur left as ZUI shows it (" + t + ")");
+        }
+    }
+
+    private static boolean blockDockBlur() {
+        return Cfg.enabled() && Cfg.startButtonLeft();
+    }
+
+    /** Asked for by ZUI's dock: a stack look, once per blur made - which is rare. */
+    private static boolean fromDock() {
+        for (StackTraceElement e : new Throwable().getStackTrace()) {
+            if (e.getClassName().startsWith(HOTSEAT)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void silence(Object blur) {
+        for (String name : new String[]{"setBlurRadius", "setColor", "setAlpha"}) {
+            try {
+                // Through the hooked setter, so the clamp holds it at nothing.
+                blur.getClass().getMethod(name, int.class).invoke(blur, 0);
+            } catch (Throwable ignored) {
+                // That one as it was.
+            }
         }
     }
 
