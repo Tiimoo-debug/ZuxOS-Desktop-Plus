@@ -81,8 +81,78 @@ final class HotseatButton {
                     }
                 }
             });
+            // ZUI loads a fresh arrow into the scrim later on - the probe found one back after
+            // the first was taken - so it is also taken just before the scrim draws: one field
+            // read per redraw of the scrim, and a fresh arrow never reaches the screen.
+            int drawHooks = 0;
+            for (Method m : scrim.getDeclaredMethods()) {
+                if ("onDraw".equals(m.getName()) && m.getParameterCount() == 1) {
+                    drawHooks++;
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof View) {
+                                keepArrowOff((View) param.thisObject);
+                            }
+                        }
+                    });
+                }
+            }
+            L.i("zux home: the scrim's swipe-up arrow kept off at its drawing x" + drawHooks);
         } catch (Throwable t) {
             L.i("zux home: no scrim of the launcher's to take the arrow from (" + t + ")");
+        }
+    }
+
+    private static java.lang.reflect.Field sHandleField;
+    private static boolean sHandleLooked;
+    private static int sRetaken;
+
+    /** Before a scrim draws: its arrow, if ZUI put a fresh one in, swapped out again. */
+    private static void keepArrowOff(View scrim) {
+        if (!Cfg.enabled() || !Cfg.startButtonLeft()) {
+            return;
+        }
+        if (!sHandleLooked) {
+            sHandleLooked = true;
+            for (Class<?> c = scrim.getClass(); c != null && c != View.class;
+                    c = c.getSuperclass()) {
+                try {
+                    java.lang.reflect.Field f = c.getDeclaredField("mDragHandle");
+                    f.setAccessible(true);
+                    sHandleField = f;
+                    break;
+                } catch (Throwable ignored) {
+                    // Not here; the class above.
+                }
+            }
+        }
+        java.lang.reflect.Field f = sHandleField;
+        if (f == null) {
+            swapArrow(scrim);
+            return;
+        }
+        try {
+            Object d = f.get(scrim);
+            if (!(d instanceof android.graphics.drawable.Drawable) || d instanceof EmptyDrawable) {
+                return;
+            }
+            android.graphics.drawable.Drawable arrow = (android.graphics.drawable.Drawable) d;
+            android.graphics.drawable.Drawable none = new EmptyDrawable(
+                    arrow.getIntrinsicWidth(), arrow.getIntrinsicHeight());
+            none.setBounds(arrow.getBounds());
+            f.set(scrim, none);
+            synchronized (SWAPPED) {
+                if (!SWAPPED.containsKey(scrim)) {
+                    SWAPPED.put(scrim, new Object[]{f, arrow});
+                }
+            }
+            if (sRetaken < 5) {
+                sRetaken++;
+                L.i("zux home: a fresh swipe-up arrow on the scrim taken before it drew");
+            }
+        } catch (Throwable ignored) {
+            // The scrim draws as ZUI made it.
         }
     }
 
