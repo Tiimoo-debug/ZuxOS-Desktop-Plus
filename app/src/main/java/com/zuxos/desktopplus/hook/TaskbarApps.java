@@ -574,11 +574,19 @@ final class TaskbarApps {
             TaskOverview.bringToFront(id, display);
             return;
         }
-        // Still floating, grown by the system's own task resize to all a floating window may
-        // cover. Switching the window to full screen from here, as 1.0.125-1.0.133 did, went
-        // round ZUI's own window handling: its window menu then opened on the wrong screen, and
-        // apps that keep their shape sat in a box on black.
-        sizeToScreen(ctx, task, display);
+        if (display == android.view.Display.DEFAULT_DISPLAY && toFullScreen(task)) {
+            // The tablet's desktop mode: full screen, window and app together - tried there on
+            // 1.0.133 with Claude, Gallery, Lawnchair and Termux, each filling the screen as
+            // ZUI's own maximise does.
+            L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen");
+        } else {
+            // The monitor's desktop is another window system: switching a window there to full
+            // screen from here went round ZUI's own handling of it - its window menu then
+            // opened on the tablet, and apps that keep their shape sat in a box on black. Still
+            // floating there, grown by the system's own task resize to all a floating window
+            // may cover, until the system trace shows how ZUI's own maximise does it.
+            sizeToScreen(ctx, task, display);
+        }
         TaskOverview.bringToFront(id, display);
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
@@ -590,6 +598,45 @@ final class TaskbarApps {
             }
         }, MAXIMIZE_CHECK_MS);
     }
+
+    /**
+     * The window and its app's activity full screen, with no size of their own, in front - one
+     * transaction. The tablet's desktop mode only. False when refused.
+     */
+    private static boolean toFullScreen(android.app.ActivityManager.RunningTaskInfo task) {
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null) {
+                return false;
+            }
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
+                    .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
+            try {
+                wctClass.getMethod("setActivityWindowingMode", tokenClass, int.class)
+                        .invoke(wct, token, WINDOWING_MODE_UNDEFINED);
+            } catch (NoSuchMethodException ignored) {
+                // An older build: the window alone, as before.
+            }
+            wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
+                    .invoke(wct, token, new android.graphics.Rect());
+            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
+            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+            organizer.getMethod("applyTransaction", wctClass)
+                    .invoke(organizer.getConstructor().newInstance(), wct);
+            return true;
+        } catch (Throwable t) {
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            L.i("taskbar apps: full screen refused (" + cause + ")");
+            return false;
+        }
+    }
+
+    private static final int WINDOWING_MODE_UNDEFINED = 0;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     /** What the system says of an app's fit in its window, for the log and the probe. */
     static String appState(android.app.ActivityManager.RunningTaskInfo task) {
