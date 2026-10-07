@@ -59,6 +59,9 @@ final class TaskbarFollow {
         String lastDescribed;
         int described;
         int transitions;
+        /** The bar's own navigation keys' container, and when it was last looked for. */
+        java.lang.ref.WeakReference<View> navContainer;
+        long navLookedAt;
         /** ZUI's icon row, found once rather than searched for on every frame. */
         java.lang.ref.WeakReference<View> row;
         /** ZUI's navigation keys, and where they were last drawn across the bar. */
@@ -240,13 +243,6 @@ final class TaskbarFollow {
         float alpha;
         float shift;
         float reasons = channelsOf(dragLayer, state);
-        if (!Float.isNaN(reasons) && keysCentred(dragLayer, state)) {
-            // ZUI's home in its phone-style layout - the keys spread across the middle, no
-            // taskbar: its home fade hides the bar there, and ours go with it. Leaving it out
-            // is only for the bar that stays on ZUI's home, keys at one end. After an unlock
-            // nothing else hid ours, and the row sat on the home screen over the keys.
-            reasons = state.channels.all();
-        }
         if (!Float.isNaN(reasons) && row.getAlpha() < state.channels.all() - 0.02f) {
             // Faded further than its channels say: ZUI is hiding the row some other way - the
             // bar switched off - so ours follow the row itself, as they always did.
@@ -274,6 +270,13 @@ final class TaskbarFollow {
             // The keyboard comes up over where the bar is; ours go, as ZUI's icons do.
             alpha = 0f;
         }
+        if (phoneStyleHome(dragLayer, state)) {
+            // The home screen in ZUI's phone-style layout: no taskbar there at all, the keys are
+            // the system's navigation bar. Ours go too. Nothing of ZUI's says so once the screen
+            // has been unlocked, and the row sat on the home screen over the keys.
+            alpha = 0f;
+            shift = 0f;
+        }
         describe(dragLayer, state, row, zui);
         if ((alpha < 0.999f || shift != 0f)
                 && TaskbarStart.drawerOpen(TaskbarTray.displayIdOf(dragLayer))) {
@@ -296,6 +299,7 @@ final class TaskbarFollow {
             L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " ours "
                     + (hidden ? "hide" : "show") + " - "
                     + (keyboardUp(dragLayer) ? "keyboard up"
+                    : hidden && phoneStyleHome(dragLayer, state) ? "home in the phone layout"
                     : state.channels != null ? state.channels.why() : "the row's fade"));
         }
         state.alpha = alpha;
@@ -366,21 +370,68 @@ final class TaskbarFollow {
     private static final long KEYS_SETTLE_MS = 50L;
 
     /**
-     * Whether ZUI's navigation keys sit across the middle of the bar, as on its home in the
-     * phone-style layout, rather than at one end, as with a taskbar. Uses the keys
-     * {@link #watchKeys} already found; a few field reads.
+     * Whether this bar is on the home screen in ZUI's phone-style layout: the launcher's home in
+     * front, and the bar drawing no navigation keys of its own - none, or spread across the
+     * middle - because the system's navigation bar has them. With a taskbar on its home, as in
+     * ZUI's desktop mode, the bar keeps its keys at one end and this is false.
      */
-    private static boolean keysCentred(ViewGroup dragLayer, State state) {
-        View keys = state.keys != null ? state.keys.get() : null;
-        int width = dragLayer.getWidth();
-        if (keys == null || width <= 0 || state.keysLeft == Integer.MIN_VALUE
-                || keys.getWidth() <= 0 || keys.getWidth() > width * 0.9f) {
-            // None, not placed yet, or a container spanning the bar - which says nothing.
+    private static boolean phoneStyleHome(ViewGroup dragLayer, State state) {
+        String front = TaskbarRunning.frontPackage(TaskbarTray.displayIdOf(dragLayer));
+        if (front == null || !isHome(dragLayer.getContext(), front)) {
             return false;
         }
-        float centre = state.keysLeft + keys.getWidth() / 2f;
+        View keys = navContainer(dragLayer, state);
+        int width = dragLayer.getWidth();
+        if (keys == null || keys.getWidth() <= 0 || keys.getVisibility() != View.VISIBLE) {
+            return true;
+        }
+        if (width <= 0 || keys.getWidth() > width * 0.9f) {
+            return false;
+        }
+        float centre = TaskbarStart.drawnLeftIn(dragLayer, keys) + keys.getWidth() / 2f;
         return Math.abs(centre - width / 2f) < width * 0.08f;
     }
+
+    /** The bar's own keys' container, found once and kept; looked for again every few seconds. */
+    private static View navContainer(ViewGroup dragLayer, State state) {
+        View keys = state.navContainer != null ? state.navContainer.get() : null;
+        if (keys != null && isUnder(keys, dragLayer)) {
+            return keys;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - state.navLookedAt < 3000L) {
+            return null;
+        }
+        state.navLookedAt = now;
+        List<View> found = Reflect.findByIdNames(dragLayer, "end_nav_buttons");
+        keys = found.isEmpty() ? null : found.get(0);
+        state.navContainer = keys != null ? new java.lang.ref.WeakReference<>(keys) : null;
+        return keys;
+    }
+
+    /** The launcher itself, or whatever is the default home now - Lawnchair, some days. */
+    private static boolean isHome(android.content.Context ctx, String pkg) {
+        if (pkg.equals(ctx.getPackageName())) {
+            return true;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (sHomePkg == null || now - sHomeAt > 30_000L) {
+            sHomeAt = now;
+            try {
+                android.content.pm.ResolveInfo home = ctx.getPackageManager().resolveActivity(
+                        new android.content.Intent(android.content.Intent.ACTION_MAIN)
+                                .addCategory(android.content.Intent.CATEGORY_HOME), 0);
+                sHomePkg = home != null && home.activityInfo != null
+                        ? home.activityInfo.packageName : "";
+            } catch (Throwable t) {
+                sHomePkg = "";
+            }
+        }
+        return pkg.equals(sHomePkg);
+    }
+
+    private static String sHomePkg;
+    private static long sHomeAt;
 
     /**
      * ZUI's icon fade with its home screen left out, or NaN when ZUI's channels cannot be read -

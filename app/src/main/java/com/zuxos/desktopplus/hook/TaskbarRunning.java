@@ -1275,6 +1275,7 @@ final class TaskbarRunning {
                 return out;
             }
             Map<String, List<Integer>> windows = new java.util.LinkedHashMap<>();
+            boolean front = true;
             for (ActivityManager.RunningTaskInfo task : tasks) {
                 if (task.baseActivity == null) {
                     continue;
@@ -1284,6 +1285,12 @@ final class TaskbarRunning {
                 if (!onDisplay(task, displayId)) {
                     // Another screen's: never on this bar, whatever the test below makes of it.
                     continue;
+                }
+                if (front) {
+                    // The list is most recent first: this screen's first task is the one in
+                    // front, which the bar's fade asks about on every frame.
+                    front = false;
+                    FRONT.put(displayId, pkg);
                 }
                 everything.add(pkg);
                 if (isOpen(task)) {
@@ -1324,6 +1331,15 @@ final class TaskbarRunning {
     }
 
     private static final Set<String> sSaidUnfiltered = new LinkedHashSet<>();
+
+    /** Per display: the package of the task in front, as of the last read of the task list. */
+    private static final Map<Integer, String> FRONT =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The package in front on this display, or null before the task list was first read. */
+    static String frontPackage(int displayId) {
+        return FRONT.get(displayId);
+    }
 
     /** Per display: each open app's windows (task ids), in the order they were opened. */
     private static final Map<Integer, Map<String, List<Integer>>> WINDOWS =

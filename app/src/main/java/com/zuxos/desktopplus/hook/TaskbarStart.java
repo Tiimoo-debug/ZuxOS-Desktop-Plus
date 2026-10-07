@@ -79,6 +79,7 @@ final class TaskbarStart {
             }
             ours.bind(zui);
             place(dragLayer, ours, zui);
+            placeSearch(dragLayer, icons, ours);
         } catch (Throwable t) {
             L.d("taskbar start: not placed (" + t + ")");
         }
@@ -93,6 +94,57 @@ final class TaskbarStart {
         View zui = allAppsButton(icons);
         if (zui != null && HIDDEN.remove(zui) != null) {
             zui.setVisibility(View.VISIBLE);
+        }
+        View pill = searchPill(icons);
+        if (pill != null && SEARCH_MOVED.remove(pill) != null) {
+            pill.setTranslationX(0f);
+        }
+    }
+
+    /** ZUI's search pills we moved beside the start button, so they can be put back. */
+    private static final Map<View, Boolean> SEARCH_MOVED = new WeakHashMap<>();
+
+    /** The gap between the start button and the search pill. */
+    private static final int SEARCH_GAP_DP = 8;
+
+    /**
+     * ZUI's search pill on the tablet's desktop-mode bar, or null where the bar has none. Found by
+     * its class name ({@code ZuiTaskbarSearchContainer}), among the row's own children.
+     */
+    static View searchPill(ViewGroup icons) {
+        if (icons == null) {
+            return null;
+        }
+        for (int i = 0; i < icons.getChildCount(); i++) {
+            View child = icons.getChildAt(i);
+            if (child.getClass().getSimpleName().contains("Search")
+                    && child.getVisibility() == View.VISIBLE) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The search pill right after the start button, as on a desktop's taskbar: start, search,
+     * then the apps. Slid there rather than laid out again - ZUI keeps laying its row out and
+     * the slide just follows - and the apps then start after it.
+     */
+    private static void placeSearch(ViewGroup dragLayer, ViewGroup icons, StartButton ours) {
+        View pill = searchPill(icons);
+        if (pill == null || pill.getWidth() <= 0
+                || !(ours.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) ours.getLayoutParams();
+        if (lp.width <= 0) {
+            return;
+        }
+        int target = lp.leftMargin + lp.width + Ui.dp(dragLayer.getContext(), SEARCH_GAP_DP);
+        float slide = target - offsetIn(dragLayer, pill);
+        SEARCH_MOVED.put(pill, Boolean.TRUE);
+        if (Math.abs(pill.getTranslationX() - slide) > 0.5f) {
+            pill.setTranslationX(slide);
         }
     }
 
@@ -166,11 +218,11 @@ final class TaskbarStart {
     }
 
     /**
-     * Whether this child of ZUI's row is the drawer button we set invisible: anything measuring
-     * where ZUI's icons end skips it.
+     * Whether this child of ZUI's row is the drawer button we set invisible, or the search pill
+     * we slid beside the start button: anything measuring where ZUI's icons end skips it.
      */
     static boolean isMoved(View child) {
-        return HIDDEN.containsKey(child);
+        return HIDDEN.containsKey(child) || SEARCH_MOVED.containsKey(child);
     }
 
     /**
@@ -185,7 +237,15 @@ final class TaskbarStart {
             // movements, and a row measured from those jumped with them.
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) ours.getLayoutParams();
             if (lp.width > 0) {
-                return lp.leftMargin + lp.width;
+                int right = lp.leftMargin + lp.width;
+                // The search pill, moved beside it, belongs to the same cluster: the apps start
+                // after the pill.
+                View pill = searchPill(icons);
+                if (pill != null && SEARCH_MOVED.containsKey(pill) && pill.getWidth() > 0) {
+                    right = Math.max(right, Math.round(offsetIn(dragLayer, pill)
+                            + pill.getTranslationX()) + pill.getWidth());
+                }
+                return right;
             }
         }
         View zui = allAppsButton(icons);
