@@ -137,6 +137,11 @@ public final class NativeDrawerHooks {
                                 // And once more after any press animation of its own has run.
                                 tapped.postDelayed(() -> com.zuxos.desktopplus.desktop
                                         .FolderStyle.restoreIcon(tapped), 350L);
+                            } else if (param.thisObject instanceof View
+                                    && bringIfOpen((View) param.thisObject)) {
+                                // ZUI's launch skipped: the app's window came forward instead.
+                                // The drawer still closes, after this, as for any launch.
+                                param.setResult(Boolean.TRUE);
                             }
                         }
 
@@ -606,18 +611,6 @@ public final class NativeDrawerHooks {
     }
 
     /**
-     * Hold anything in the stock drawer and it comes out with your finger.
-     *
-     * <p>Claimed at {@code performLongClick}, which is hooked on {@code View} itself and therefore
-     * fires for every view in the launcher - the desktop's own icons and the taskbar's among them,
-     * both of which have gestures of their own. So this is deliberately narrow: an entry we can
-     * read, inside the stock drawer's window and nowhere else.
-     *
-     * <p>The drag is global and carries its payload on the clip, because it has to cross from the
-     * drawer's window into the launcher's activity, where the desktop is - and a local state
-     * object does not survive that trip.
-     */
-    /**
      * An app tapped in the stock drawer: the drawer goes once the launch is under way.
      *
      * <p>ZUI closes it only for launches it runs itself, and on the desktop displays the launch
@@ -639,6 +632,36 @@ public final class NativeDrawerHooks {
 
     private static final long CLOSE_AFTER_LAUNCH_MS = 220L;
 
+    /**
+     * An app tapped in the stock drawer that is already open on this screen: its window comes
+     * forward instead of ZUI's launch, which in desktop mode opens another window of it. Only
+     * where our desktop is; the tablet's own home behaves as ZUI made it.
+     */
+    private static boolean bringIfOpen(View view) {
+        Object tag = view.getTag();
+        // A tag test first: this runs for every click in the launcher.
+        if (tag == null || sAppInfoCls == null || !sAppInfoCls.isInstance(tag)
+                || folderIdOf(tag) != null || view.getDisplay() == null) {
+            return false;
+        }
+        String pkg = IconInfo.packageOf(tag);
+        int display = view.getDisplay().getDisplayId();
+        return pkg != null && DesktopHost.isOnDisplay(display) && inStockDrawer(view)
+                && TaskbarApps.bringIfOpen(view.getContext(), pkg, display);
+    }
+
+    /**
+     * Hold anything in the stock drawer and it comes out with your finger.
+     *
+     * <p>Claimed at {@code performLongClick}, which is hooked on {@code View} itself and therefore
+     * fires for every view in the launcher - the desktop's own icons and the taskbar's among them,
+     * both of which have gestures of their own. So this is deliberately narrow: an entry we can
+     * read, inside the stock drawer's window and nowhere else.
+     *
+     * <p>The drag is global and carries its payload on the clip, because it has to cross from the
+     * drawer's window into the launcher's activity, where the desktop is - and a local state
+     * object does not survive that trip.
+     */
     private static boolean dragOut(View view) {
         if (!Cfg.enabled() || !Cfg.drawerDrag()) {
             return false;
@@ -672,9 +695,11 @@ public final class NativeDrawerHooks {
             // Watched before it starts, so its first move is heard: the watcher decides between
             // a drag (closes the drawer once it moves) and a hold (menu when it is let go).
             DrawerHold.watch(view, item);
-            return view.startDragAndDrop(payload.toClip(),
-                    new View.DragShadowBuilder(view), payload,
-                    View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
+            boolean started = view.startDragAndDrop(payload.toClip(),
+                    new View.DragShadowBuilder(view), payload, DragPayload.FLAGS);
+            L.i("native drawer: drag of " + item.label + " on display "
+                    + view.getDisplay().getDisplayId() + (started ? " started" : " refused"));
+            return started;
         } catch (Throwable t) {
             L.d("native drawer: could not start a drag (" + t + ")");
             return false;
@@ -683,17 +708,7 @@ public final class NativeDrawerHooks {
 
     /** Whether a view is inside the drawer's own window rather than some other one. */
     private static boolean inStockDrawer(View view) {
-        View root = TaskbarBridge.stockDrawerRoot();
-        if (root == null) {
-            return false;
-        }
-        for (View v = view; v != null; ) {
-            if (v == root) {
-                return true;
-            }
-            v = v.getParent() instanceof View ? (View) v.getParent() : null;
-        }
-        return false;
+        return view.isAttachedToWindow() && TaskbarBridge.isAllAppsWindow(view.getRootView());
     }
 
     /** An entry in the launcher's drawer, as one of our items. */

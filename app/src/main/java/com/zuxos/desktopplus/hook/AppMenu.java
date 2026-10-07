@@ -12,26 +12,42 @@ import java.util.List;
  * The taskbar's app actions, for the desktop's own menus.
  *
  * <p>Close and the app's shortcuts were only on a taskbar icon's menu, so the same app held on
- * the desktop or in the drawer offered less. This hands the desktop the same two, built by the
- * same code, so all three menus agree.
+ * the desktop or in the drawer offered less. This hands the desktop the same entries, built by
+ * the same code, so all three menus agree - including which of them an app gets: New window,
+ * Minimize and Close only for an app that has a window on this screen.
  */
 public final class AppMenu {
 
     private AppMenu() {
     }
 
-    /** Adds "Close" and the app's own shortcuts, each with its icon. */
+    /**
+     * Adds what the taskbar offers for an open app - New window, Minimize, Close (this window,
+     * and all of them when there are several) - and the app's own shortcuts, each with its icon.
+     */
     public static void addTo(List<Menus.Entry> entries, Context ctx, String pkg, UserHandle user,
             int displayId, Runnable after) {
         if (ctx == null || pkg == null) {
             return;
         }
-        entries.add(new Menus.Entry("Close", () -> {
-            TaskbarApps.close(ctx, pkg);
-            if (after != null) {
-                after.run();
+        List<Integer> windows = TaskbarApps.windowIds(ctx, pkg, displayId);
+        if (!windows.isEmpty()) {
+            // The window the app's taskbar icon stands for: its first when it has several.
+            int window = windows.size() > 1 ? windows.get(0) : -1;
+            entries.add(new Menus.Entry("New window", then(after,
+                    () -> TaskbarApps.newWindow(ctx, pkg, displayId))));
+            entries.add(new Menus.Entry("Minimize", then(after,
+                    () -> TaskbarApps.minimize(ctx, pkg, displayId, window))));
+            if (windows.size() > 1) {
+                entries.add(new Menus.Entry("Close", then(after,
+                        () -> TaskbarApps.closeWindow(ctx, pkg, displayId, window))));
+                entries.add(new Menus.Entry("Close all windows", then(after,
+                        () -> TaskbarApps.close(ctx, pkg))));
+            } else {
+                entries.add(new Menus.Entry("Close", then(after,
+                        () -> TaskbarApps.close(ctx, pkg))));
             }
-        }));
+        }
         for (ShortcutInfo shortcut : TaskbarApps.shortcuts(ctx, pkg, user)) {
             CharSequence label = shortcut.getShortLabel() != null
                     ? shortcut.getShortLabel() : shortcut.getLongLabel();
@@ -45,5 +61,22 @@ public final class AppMenu {
                 }
             }).withIcon(TaskbarApps.shortcutIcon(ctx, shortcut)));
         }
+    }
+
+    /**
+     * Brings the app's window forward when it already has one on this screen, instead of
+     * opening another; false when it has none, and the caller launches it as usual.
+     */
+    public static boolean bringIfOpen(Context ctx, String pkg, int displayId) {
+        return TaskbarApps.bringIfOpen(ctx, pkg, displayId);
+    }
+
+    private static Runnable then(Runnable after, Runnable action) {
+        return () -> {
+            action.run();
+            if (after != null) {
+                after.run();
+            }
+        };
     }
 }

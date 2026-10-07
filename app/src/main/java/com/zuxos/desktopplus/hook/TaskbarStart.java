@@ -337,6 +337,7 @@ final class TaskbarStart {
                 PRESSED.delete(display);
                 if (TaskbarBridge.closeStockDrawer(display)) {
                     mRobot.setWide(false);
+                    L.i("start button: closed the drawer on display " + display);
                     return;
                 }
             }
@@ -347,20 +348,30 @@ final class TaskbarStart {
             mRobot.setWide(true);
             removeCallbacks(mWatchDrawer);
             postDelayed(mWatchDrawer, 600L);
-            boolean handled = mZui.performClick();
             View zui = mZui;
+            if (mThroughController) {
+                L.i("start button: " + openThroughController(zui) + " on display " + display);
+                return;
+            }
+            boolean handled = zui.performClick();
             postDelayed(() -> {
                 if (TaskbarBridge.isStockDrawerOpen(display)) {
+                    L.i("start button: ZUI's button opened the drawer on display " + display);
                     return;
                 }
                 // ZUI's button did not bring its drawer up - on some of its bars the press is
-                // handled elsewhere. Its drawer's own controller is asked instead.
+                // handled elsewhere. Its drawer's own controller is asked instead, and on this
+                // bar from now on, so later presses open at once.
                 String how = openThroughController(zui);
+                mThroughController = how.startsWith("opened");
                 L.i("start button: ZUI's button " + (handled ? "took" : "ignored")
                         + " the press on display " + display + " and no drawer came up; "
                         + how);
             }, 450L);
         }
+
+        /** This bar's button opens nothing; its drawer's controller is asked straight away. */
+        private boolean mThroughController;
 
         /**
          * Opens ZUI's drawer through the taskbar's all-apps controller - a field whose name the

@@ -383,8 +383,14 @@ public final class FolderStyle {
         Object hidden = panel.getTag(R_HIDDEN);
         panel.setTag(R_HIDDEN, null);
         if (hidden instanceof View) {
-            ((View) hidden).setAlpha(1f);
-            restoreIcon((View) hidden);
+            View icon = (View) hidden;
+            icon.setAlpha(1f);
+            restoreIcon(icon);
+            if (sSaidRestore < 4) {
+                // The first few closes: what the icon came back as, beside a neighbour.
+                sSaidRestore++;
+                icon.postDelayed(() -> describeBeside(icon), Motion.SPRING_MS + 50L);
+            }
         }
     }
 
@@ -395,16 +401,66 @@ public final class FolderStyle {
      */
     public static void restoreIcon(View icon) {
         try {
+            icon.animate().cancel();
             icon.setPressed(false);
             icon.setHovered(false);
+            // The press shrink can sit in the icon's drawable as well as on the view, and a view
+            // whose pressed flag is already off never hands its drawables the new state: they
+            // are given it here, and their own animations snapped to it.
+            icon.refreshDrawableState();
+            if (icon instanceof android.widget.TextView) {
+                int[] state = icon.getDrawableState();
+                for (android.graphics.drawable.Drawable d
+                        : ((android.widget.TextView) icon).getCompoundDrawables()) {
+                    if (d != null) {
+                        d.setState(state);
+                        d.jumpToCurrentState();
+                    }
+                }
+            }
             icon.jumpDrawablesToCurrentState();
             if (icon.getScaleX() != 1f || icon.getScaleY() != 1f) {
                 icon.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
                         .setInterpolator(Motion.SNAPPY).start();
             }
+            icon.invalidate();
         } catch (Throwable ignored) {
             // A view gone with its window.
         }
+    }
+
+    private static int sSaidRestore;
+
+    /** The restored icon's size beside a neighbour's, so a difference left over is named. */
+    private static void describeBeside(View icon) {
+        View neighbour = null;
+        if (icon.getParent() instanceof android.view.ViewGroup) {
+            android.view.ViewGroup parent = (android.view.ViewGroup) icon.getParent();
+            for (int i = 0; i < parent.getChildCount(); i++) {
+                View c = parent.getChildAt(i);
+                if (c != icon && c.getClass() == icon.getClass()) {
+                    neighbour = c;
+                    break;
+                }
+            }
+        }
+        com.zuxos.desktopplus.core.L.i("folder style: icon after close " + sizeOf(icon)
+                + (neighbour != null ? ", neighbour " + sizeOf(neighbour) : ""));
+    }
+
+    private static String sizeOf(View v) {
+        String drawn = "";
+        if (v instanceof android.widget.TextView) {
+            for (android.graphics.drawable.Drawable d
+                    : ((android.widget.TextView) v).getCompoundDrawables()) {
+                if (d != null) {
+                    drawn = " icon " + d.getBounds().width() + "x" + d.getBounds().height()
+                            + " level " + d.getLevel() + " " + d.getClass().getSimpleName();
+                    break;
+                }
+            }
+        }
+        return v.getWidth() + "x" + v.getHeight() + " scale " + v.getScaleX() + drawn;
     }
 
     private static void sourceAlpha(View panel, float alpha) {

@@ -833,7 +833,8 @@ final class TaskbarRunning {
         if (icons != null && icons != reference) {
             icons.addOnLayoutChangeListener(again);
         }
-        // And the navigation keys, which ZUI moves from one end of the bar to the other.
+        // And the navigation keys, held at the end where the build lets us, followed otherwise.
+        NavKeysHold.watch(dragLayer);
         View keys = TaskbarStart.navKeys(dragLayer);
         if (keys != null && keys != reference && keys != icons) {
             keys.addOnLayoutChangeListener(again);
@@ -846,6 +847,12 @@ final class TaskbarRunning {
      * or moved its navigation keys.
      */
     static void relayout(ViewGroup dragLayer) {
+        // The start button first: our row is measured from where it ends, and placing the row
+        // first measured it from where the button used to be.
+        ViewGroup row = iconRow(dragLayer);
+        if (row != null) {
+            TaskbarStart.apply(dragLayer, row);
+        }
         RunningRow current = rowIn(dragLayer);
         if (current != null) {
             place(dragLayer, current, TaskbarTray.rowReference(dragLayer));
@@ -853,12 +860,6 @@ final class TaskbarRunning {
         // The marks sit under the icons that moved, and the drop strip spans the same bar.
         TaskbarMarks.refresh(dragLayer);
         TaskbarDrop.apply(dragLayer);
-        // A relayout puts ZUI's drawer button back in its slot as far as the row is concerned;
-        // the move is re-measured from where it now is.
-        ViewGroup row = iconRow(dragLayer);
-        if (row != null) {
-            TaskbarStart.apply(dragLayer, row);
-        }
     }
 
     /** One geometry listener per taskbar, whether or not our row is up at the moment. */
@@ -1269,6 +1270,12 @@ final class TaskbarRunning {
                     ids.add(task.taskId);
                 }
             }
+            // In the order they were opened, not front first: each icon keeps its window, where
+            // ordering by recency made the app's icon and its window icon trade windows on
+            // every tap, and Close hit whichever happened to be in front.
+            for (List<Integer> ids : windows.values()) {
+                java.util.Collections.sort(ids);
+            }
             WINDOWS.put(displayId, windows);
             if (everything.size() <= 1) {
                 return new LinkedHashSet<>();
@@ -1291,7 +1298,7 @@ final class TaskbarRunning {
 
     private static final Set<String> sSaidUnfiltered = new LinkedHashSet<>();
 
-    /** Per display: each open app's windows (task ids), the front one first. */
+    /** Per display: each open app's windows (task ids), in the order they were opened. */
     private static final Map<Integer, Map<String, List<Integer>>> WINDOWS =
             new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -1320,6 +1327,16 @@ final class TaskbarRunning {
             }
         }
         return out;
+    }
+
+    /**
+     * The window an app's own icon stands for: its first, when it has more than one here; -1
+     * when it has one or none, where the app and its window are the same thing.
+     */
+    static int firstWindow(String pkg, int displayId) {
+        Map<String, List<Integer>> windows = WINDOWS.get(displayId);
+        List<Integer> ids = windows == null ? null : windows.get(pkg);
+        return ids != null && ids.size() > 1 ? ids.get(0) : -1;
     }
 
     private static void addExtra(List<String> out, List<Integer> ids, String pkg) {
@@ -1351,7 +1368,7 @@ final class TaskbarRunning {
      * for, and it is not visible. Running is the test, and where the build will not say, every
      * task counts - which is where this started.
      */
-    private static boolean isOpen(Object task) {
+    static boolean isOpen(Object task) {
         Object visible = Reflect.field(task, "isVisible");
         if (visible instanceof Boolean && (Boolean) visible) {
             return true;
@@ -1758,20 +1775,13 @@ final class TaskbarRunning {
             view.setTag(pkg);
             view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
             view.setOnClickListener(v -> {
-                // The app already in front: minimised, as a desktop taskbar does, rather than
-                // opened again over itself.
-                if (TaskbarApps.minimizeIfFront(ctx, pkg, taskId, displayId)) {
-                    return;
-                }
                 // A window icon is that window; the app's own icon, when it has several, is its
-                // front one - not the app opened again.
-                int target = taskId;
-                if (target < 0) {
-                    Map<String, List<Integer>> windows = WINDOWS.get(displayId);
-                    List<Integer> ids = windows == null ? null : windows.get(pkg);
-                    if (ids != null && ids.size() > 1) {
-                        target = ids.get(0);
-                    }
+                // first - always the same one, whichever is in front.
+                int target = taskId >= 0 ? taskId : firstWindow(pkg, displayId);
+                // That window already in front: minimised, as a desktop taskbar does, rather
+                // than opened again over itself.
+                if (TaskbarApps.minimizeIfFront(ctx, pkg, target, displayId)) {
+                    return;
                 }
                 if (target >= 0 && TaskOverview.bringToFront(target, displayId)) {
                     return;
@@ -1790,7 +1800,8 @@ final class TaskbarRunning {
             // The same menu a pinned icon gives, for the same reason: from here on the bar is
             // one row, and one row should not behave two ways.
             view.setOnLongClickListener(v -> TaskbarApps.showMenu(v, pkg,
-                    android.os.Process.myUserHandle(), displayId, taskId));
+                    android.os.Process.myUserHandle(), displayId,
+                    taskId >= 0 ? taskId : firstWindow(pkg, displayId)));
             view.setOnTouchListener(new Press());
             TaskbarPreview.attach(view, pkg, displayId, taskId);
             return view;

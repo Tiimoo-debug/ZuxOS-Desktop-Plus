@@ -127,6 +127,8 @@ final class DrawerHold {
             // Stepped aside, not closed: this window is the one the drag belongs to, and closing
             // it mid-drag cancelled the drag - nothing dropped on the desktop or the bar.
             mAside = TaskbarBridge.stepAsideStockDrawer(this);
+            L.i("drawer hold: drawer " + (mAside != null ? "stepped aside" : "closed")
+                    + " for the drag");
             if (mAside == null) {
                 post(TaskbarBridge::closeStockDrawer);
             }
@@ -189,6 +191,11 @@ final class DrawerHold {
                     View source = mSource;
                     Item item = mItem;
                     boolean menu = !mMoved && !event.getResult();
+                    if (mMoved) {
+                        L.i("drawer hold: drag ended " + (mDroppedHere ? "in the drawer"
+                                : event.getResult() ? "accepted" : "not accepted") + " at "
+                                + (int) event.getX() + "," + (int) event.getY());
+                    }
                     if (mReorder != null && !mDroppedHere) {
                         // Dropped elsewhere, or nowhere: the drawer's icons all back in place,
                         // the picked-up one showing again for the next time it opens.

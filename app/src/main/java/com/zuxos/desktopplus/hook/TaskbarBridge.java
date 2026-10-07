@@ -149,33 +149,62 @@ public final class TaskbarBridge {
     }
 
     /**
-     * The root view of the stock drawer's window, or null when it is not open.
-     *
-     * <p>Windows cannot see into each other, so a panel floating over the stock drawer has
-     * nothing behind it to refract unless it is handed the drawer's own view tree.
-     */
-    public static View stockDrawerRoot() {
-        for (View root : Windows.roots()) {
-            if (isAllAppsWindow(root) && root.getWidth() > 0 && root.getHeight() > 0) {
-                return root;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The drawer's window, by name.
+     * The drawer's window: the taskbar's own overlay window, holding its all-apps sheet.
      *
      * <p>Launcher3's taskbar all-apps classes are all named {@code Taskbar*AllApps*}, and the
-     * firmware's R8 pass keeps launcher class names (the probe dump shows them in full), so the
-     * name is the reliable signal. The tree is searched too, in case a build wraps the drag layer
-     * in something more generic.
+     * firmware's R8 pass keeps launcher class names, so the name is the reliable signal. It is
+     * looked for only near the top of a window that is not an activity's: ZUX Home's own window
+     * always holds its hidden built-in drawer ({@code LauncherAllAppsContainerView}), and taking
+     * that for the taskbar's drawer made every drawer icon look like it was elsewhere, the start
+     * button "close" a drawer that was never open, and Home tap the middle of the home screen.
      */
-    private static boolean isAllAppsWindow(View root) {
-        if (containsAllAppsName(root.getClass())) {
+    static boolean isAllAppsWindow(View root) {
+        if (root == null) {
+            return false;
+        }
+        if (root.getLayoutParams() instanceof android.view.WindowManager.LayoutParams) {
+            int type = ((android.view.WindowManager.LayoutParams) root.getLayoutParams()).type;
+            if (type >= android.view.WindowManager.LayoutParams.FIRST_APPLICATION_WINDOW
+                    && type <= android.view.WindowManager.LayoutParams.LAST_APPLICATION_WINDOW) {
+                return false;
+            }
+        }
+        return taskbarAllAppsWithin(root, ALL_APPS_DEPTH);
+    }
+
+    /** The sheet sits two levels under the overlay's drag layer; three leaves room for a wrapper. */
+    private static final int ALL_APPS_DEPTH = 3;
+
+    private static boolean taskbarAllAppsWithin(View v, int depth) {
+        if (isTaskbarAllApps(v.getClass())) {
             return true;
         }
-        return !findAllApps(root).isEmpty();
+        if (depth <= 0 || !(v instanceof ViewGroup)) {
+            return false;
+        }
+        ViewGroup g = (ViewGroup) v;
+        for (int c = 0; c < g.getChildCount(); c++) {
+            if (taskbarAllAppsWithin(g.getChildAt(c), depth - 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isTaskbarAllApps(Class<?> cls) {
+        for (Class<?> c = cls; c != null && c != Object.class; c = c.getSuperclass()) {
+            String name = c.getSimpleName();
+            if (name.startsWith("Taskbar") && name.contains("AllApps")
+                    && !name.contains("Button")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The stock drawer's window root on this view's own display, or null when not open there. */
+    public static View stockDrawerRootOn(int displayId) {
+        return drawerOn(displayId);
     }
 
     private static boolean containsAllAppsName(Class<?> cls) {

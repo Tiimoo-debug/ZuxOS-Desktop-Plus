@@ -359,27 +359,33 @@ final class TaskbarApps {
 
     /**
      * The same, for one window of the app: {@code taskId} is that window's task, or -1 for the
-     * app's front window on this display. With more than one window open here, Close closes
-     * this one only, and "Close all windows" closes the app.
+     * app's own icon - its first window on this display. With more than one window open here,
+     * Close closes this one only, and "Close all windows" closes the app. An app with no window
+     * here has neither: there is nothing of it to close, minimise or open again.
      */
     static List<TaskbarMenu.Entry> entriesFor(Context ctx, String pkg, UserHandle user,
             int displayId, int taskId) {
         List<TaskbarMenu.Entry> entries = new ArrayList<>();
-        entries.add(new TaskbarMenu.Entry("Open", () -> TaskbarMenu.launch(ctx, pkg, displayId)));
-        if (taskOf(ctx, pkg, displayId) != null) {
-            // Only for an app that is open here: a second window of something with no first one
-            // is just opening it, and there is nothing to minimise.
+        List<Integer> windows = windowIds(ctx, pkg, displayId);
+        int window = taskId >= 0 ? taskId : firstOf(windows);
+        entries.add(new TaskbarMenu.Entry("Open", () -> {
+            if (!bringIfOpen(ctx, pkg, displayId)) {
+                TaskbarMenu.launch(ctx, pkg, displayId);
+            }
+        }));
+        if (!windows.isEmpty()) {
             // For every app: one that keeps a single window gets its second through the
             // system's part of the module (System Framework in LSPosed).
             entries.add(new TaskbarMenu.Entry("New window",
                     () -> newWindow(ctx, pkg, displayId)));
-            entries.add(new TaskbarMenu.Entry("Minimize", () -> minimize(ctx, pkg, displayId)));
+            entries.add(new TaskbarMenu.Entry("Minimize",
+                    () -> minimize(ctx, pkg, displayId, window)));
         }
-        if (windowsOf(ctx, pkg, displayId) > 1) {
+        if (windows.size() > 1) {
             entries.add(new TaskbarMenu.Entry("Close",
-                    () -> closeWindow(ctx, pkg, displayId, taskId)));
+                    () -> closeWindow(ctx, pkg, displayId, window)));
             entries.add(new TaskbarMenu.Entry("Close all windows", () -> close(ctx, pkg)));
-        } else {
+        } else if (!windows.isEmpty()) {
             entries.add(new TaskbarMenu.Entry("Close", () -> close(ctx, pkg)));
         }
         entries.add(new TaskbarMenu.Entry("App info", () -> appInfo(ctx, pkg, displayId)));
@@ -515,12 +521,69 @@ final class TaskbarApps {
      * only ever closed by the user.
      */
     static void minimize(Context ctx, String pkg, int display) {
-        android.app.ActivityManager.RunningTaskInfo task = taskOf(ctx, pkg, display);
+        minimize(ctx, pkg, display, -1);
+    }
+
+    /** The same, for one window: {@code taskId}, or the app's front one here when -1. */
+    static void minimize(Context ctx, String pkg, int display, int taskId) {
+        android.app.ActivityManager.RunningTaskInfo task = null;
+        if (taskId >= 0) {
+            for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+                if (t.taskId == taskId) {
+                    task = t;
+                    break;
+                }
+            }
+        }
+        if (task == null) {
+            task = taskOf(ctx, pkg, display);
+        }
         if (task == null) {
             L.i("taskbar apps: " + pkg + " has no window on display " + display);
             return;
         }
         minimizeTask(ctx, task, display);
+    }
+
+    /** The app's windows on this display, as task ids in the order they were opened. */
+    static List<Integer> windowIds(Context ctx, String pkg, int display) {
+        List<Integer> ids = new ArrayList<>();
+        for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+            if (pkg.equals(packageOf(t)) && TaskbarRunning.isOpen(t)) {
+                ids.add(t.taskId);
+            }
+        }
+        java.util.Collections.sort(ids);
+        return ids;
+    }
+
+    /**
+     * The window the app's own icon stands for: its first, for good, when it has several - so
+     * a tap, Close or Minimize on it never lands on whichever happened to be in front. -1 for
+     * one window or none, where "the app" says it already.
+     */
+    private static int firstOf(List<Integer> ids) {
+        return ids.size() > 1 ? ids.get(0) : -1;
+    }
+
+    /**
+     * A tap on an app that is already open here brings its window forward - its first one, the
+     * same the taskbar's icon stands for - instead of opening another. True when it did; false
+     * for an app with no window on this display, which is then launched as usual.
+     */
+    public static boolean bringIfOpen(Context ctx, String pkg, int display) {
+        if (ctx == null || pkg == null) {
+            return false;
+        }
+        List<Integer> ids = windowIds(ctx, pkg, display);
+        if (ids.isEmpty()) {
+            return false;
+        }
+        if (TaskOverview.bringToFront(ids.get(0), display)) {
+            L.i("taskbar apps: " + pkg + " is open - brought window " + ids.get(0) + " forward");
+            return true;
+        }
+        return false;
     }
 
     /**

@@ -855,11 +855,24 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             updateWallpaperBlur();
             return;
         }
-        if (!mRepo.launch(item, source, mDisplayId)) {
+        if (!launch(item, source)) {
             toast("Could not open " + (item.label != null ? item.label : "app"));
             return;
         }
         closeOverlays();
+    }
+
+    /**
+     * Opens an app, or - when it already has a window on this screen - brings that window
+     * forward: a tap on an open app is a switch to it, not a second copy. New windows are what
+     * the menu's "New window" is for.
+     */
+    private boolean launch(Item item, View source) {
+        if (item.type == Item.TYPE_APP && com.zuxos.desktopplus.hook.AppMenu.bringIfOpen(
+                mActivity, item.pkg, mDisplayId)) {
+            return true;
+        }
+        return mRepo.launch(item, source, mDisplayId);
     }
 
     public void startDrag(Item item, View source, int dragSource, Item folder) {
@@ -890,7 +903,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             // Drags that stay in this window still find the local state first and keep every
             // reference it holds, the folder and the multiple selection included.
             source.startDragAndDrop(payload.toClip(), shadow, payload,
-                    View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
+                    DragPayload.FLAGS);
             if (dragSource == DragPayload.SRC_DESKTOP) {
                 mDragView = source;
                 source.setVisibility(View.INVISIBLE);
@@ -1644,7 +1657,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     @Override
     public void onLaunch(Item item, View source) {
-        if (!mRepo.launch(item, source, mDisplayId)) {
+        if (!launch(item, source)) {
             toast("Could not open " + (item.label != null ? item.label : "app"));
             return;
         }

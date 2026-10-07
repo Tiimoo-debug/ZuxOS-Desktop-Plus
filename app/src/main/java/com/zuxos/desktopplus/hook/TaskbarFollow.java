@@ -58,6 +58,7 @@ final class TaskbarFollow {
         float shift = 0f;
         String lastDescribed;
         int described;
+        int transitions;
         /** ZUI's icon row, found once rather than searched for on every frame. */
         java.lang.ref.WeakReference<View> row;
         /** ZUI's navigation keys, and where they were last drawn across the bar. */
@@ -81,29 +82,33 @@ final class TaskbarFollow {
     private static final class Channels {
         final Object[] values;
         final Field value;
-        final int home;
+        /** Each channel's name, from its {@code ALPHA_INDEX_*} constant; null where unnamed. */
+        final String[] names;
+        /** The channels that mean "ZUI's home": not followed. */
+        final boolean[] home;
 
-        Channels(Object[] values, Field value, int home) {
+        Channels(Object[] values, Field value, String[] names, boolean[] home) {
             this.values = values;
             this.value = value;
+            this.names = names;
             this.home = home;
         }
 
         /** Every reason but home, multiplied; NaN if a value cannot be read. */
         float allButHome() {
-            return product(home);
+            return product(true);
         }
 
         /** Every reason, home included: what ZUI's icon row itself is faded to. */
         float all() {
-            return product(-1);
+            return product(false);
         }
 
-        private float product(int skip) {
+        private float product(boolean skipHome) {
             float product = 1f;
             try {
                 for (int i = 0; i < values.length; i++) {
-                    if (i != skip && values[i] != null) {
+                    if (!(skipHome && home[i]) && values[i] != null) {
                         product *= value.getFloat(values[i]);
                     }
                 }
@@ -113,11 +118,32 @@ final class TaskbarFollow {
             }
         }
 
+        /** The channels followed that are holding ours down at the moment, by name. */
+        String why() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < values.length; i++) {
+                try {
+                    float v = values[i] == null ? 1f : value.getFloat(values[i]);
+                    if (!home[i] && v < 0.999f) {
+                        sb.append(sb.length() == 0 ? "" : ", ").append(nameOf(i)).append('=')
+                                .append(v);
+                    }
+                } catch (Throwable t) {
+                    sb.append('?');
+                }
+            }
+            return sb.length() == 0 ? "no channel" : sb.toString();
+        }
+
+        String nameOf(int i) {
+            return names[i] != null ? names[i] : String.valueOf(i);
+        }
+
         String describe() {
             StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < values.length; i++) {
                 try {
-                    sb.append(i == 0 ? "" : ", ").append(i == home ? "home=" : "")
+                    sb.append(i == 0 ? "" : ", ").append(home[i] ? "home " : "")
                             .append(values[i] == null ? "-" : value.getFloat(values[i]));
                 } catch (Throwable t) {
                     sb.append("?");
@@ -251,6 +277,15 @@ final class TaskbarFollow {
         if (alpha == state.alpha && shift == state.shift) {
             return;
         }
+        boolean hidden = alpha < 0.01f;
+        if (hidden != state.alpha < 0.01f && state.transitions < 40) {
+            // Each time ours go or come back, and which of ZUI's reasons did it.
+            state.transitions++;
+            L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " ours "
+                    + (hidden ? "hide" : "show") + " - "
+                    + (keyboardUp(dragLayer) ? "keyboard up"
+                    : state.channels != null ? state.channels.why() : "the row's fade"));
+        }
         state.alpha = alpha;
         state.shift = shift;
         apply(dragLayer, alpha, shift);
@@ -369,15 +404,36 @@ final class TaskbarFollow {
             if (value == null) {
                 return null;
             }
-            int home = 0;
-            try {
-                Field index = view.getClass().getDeclaredField("ALPHA_INDEX_HOME");
-                index.setAccessible(true);
-                home = index.getInt(null);
-            } catch (Throwable ignored) {
-                // Launcher3 has always put home first.
+            // Each channel by name: ZUI has more of them than Launcher3, and more than one of
+            // its own is about its home screen. Every one whose name says HOME is left out.
+            String[] names = new String[best.length];
+            boolean[] home = new boolean[best.length];
+            StringBuilder map = new StringBuilder();
+            for (Field f : view.getClass().getDeclaredFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                        || f.getType() != int.class || !f.getName().startsWith("ALPHA_INDEX_")) {
+                    continue;
+                }
+                try {
+                    f.setAccessible(true);
+                    int i = f.getInt(null);
+                    if (i >= 0 && i < names.length) {
+                        String name = f.getName().substring("ALPHA_INDEX_".length());
+                        names[i] = name;
+                        home[i] = name.contains("HOME");
+                        map.append(' ').append(i).append('=').append(name);
+                    }
+                } catch (Throwable ignored) {
+                    // One name less.
+                }
             }
-            return new Channels(best, value, home);
+            if (map.length() == 0) {
+                // Unnamed on this build: Launcher3 has always put home first.
+                home[0] = true;
+            }
+            L.i("taskbar follow: " + TaskbarScope.label(dragLayer) + " channels"
+                    + (map.length() == 0 ? " unnamed, home taken as 0" : map));
+            return new Channels(best, value, names, home);
         } catch (Throwable t) {
             L.d("taskbar follow: no icon channels (" + t + ")");
             return null;

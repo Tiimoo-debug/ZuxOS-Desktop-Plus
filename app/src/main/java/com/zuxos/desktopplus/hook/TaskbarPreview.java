@@ -254,12 +254,15 @@ final class TaskbarPreview {
         Context ctx = Overlays.windowContext(icon.getContext());
         Object tag = icon.getTag(TAG_TASK);
         int taskId = tag instanceof Integer ? (Integer) tag : -1;
+        if (taskId < 0) {
+            taskId = TaskbarRunning.firstWindow(pkg, display);
+        }
         List<ActivityManager.RunningTaskInfo> windows = new ArrayList<>();
         for (ActivityManager.RunningTaskInfo task : TaskbarApps.tasksOn(ctx, display)) {
             if (!pkg.equals(TaskbarApps.packageOf(task))) {
                 continue;
             }
-            // One icon, one window: this icon's own task, or the app's front one.
+            // One icon, one window: this icon's own task, or the app's only one.
             if (taskId < 0 ? windows.isEmpty() : task.taskId == taskId) {
                 windows.add(task);
             }

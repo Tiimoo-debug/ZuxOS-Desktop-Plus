@@ -16,6 +16,7 @@ import android.widget.Toast;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderStyle;
 import com.zuxos.desktopplus.desktop.GlassPanel;
@@ -128,7 +129,7 @@ public final class DrawerFolderWindow {
             // The stock drawer sits behind this window in a window of its own, so it is captured
             // first and our scrim second: the lens then bends the real app grid, dimmed, instead
             // of a flat sheet of colour.
-            glass.addSource(TaskbarBridge.stockDrawerRoot());
+            glass.addSource(TaskbarBridge.stockDrawerRootOn(displayId));
             glass.addSource(root);
             glass.post(glass::refresh);
             root.setFocusableInTouchMode(true);
@@ -250,7 +251,7 @@ public final class DrawerFolderWindow {
                     // out. The folder it came from still rides along, for reordering in here.
                     DragPayload payload = new DragPayload(item, DragPayload.SRC_DRAWER, sFolder);
                     view.startDragAndDrop(payload.toClip(), view.shadow(), payload,
-                            View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE);
+                            DragPayload.FLAGS);
                 }
             });
             GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
@@ -272,7 +273,11 @@ public final class DrawerFolderWindow {
         if (item == null || repo == null) {
             return;
         }
-        repo.launch(item, source, sDisplayId);
+        // Where our desktop is, an app already open there is brought forward, not opened again.
+        if (item.type != Item.TYPE_APP || !DesktopHost.isOnDisplay(sDisplayId)
+                || !TaskbarApps.bringIfOpen(source.getContext(), item.pkg, sDisplayId)) {
+            repo.launch(item, source, sDisplayId);
+        }
         stepAside();
     }
 

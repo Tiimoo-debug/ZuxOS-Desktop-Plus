@@ -30,6 +30,7 @@ public class GlassBackdrop extends FrameLayout {
     private final LiquidGlass.Material mMaterial;
     private final float mRadius;
     private final float mExtend;
+    private float mExtendSides;
     private int mTintRgb;
     private final int mBase;
     private final Layer mFrost;
@@ -94,6 +95,18 @@ public class GlassBackdrop extends FrameLayout {
             old.recycle();
         }
         redraw();
+    }
+
+    /**
+     * Runs the shape past both sides of the pane by this much: a bar spanning the screen, whose
+     * rim would otherwise curve back in at both ends and read as a second bar inside the first.
+     */
+    public void setExtendSides(float px) {
+        if (px != mExtendSides) {
+            mExtendSides = px;
+            mEffectW = 0;
+            applyEffects();
+        }
     }
 
     public void setTint(int tintRgb) {
@@ -206,10 +219,10 @@ public class GlassBackdrop extends FrameLayout {
             return;
         }
         RenderEffect frost = LiquidGlass.frost(getContext(), mMaterial, frostSize(w),
-                frostSize(h), mRadius * FROST_SCALE, mExtend * FROST_SCALE, mTintRgb, mBase,
-                FROST_SCALE);
+                frostSize(h), mRadius * FROST_SCALE, mExtend * FROST_SCALE,
+                mExtendSides * FROST_SCALE, mTintRgb, mBase, FROST_SCALE);
         RenderEffect lens = LiquidGlass.lens(getContext(), mMaterial, w, h, mRadius, mExtend,
-                mTintRgb);
+                mExtendSides, mTintRgb);
         if (frost == null || lens == null) {
             return;
         }

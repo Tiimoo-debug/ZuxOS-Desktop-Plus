@@ -16,6 +16,19 @@ public final class DragPayload {
     /** A pin being moved along the taskbar. Never leaves the taskbar's window. */
     public static final int SRC_TASKBAR = 3;
 
+    /**
+     * {@code View.DRAG_FLAG_GLOBAL_SAME_APPLICATION} (Android 15): the drag reaches every window
+     * of the launcher and no other app's. Spelled out because the constant is not in every SDK.
+     */
+    public static final int SAME_APPLICATION = 1 << 12;
+
+    /**
+     * How every drag of ours starts: across the launcher's own windows, opaque, and seen by no
+     * other app - ZUI's sidebar freezes the tablet's input when it is shown one.
+     */
+    public static final int FLAGS = android.view.View.DRAG_FLAG_GLOBAL | SAME_APPLICATION
+            | android.view.View.DRAG_FLAG_OPAQUE;
+
     public final Item item;
     public final int source;
     /** Folder the item was dragged out of, for {@link #SRC_FOLDER}. */

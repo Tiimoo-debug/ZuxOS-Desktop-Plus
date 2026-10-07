@@ -90,14 +90,17 @@ public final class LiquidGlass {
     private static final String SHAPE_AGSL = """
             uniform float2 size;
             uniform float extendB;
+            uniform float extendX;
             uniform float radius;
             uniform float smoothN;
 
             // Continuous-corner rounded box. The shape may run past the bottom of the view by
-            // extendB, which squares off the bottom corners of a pane sitting on a screen edge.
+            // extendB, which squares off the bottom corners of a pane sitting on a screen edge,
+            // and past both sides by extendX, for a bar that spans the screen end to end.
             float sdShape(float2 p) {
-                float2 halfS = float2(size.x, size.y + extendB) * 0.5;
-                float2 q = abs(p - halfS) - halfS + radius;
+                float2 halfS = float2(size.x + 2.0 * extendX, size.y + extendB) * 0.5;
+                float2 centre = float2(size.x * 0.5, halfS.y);
+                float2 q = abs(p - centre) - halfS + radius;
                 float2 m = max(q, float2(0.0)) / max(radius, 0.001);
                 float corner = radius * pow(pow(m.x, smoothN) + pow(m.y, smoothN) + 1e-9,
                         1.0 / smoothN);
@@ -254,12 +257,24 @@ public final class LiquidGlass {
      */
     public static RenderEffect frost(Context ctx, Material m, int width, int height,
             float radiusPx, float extendBottomPx, int tintRgb, int base, float pxScale) {
+        return frost(ctx, m, width, height, radiusPx, extendBottomPx, 0f, tintRgb, base,
+                pxScale);
+    }
+
+    /**
+     * The same, for a pane that also runs past both sides of the view by
+     * {@code extendSidesPx}: a bar from one end of the screen to the other, whose rim would
+     * otherwise curve back in at both ends.
+     */
+    public static RenderEffect frost(Context ctx, Material m, int width, int height,
+            float radiusPx, float extendBottomPx, float extendSidesPx, int tintRgb, int base,
+            float pxScale) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
         try {
             RuntimeShader shader = new RuntimeShader(FROST_AGSL);
-            shape(shader, width, height, radiusPx, extendBottomPx);
+            shape(shader, width, height, radiusPx, extendBottomPx, extendSidesPx);
             body(shader, m, tintRgb);
             shader.setFloatUniform("base", channel(base, 16), channel(base, 8), channel(base, 0),
                     channel(base, 24));
@@ -275,12 +290,18 @@ public final class LiquidGlass {
     /** The rim of the same pane, drawn over its {@link #frost}. */
     public static RenderEffect lens(Context ctx, Material m, int width, int height,
             float radiusPx, float extendBottomPx, int tintRgb) {
+        return lens(ctx, m, width, height, radiusPx, extendBottomPx, 0f, tintRgb);
+    }
+
+    /** The same, past both sides too; see {@link #frost}. */
+    public static RenderEffect lens(Context ctx, Material m, int width, int height,
+            float radiusPx, float extendBottomPx, float extendSidesPx, int tintRgb) {
         if (!isSupported() || width <= 0 || height <= 0) {
             return null;
         }
         try {
             RuntimeShader shader = new RuntimeShader(LENS_AGSL);
-            shape(shader, width, height, radiusPx, extendBottomPx);
+            shape(shader, width, height, radiusPx, extendBottomPx, extendSidesPx);
             body(shader, m, tintRgb);
             shader.setFloatUniform("bevel", Ui.dp(ctx, m.bevel));
             shader.setFloatUniform("depth", Ui.dp(ctx, m.depth));
@@ -301,11 +322,12 @@ public final class LiquidGlass {
     }
 
     private static void shape(RuntimeShader shader, int width, int height, float radius,
-            float extend) {
+            float extend, float sides) {
         shader.setFloatUniform("size", width, height);
         shader.setFloatUniform("extendB", extend);
+        shader.setFloatUniform("extendX", sides);
         shader.setFloatUniform("radius", Math.max(0f, Math.min(radius,
-                Math.min(width, height + extend) / 2f)));
+                Math.min(width + 2f * sides, height + extend) / 2f)));
         shader.setFloatUniform("smoothN", SMOOTH);
     }
 

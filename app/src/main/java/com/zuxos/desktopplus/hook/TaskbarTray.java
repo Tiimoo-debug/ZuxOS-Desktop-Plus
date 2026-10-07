@@ -79,6 +79,7 @@ public final class TaskbarTray {
         TaskbarGlass.install(loader);
         TaskbarMenu.install(loader);
         TaskbarApps.install(loader);
+        NavKeysHold.install(loader);
         try {
             Class<?> impl = Reflect.findClass("android.view.WindowManagerImpl", loader);
             if (impl == null) {

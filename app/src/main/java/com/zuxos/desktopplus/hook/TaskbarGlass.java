@@ -552,6 +552,8 @@ public final class TaskbarGlass {
         private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float mRadius;
+        /** How far the shape runs past each end: the radius when the bar spans the screen. */
+        private float mSides;
 
         private boolean mBlurred;
         private boolean mLive;
@@ -580,6 +582,7 @@ public final class TaskbarGlass {
                 boolean dark = Tone.lightOnDark(getContext());
                 mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius, mRadius,
                         LiquidGlass.tintFor(dark), dark ? 0x99161620 : 0x99F2F2F5, 33L);
+                mGlass.setExtendSides(mSides);
                 addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
                         LayoutParams.MATCH_PARENT));
                 mGlass.setLive(true, () -> {
@@ -627,6 +630,13 @@ public final class TaskbarGlass {
             if (h <= 0) {
                 return;
             }
+            // A bar from one end of the screen to the other has no ends of its own: its shape
+            // runs on past both, so the rim is one straight line, flush with the screen's edges,
+            // instead of curving back in and reading as a second bar inside the first.
+            mSides = w >= getResources().getDisplayMetrics().widthPixels - 2 ? mRadius : 0f;
+            if (mGlass != null) {
+                mGlass.setExtendSides(mSides);
+            }
             // Lighter at the top, where a sheet of glass catches the light.
             mFill.setShader(new LinearGradient(0, 0, 0, h,
                     new int[]{TINT_TOP, TINT, TINT_BOTTOM},
@@ -658,7 +668,7 @@ public final class TaskbarGlass {
             float w = getWidth();
             float h = getHeight();
             if (w > 0 && h > 0) {
-                RectF r = new RectF(0, 0, w, h + mRadius);
+                RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
                 canvas.drawRoundRect(r, mRadius, mRadius, mFill);
             }
         }
@@ -672,8 +682,9 @@ public final class TaskbarGlass {
                 return;
             }
             // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
-            // rectangle is extended past it and the bottom corners fall off the view.
-            RectF r = new RectF(0, 0, w, h + mRadius);
+            // rectangle is extended past it and the bottom corners fall off the view - and past
+            // both ends too when the bar spans the screen.
+            RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
             // The floor under every glyph, over the glass: the lightest veil, in the colour
             // opposite the glyphs, that keeps them at 3:1 against anything behind.
             canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(Tone.lightOnDark(getContext())));
