@@ -14,7 +14,7 @@ import java.util.List;
  * <p>Close and the app's shortcuts were only on a taskbar icon's menu, so the same app held on
  * the desktop or in the drawer offered less. This hands the desktop the same entries, built by
  * the same code, so all three menus agree. On the monitor that includes which of them an app
- * gets: New window, Minimize and Close only for an app that has a window there. The tablet's
+ * gets: New window, Minimize, Maximize and Close only for an app that has a window there. The tablet's
  * desktop keeps the menu it always had.
  */
 public final class AppMenu {
@@ -52,6 +52,8 @@ public final class AppMenu {
                     () -> TaskbarApps.newWindow(ctx, pkg, displayId))));
             entries.add(new Menus.Entry("Minimize", then(after,
                     () -> TaskbarApps.minimize(ctx, pkg, displayId, window))));
+            entries.add(new Menus.Entry("Maximize", then(after,
+                    () -> TaskbarApps.maximize(ctx, pkg, displayId, window))));
             if (windows.size() > 1) {
                 entries.add(new Menus.Entry("Close", then(after,
                         () -> TaskbarApps.closeWindow(ctx, pkg, displayId, window))));

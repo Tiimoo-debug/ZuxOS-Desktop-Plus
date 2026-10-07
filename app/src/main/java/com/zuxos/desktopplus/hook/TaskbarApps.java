@@ -380,6 +380,8 @@ final class TaskbarApps {
                     () -> newWindow(ctx, pkg, displayId)));
             entries.add(new TaskbarMenu.Entry("Minimize",
                     () -> minimize(ctx, pkg, displayId, window)));
+            entries.add(new TaskbarMenu.Entry("Maximize",
+                    () -> maximize(ctx, pkg, displayId, window)));
         }
         if (windows.size() > 1) {
             entries.add(new TaskbarMenu.Entry("Close",
@@ -543,6 +545,77 @@ final class TaskbarApps {
             return;
         }
         minimizeTask(ctx, task, display);
+    }
+
+    /**
+     * Fills the screen with one window of the app - {@code taskId}, or its front one here when -1
+     * - short of the status bar and the taskbar, and brings it to the front, as a desktop's
+     * maximise button does. A window already full screen only comes to the front.
+     */
+    static void maximize(Context ctx, String pkg, int display, int taskId) {
+        android.app.ActivityManager.RunningTaskInfo task = null;
+        for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+            if (taskId >= 0 ? t.taskId == taskId : pkg.equals(packageOf(t))) {
+                task = t;
+                break;
+            }
+        }
+        if (task == null) {
+            L.i("taskbar apps: " + pkg + " has no window on display " + display + " to maximise");
+            return;
+        }
+        android.graphics.Rect area = usableArea(ctx, display);
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null || area == null) {
+                L.i("taskbar apps: could not maximise " + pkg + " ("
+                        + (token == null ? "no window token" : "no screen size") + ")");
+                return;
+            }
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
+                    .invoke(wct, token, area);
+            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
+            Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+            organizer.getMethod("applyTransaction", wctClass)
+                    .invoke(organizer.getConstructor().newInstance(), wct);
+            L.i("taskbar apps: maximized " + pkg + " (task " + task.taskId + ") to " + area);
+        } catch (Throwable t) {
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            L.i("taskbar apps: could not maximise " + pkg + " (" + cause + ")");
+            // At least in front, where the user can see it.
+            TaskOverview.bringToFront(task.taskId, display);
+        }
+    }
+
+    /** The screen less what the system keeps for itself - status bar, taskbar, cutouts. */
+    private static android.graphics.Rect usableArea(Context ctx, int display) {
+        try {
+            android.hardware.display.DisplayManager dm =
+                    ctx.getSystemService(android.hardware.display.DisplayManager.class);
+            android.view.Display d = dm == null ? null : dm.getDisplay(display);
+            if (d == null) {
+                return null;
+            }
+            android.view.WindowManager wm = ctx.createDisplayContext(d)
+                    .getSystemService(android.view.WindowManager.class);
+            android.view.WindowMetrics metrics = wm.getMaximumWindowMetrics();
+            android.graphics.Rect area = new android.graphics.Rect(metrics.getBounds());
+            android.graphics.Insets insets = metrics.getWindowInsets()
+                    .getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars()
+                            | android.view.WindowInsets.Type.displayCutout());
+            // The taskbar is ours to measure too: its insets are not always reported.
+            int bottom = Math.max(insets.bottom, Windows.taskbarHeight(display));
+            area.set(area.left + insets.left, area.top + insets.top,
+                    area.right - insets.right, area.bottom - bottom);
+            return area.isEmpty() ? null : area;
+        } catch (Throwable t) {
+            L.d("taskbar apps: screen size unreadable (" + t + ")");
+            return null;
+        }
     }
 
     /** The app's windows on this display, as task ids in the order they were opened. */

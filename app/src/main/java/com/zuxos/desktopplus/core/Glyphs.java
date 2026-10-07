@@ -47,6 +47,7 @@ public final class Glyphs {
     public static final int MINIMIZE = 24;
     public static final int NEW_WINDOW = 25;
     public static final int SHARE = 26;
+    public static final int MAXIMIZE = 27;
 
     private Glyphs() {
     }
@@ -90,6 +91,8 @@ public final class Glyphs {
             glyph = HIDE;
         } else if (t.startsWith("minimi")) {
             glyph = MINIMIZE;
+        } else if (t.startsWith("maximi")) {
+            glyph = MAXIMIZE;
         } else if (t.contains("new window")) {
             glyph = NEW_WINDOW;
         } else if (t.startsWith("open") || t.startsWith("launch")) {
@@ -351,6 +354,12 @@ public final class Glyphs {
                 p.addRoundRect(new RectF(5, 5, 19, 14), 2f, 2f, Path.Direction.CW);
                 p.moveTo(7, 19);
                 p.lineTo(17, 19);
+                return p;
+            case MAXIMIZE:
+                // A window grown to fill its frame, and the frame's top edge.
+                p.addRoundRect(new RectF(4, 6, 20, 19), 2f, 2f, Path.Direction.CW);
+                p.moveTo(4, 9);
+                p.lineTo(20, 9);
                 return p;
             case NEW_WINDOW:
                 // A window, and another opening in front of it.
