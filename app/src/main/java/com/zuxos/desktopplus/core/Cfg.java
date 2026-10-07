@@ -31,6 +31,21 @@ public final class Cfg {
                 sLastCheck = now;
                 if (sPrefs.hasFileChanged()) {
                     sPrefs.reload();
+                    sSnapshotDue = true;
+                }
+                if (!sReadable) {
+                    // Locked until the first unlock: read again until it opens, rather than
+                    // trusting the file to say it changed.
+                    sPrefs.reload();
+                    sSnapshotDue = true;
+                }
+                if (sSnapshotDue) {
+                    // Checked here, twice a second at most, not on every read.
+                    sReadable = checkReadable(sPrefs);
+                }
+                if (sSnapshotDue && sReadable) {
+                    sSnapshotDue = false;
+                    snapshot(sPrefs);
                 }
             }
             return sPrefs;
@@ -55,8 +70,9 @@ public final class Cfg {
 
     public static boolean getBool(String key, boolean def) {
         XSharedPreferences p = prefs();
-        if (p == null) {
-            return def;
+        if (!readable(p)) {
+            String v = remembered(key);
+            return v != null && v.startsWith("b:") ? Boolean.parseBoolean(v.substring(2)) : def;
         }
         try {
             return p.getBoolean(key, def);
@@ -67,8 +83,13 @@ public final class Cfg {
 
     public static int getInt(String key, int def) {
         XSharedPreferences p = prefs();
-        if (p == null) {
-            return def;
+        if (!readable(p)) {
+            String v = remembered(key);
+            try {
+                return v != null && v.startsWith("i:") ? Integer.parseInt(v.substring(2)) : def;
+            } catch (NumberFormatException e) {
+                return def;
+            }
         }
         try {
             return p.getInt(key, def);
@@ -79,14 +100,113 @@ public final class Cfg {
 
     public static String getString(String key, String def) {
         XSharedPreferences p = prefs();
-        if (p == null) {
-            return def;
+        if (!readable(p)) {
+            String v = remembered(key);
+            return v != null && v.startsWith("s:") ? v.substring(2) : def;
         }
         try {
             return p.getString(key, def);
         } catch (Throwable t) {
             return def;
         }
+    }
+
+    // --- the settings before the first unlock -------------------------------------------------
+
+    /*
+     * The settings file lives in the module's own storage, which stays locked from boot until the
+     * first unlock - while the launcher, which starts before that, is already building its bars.
+     * Every setting then read as its default, and "only open apps" is off by default: ZUI's own
+     * recents and suggestions were let onto the bar for a moment after every boot. So the last
+     * settings read are kept in the launcher's device-protected storage, readable from boot, and
+     * stand in until the file can be read.
+     */
+
+    private static final String SNAPSHOT = "zux_desktop_plus_settings.properties";
+    private static boolean sSnapshotDue = true;
+    private static java.util.Properties sRemembered;
+    private static String sLastSaved;
+
+    private static volatile boolean sReadable;
+
+    /** Whether the settings file can be read yet - as last checked. */
+    private static boolean readable(XSharedPreferences p) {
+        return p != null && sReadable;
+    }
+
+    private static boolean checkReadable(XSharedPreferences p) {
+        try {
+            return p.getFile().canRead() && !p.getAll().isEmpty();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static java.io.File snapshotFile() {
+        android.content.Context ctx = AppCtx.get();
+        if (ctx == null) {
+            return null;
+        }
+        return new java.io.File(ctx.createDeviceProtectedStorageContext().getFilesDir(), SNAPSHOT);
+    }
+
+    /** A setting as last read from the file, typed by its prefix; null when never read. */
+    private static synchronized String remembered(String key) {
+        if (sRemembered == null) {
+            java.io.File f = snapshotFile();
+            if (f == null) {
+                return null;
+            }
+            java.util.Properties props = new java.util.Properties();
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                props.load(in);
+            } catch (Throwable ignored) {
+                // None yet: defaults, as before.
+            }
+            sRemembered = props;
+        }
+        return sRemembered.getProperty(key);
+    }
+
+    /** Keeps what the file says now, written only when it changed - a settings change. */
+    private static void snapshot(XSharedPreferences p) {
+        java.util.Properties props = new java.util.Properties();
+        try {
+            for (java.util.Map.Entry<String, ?> e : p.getAll().entrySet()) {
+                Object v = e.getValue();
+                String typed = v instanceof Boolean ? "b:" + v : v instanceof Integer ? "i:" + v
+                        : v instanceof String ? "s:" + v : null;
+                if (typed != null) {
+                    props.setProperty(e.getKey(), typed);
+                }
+            }
+        } catch (Throwable t) {
+            return;
+        }
+        String flat = new java.util.TreeMap<>(props).toString();
+        if (flat.equals(sLastSaved)) {
+            return;
+        }
+        sLastSaved = flat;
+        synchronized (Cfg.class) {
+            sRemembered = props;
+        }
+        // Off the caller's thread: a settings read must never wait on a disk write.
+        new Thread(() -> {
+            java.io.File f = snapshotFile();
+            if (f == null) {
+                return;
+            }
+            java.io.File tmp = new java.io.File(f.getPath() + ".tmp");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                props.store(out, null);
+            } catch (Throwable t) {
+                return;
+            }
+            if (!tmp.renameTo(f)) {
+                tmp.delete();
+            }
+        }, "zux-settings-snapshot").start();
     }
 
     // --- Typed accessors used by the hooks -------------------------------
@@ -277,8 +397,11 @@ public final class Cfg {
     /** Whether a setting has ever been written, as opposed to having a default. */
     private static boolean has(String key) {
         XSharedPreferences p = prefs();
+        if (!readable(p)) {
+            return remembered(key) != null;
+        }
         try {
-            return p != null && p.contains(key);
+            return p.contains(key);
         } catch (Throwable t) {
             return false;
         }
