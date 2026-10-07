@@ -244,6 +244,22 @@ final class RecentsRoute {
         return sb.toString();
     }
 
+    /**
+     * Closes quickstep's own recents if it is up on this display; true when it was.
+     *
+     * <p>For home: the key goes to the system, which sends the app behind recents away and leaves
+     * recents itself standing - so a second press was needed to get home.
+     */
+    static boolean closeOn(int display) {
+        Activity live = sLive.get();
+        if (live == null || live.isFinishing() || displayOf(live) != display) {
+            return false;
+        }
+        note("closed for home on display " + display);
+        live.finish();
+        return true;
+    }
+
     /** Whether recents - either kind - is up on this display now. */
     private static boolean isOpenOn(int display) {
         Activity live = sLive.get();

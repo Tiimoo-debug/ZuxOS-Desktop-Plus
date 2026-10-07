@@ -161,6 +161,11 @@ final class TaskbarNav {
         /** Home, sent once - and not at all when the desktop is already in front. */
         private void home(View v) {
             closeDrawer();
+            // Recents first, in the same press: home then lands on the desktop, not on recents.
+            if (TaskOverview.isOpen()) {
+                TaskOverview.close();
+            }
+            RecentsRoute.closeOn(mDisplay);
             if (homeInFront(v.getContext(), mDisplay)) {
                 closeOurWindows(mDisplay);
                 DesktopHost.backOn(mDisplay);

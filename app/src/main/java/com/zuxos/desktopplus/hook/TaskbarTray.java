@@ -320,20 +320,36 @@ public final class TaskbarTray {
      * there - for anything that must stop above it.
      */
     static int barTopOnScreen(int display) {
-        for (View dragLayer : new java.util.ArrayList<>(TRAYS.keySet())) {
-            if (!(dragLayer instanceof ViewGroup) || !dragLayer.isAttachedToWindow()
-                    || displayIdOf(dragLayer) != display) {
-                continue;
+        // Asked on every frame of a drawer slide or a drag: the bar's row is remembered per
+        // display, and the windows are only searched again once it is gone.
+        WeakReference<View> known = BAR_ROWS.get(display);
+        View reference = known != null ? known.get() : null;
+        if (reference == null || !reference.isAttachedToWindow()) {
+            reference = null;
+            // Every bar's window, not only the ones holding our tray: with the tray switched off
+            // there were none, and nothing knew where the bar began.
+            for (View root : Windows.roots()) {
+                ViewGroup dragLayer = root.isAttachedToWindow() ? dragLayerOf(root) : null;
+                if (dragLayer != null && displayIdOf(dragLayer) == display) {
+                    reference = rowReference(dragLayer);
+                    if (reference != null) {
+                        BAR_ROWS.put(display, new WeakReference<>(reference));
+                        break;
+                    }
+                }
             }
-            View reference = rowReference((ViewGroup) dragLayer);
-            if (reference != null && reference.getHeight() > 0 && reference.isShown()) {
-                int[] at = new int[2];
-                reference.getLocationOnScreen(at);
-                return at[1];
-            }
+        }
+        if (reference != null && reference.getHeight() > 0 && reference.isShown()) {
+            int[] at = new int[2];
+            reference.getLocationOnScreen(at);
+            return at[1];
         }
         return -1;
     }
+
+    /** Per display, the row {@link #barTopOnScreen} measures. */
+    private static final Map<Integer, WeakReference<View>> BAR_ROWS =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     static int displayIdOf(View view) {
         try {

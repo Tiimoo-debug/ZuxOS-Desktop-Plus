@@ -71,15 +71,20 @@ public final class Windows {
      */
     public static int taskbarHeight(int displayId) {
         for (View root : roots()) {
-            if (!(root instanceof android.view.ViewGroup)
-                    || !root.getClass().getName().endsWith("TaskbarDragLayer")
-                    || TaskbarTray.displayIdOf(root) != displayId
-                    || root.getVisibility() != View.VISIBLE) {
+            // The drag layer, not the window's root: the tablet's bars wrap it in another view,
+            // and matching only bare drag layers left menus there running on under the bar.
+            android.view.ViewGroup bar = TaskbarTray.dragLayerOf(root);
+            if (bar == null || TaskbarTray.displayIdOf(bar) != displayId || !bar.isShown()) {
                 continue;
             }
-            View row = TaskbarTray.rowReference((android.view.ViewGroup) root);
+            View row = TaskbarTray.rowReference(bar);
             if (row != null && row.getHeight() > 0) {
-                return Math.max(0, root.getHeight() - row.getTop());
+                // From the top of the visible bar to the bottom of the window, on screen.
+                int[] rowAt = new int[2];
+                int[] rootAt = new int[2];
+                row.getLocationOnScreen(rowAt);
+                root.getLocationOnScreen(rootAt);
+                return Math.max(0, rootAt[1] + root.getHeight() - rowAt[1]);
             }
         }
         return 0;

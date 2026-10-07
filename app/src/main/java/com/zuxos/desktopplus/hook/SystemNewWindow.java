@@ -1,6 +1,7 @@
 package com.zuxos.desktopplus.hook;
 
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 
 import com.zuxos.desktopplus.core.L;
 
@@ -28,6 +29,8 @@ final class SystemNewWindow {
 
     private static boolean sInstalled;
     private static Field sIntent;
+    private static Field sLaunchMode;
+    private static Field sLaunchFlags;
     private static int sErrors;
 
     private SystemNewWindow() {
@@ -43,21 +46,62 @@ final class SystemNewWindow {
                     loader);
             sIntent = starter.getDeclaredField("mIntent");
             sIntent.setAccessible(true);
-            int hooked = 0;
+            sLaunchMode = starter.getDeclaredField("mLaunchMode");
+            sLaunchMode.setAccessible(true);
+            sLaunchFlags = starter.getDeclaredField("mLaunchFlags");
+            sLaunchFlags.setAccessible(true);
+            int reuse = 0;
+            int initial = 0;
+            StringBuilder near = new StringBuilder();
             for (Method m : starter.getDeclaredMethods()) {
-                if (m.getName().equals("getReusableTask")) {
+                String name = m.getName();
+                if (name.equals("getReusableTask")) {
                     XposedBridge.hookMethod(m, REUSE);
-                    hooked++;
+                    reuse++;
+                } else if (name.equals("setInitialState")) {
+                    XposedBridge.hookMethod(m, INITIAL);
+                    initial++;
+                } else if (name.contains("Reus") || name.contains("Initial")) {
+                    near.append(' ').append(name);
                 }
             }
-            L.i("system new window: watching task reuse x" + hooked);
-            if (hooked > 0) {
+            L.i("system new window: launch setup x" + initial + ", task reuse x" + reuse
+                    + (initial + reuse == 0 ? " - nearest:" + near : ""));
+            if (initial + reuse > 0) {
                 setProperty("on");
             }
         } catch (Throwable t) {
             L.i("system new window: not available on this build (" + t + ")");
         }
     }
+
+    /**
+     * Where the starter reads the launch: a marked one is set up as an app that allows many
+     * windows - a new task of its own, never the one already open. Android 16 no longer has the
+     * reuse step below as a method of its own, so this is what makes it work there.
+     */
+    private static final XC_MethodHook INITIAL = new XC_MethodHook() {
+        @Override
+        protected void afterHookedMethod(MethodHookParam param) {
+            if (sErrors > 20) {
+                return;
+            }
+            try {
+                Object intent = sIntent.get(param.thisObject);
+                if (!(intent instanceof Intent)
+                        || !((Intent) intent).getBooleanExtra(EXTRA, false)) {
+                    return;
+                }
+                sLaunchMode.setInt(param.thisObject, ActivityInfo.LAUNCH_MULTIPLE);
+                sLaunchFlags.setInt(param.thisObject, sLaunchFlags.getInt(param.thisObject)
+                        | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                L.i("system new window: a new task for " + ((Intent) intent).getComponent());
+            } catch (Throwable t) {
+                // An intent whose extras will not unparcel here is not one of ours.
+                sErrors++;
+            }
+        }
+    };
 
     private static final XC_MethodHook REUSE = new XC_MethodHook() {
         @Override

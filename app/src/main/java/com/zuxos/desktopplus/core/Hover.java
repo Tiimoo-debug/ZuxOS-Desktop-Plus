@@ -1,8 +1,8 @@
 package com.zuxos.desktopplus.core;
 
 import android.animation.Keyframe;
-import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
+import android.animation.ValueAnimator;
 import android.view.View;
 
 /**
@@ -41,23 +41,37 @@ public final class Hover {
             unclip(icon);
         }
         icon.animate().cancel();
-        icon.animate().scaleX(lift).scaleY(lift).setDuration(Motion.IOS_MS)
-                .setInterpolator(Motion.IOS).withLayer().start();
         Object old = icon.getTag(TAG_WIGGLE);
-        if (old instanceof ObjectAnimator) {
-            ((ObjectAnimator) old).cancel();
+        if (old instanceof ValueAnimator) {
+            ((ValueAnimator) old).cancel();
         }
         // Left, right, smaller each time, still: a jiggle that settles rather than a shake.
-        PropertyValuesHolder rotation = PropertyValuesHolder.ofKeyframe(View.ROTATION,
+        PropertyValuesHolder turn = PropertyValuesHolder.ofKeyframe("turn",
                 Keyframe.ofFloat(0f, 0f),
-                Keyframe.ofFloat(0.18f, -7f),
-                Keyframe.ofFloat(0.40f, 6f),
-                Keyframe.ofFloat(0.62f, -4f),
-                Keyframe.ofFloat(0.82f, 2f),
+                Keyframe.ofFloat(0.18f, -5f),
+                Keyframe.ofFloat(0.40f, 4f),
+                Keyframe.ofFloat(0.62f, -2.5f),
+                Keyframe.ofFloat(0.82f, 1f),
                 Keyframe.ofFloat(1f, 0f));
-        ObjectAnimator wiggle = ObjectAnimator.ofPropertyValuesHolder(icon, rotation);
+        // The lift and the turn are one animation, so the icon's turned corners never reach past
+        // where the settled, lifted icon ends: the scale gives back what the turn takes. Two
+        // separate ones - a springy grow and a rotation - added up, and for a few frames the
+        // icon reached past its holder and was cut off there.
+        float from = icon.getScaleX();
+        float liftAt = (float) Motion.IOS_MS / WIGGLE_MS;
+        ValueAnimator wiggle = ValueAnimator.ofPropertyValuesHolder(turn);
         wiggle.setDuration(WIGGLE_MS);
-        wiggle.setInterpolator(Motion.EASE);
+        wiggle.addUpdateListener(a -> {
+            float t = a.getAnimatedFraction();
+            float grown = from + (lift - from) * Motion.EASE.getInterpolation(
+                    Math.min(1f, t / liftAt));
+            float degrees = (Float) a.getAnimatedValue("turn");
+            double r = Math.toRadians(Math.abs(degrees));
+            float fit = (float) (Math.cos(r) + Math.sin(r));
+            icon.setRotation(degrees);
+            icon.setScaleX(grown / fit);
+            icon.setScaleY(grown / fit);
+        });
         icon.setTag(TAG_WIGGLE, wiggle);
         wiggle.start();
     }
@@ -131,11 +145,12 @@ public final class Hover {
     /** The pointer left: back to rest on the same spring. */
     public static void exit(View icon) {
         Object old = icon.getTag(TAG_WIGGLE);
-        if (old instanceof ObjectAnimator) {
-            ((ObjectAnimator) old).cancel();
+        if (old instanceof ValueAnimator) {
+            ((ValueAnimator) old).cancel();
         }
         icon.animate().cancel();
+        // No overshoot on the way down either: a spring would dip it below its resting size.
         icon.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(Motion.IOS_MS)
-                .setInterpolator(Motion.IOS).withLayer().start();
+                .setInterpolator(Motion.EASE).start();
     }
 }

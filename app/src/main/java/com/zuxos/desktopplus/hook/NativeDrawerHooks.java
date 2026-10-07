@@ -139,6 +139,13 @@ public final class NativeDrawerHooks {
                                         .FolderStyle.restoreIcon(tapped), 350L);
                             }
                         }
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (param.thisObject instanceof View) {
+                                closeAfterLaunch((View) param.thisObject);
+                            }
+                        }
                     }).size();
             L.i("native drawer: click interception installed x" + clicks);
         } catch (Throwable t) {
@@ -610,6 +617,28 @@ public final class NativeDrawerHooks {
      * drawer's window into the launcher's activity, where the desktop is - and a local state
      * object does not survive that trip.
      */
+    /**
+     * An app tapped in the stock drawer: the drawer goes once the launch is under way.
+     *
+     * <p>ZUI closes it only for launches it runs itself, and on the desktop displays the launch
+     * goes elsewhere - so the drawer stayed open with the app starting behind it. Closed a moment
+     * later rather than at once, so the launch animation still starts from the icon.
+     */
+    private static void closeAfterLaunch(View view) {
+        Object tag = view.getTag();
+        // A tag test first: this runs for every click in the launcher.
+        if (tag == null || sAppInfoCls == null || !sAppInfoCls.isInstance(tag)
+                || folderIdOf(tag) != null || IconInfo.packageOf(tag) == null
+                || !inStockDrawer(view) || view.getDisplay() == null) {
+            return;
+        }
+        int display = view.getDisplay().getDisplayId();
+        view.getRootView().postDelayed(() -> TaskbarBridge.closeStockDrawer(display),
+                CLOSE_AFTER_LAUNCH_MS);
+    }
+
+    private static final long CLOSE_AFTER_LAUNCH_MS = 220L;
+
     private static boolean dragOut(View view) {
         if (!Cfg.enabled() || !Cfg.drawerDrag()) {
             return false;

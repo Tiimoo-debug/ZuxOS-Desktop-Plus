@@ -35,6 +35,8 @@ final class DrawerHold {
 
     /** How far the finger may wander before the hold counts as a drag. */
     private static final float MOVE_DP = 24f;
+    /** How long the lifted icon has to be held still before moving it rearranges the drawer. */
+    private static final long ARRANGE_AFTER_MS = 450L;
 
     private DrawerHold() {
     }
@@ -83,14 +85,34 @@ final class DrawerHold {
         }
 
         void arm(View source, Item item) {
+            removeCallbacks(mArrange);
             mSource = source;
             mItem = item;
             mStartX = -1f;
             mMoved = false;
             mLeft = false;
             mDroppedHere = false;
-            mReorder = DrawerReorder.begin(source);
+            mReorder = null;
         }
+
+        /**
+         * Held still a moment longer after the drag lifted the icon: from here on it rearranges
+         * the drawer. The gap opens under the finger straight away, and a tick says so.
+         */
+        private final Runnable mArrange = () -> {
+            if (mSource == null || mMoved || mReorder != null) {
+                return;
+            }
+            mReorder = DrawerReorder.begin(mSource);
+            if (mReorder == null) {
+                L.d("drawer hold: this entry cannot be rearranged here");
+                return;
+            }
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            if (mStartX >= 0) {
+                mReorder.moveTo(mStartX, mStartY);
+            }
+        };
 
         /** The drawer steps aside, once, for a drag on its way to the desktop or the taskbar. */
         private void leave() {
@@ -112,6 +134,8 @@ final class DrawerHold {
             }
             switch (event.getAction()) {
                 case DragEvent.ACTION_DRAG_STARTED:
+                    removeCallbacks(mArrange);
+                    postDelayed(mArrange, ARRANGE_AFTER_MS);
                     return true;
                 case DragEvent.ACTION_DRAG_LOCATION: {
                     float x = event.getX();
@@ -125,9 +149,10 @@ final class DrawerHold {
                             > Ui.dp(getContext(), MOVE_DP)) {
                         // A drag after all, not a hold.
                         mMoved = true;
+                        removeCallbacks(mArrange);
                         if (mReorder == null) {
-                            // Nothing to rearrange here: the drawer covers the desktop, so it
-                            // goes now, as it always did.
+                            // Moved straight away: on its way to the desktop or the bar. The
+                            // drawer covers both, so it goes now, as it always did.
                             leave();
                         }
                     }
@@ -153,6 +178,7 @@ final class DrawerHold {
                     // Let go where it was picked up: not a drop on anything.
                     return false;
                 case DragEvent.ACTION_DRAG_ENDED: {
+                    removeCallbacks(mArrange);
                     View source = mSource;
                     Item item = mItem;
                     boolean menu = !mMoved && !event.getResult();
