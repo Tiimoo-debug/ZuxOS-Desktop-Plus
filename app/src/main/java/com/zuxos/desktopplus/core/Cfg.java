@@ -142,12 +142,25 @@ public final class Cfg {
         }
     }
 
+    /**
+     * Where the copy is kept: the hooked app's device-protected files - never in the system
+     * process, which has no data directory of its own (asking for one throws, and an uncaught
+     * throw there is a boot loop). Null wherever it cannot be had; nothing here may throw.
+     */
     private static java.io.File snapshotFile() {
-        android.content.Context ctx = AppCtx.get();
-        if (ctx == null) {
+        try {
+            if (android.os.Process.myUid() == android.os.Process.SYSTEM_UID) {
+                return null;
+            }
+            android.content.Context ctx = AppCtx.get();
+            if (ctx == null || "android".equals(ctx.getPackageName())) {
+                return null;
+            }
+            java.io.File dir = ctx.createDeviceProtectedStorageContext().getFilesDir();
+            return dir == null ? null : new java.io.File(dir, SNAPSHOT);
+        } catch (Throwable t) {
             return null;
         }
-        return new java.io.File(ctx.createDeviceProtectedStorageContext().getFilesDir(), SNAPSHOT);
     }
 
     /** A setting as last read from the file, typed by its prefix; null when never read. */
@@ -155,6 +168,7 @@ public final class Cfg {
         if (sRemembered == null) {
             java.io.File f = snapshotFile();
             if (f == null) {
+                // Asked again next time: the app's context may not be there yet.
                 return null;
             }
             java.util.Properties props = new java.util.Properties();
@@ -191,20 +205,27 @@ public final class Cfg {
         synchronized (Cfg.class) {
             sRemembered = props;
         }
-        // Off the caller's thread: a settings read must never wait on a disk write.
+        if (android.os.Process.myUid() == android.os.Process.SYSTEM_UID) {
+            // The system process keeps no copy: it has nowhere to keep one.
+            return;
+        }
+        // Off the caller's thread: a settings read must never wait on a disk write. Nothing in
+        // it may escape - an uncaught throw on a thread takes the whole process down.
         new Thread(() -> {
-            java.io.File f = snapshotFile();
-            if (f == null) {
-                return;
-            }
-            java.io.File tmp = new java.io.File(f.getPath() + ".tmp");
-            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
-                props.store(out, null);
-            } catch (Throwable t) {
-                return;
-            }
-            if (!tmp.renameTo(f)) {
-                tmp.delete();
+            try {
+                java.io.File f = snapshotFile();
+                if (f == null) {
+                    return;
+                }
+                java.io.File tmp = new java.io.File(f.getPath() + ".tmp");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                    props.store(out, null);
+                }
+                if (!tmp.renameTo(f)) {
+                    tmp.delete();
+                }
+            } catch (Throwable ignored) {
+                // No copy this time; the settings themselves are unaffected.
             }
         }, "zux-settings-snapshot").start();
     }
