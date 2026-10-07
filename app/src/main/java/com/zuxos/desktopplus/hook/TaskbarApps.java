@@ -550,7 +550,7 @@ final class TaskbarApps {
     /**
      * One window of the app - {@code taskId}, or its front one here when -1 - as big as it can
      * be, and in front, as a desktop's maximise button does: a floating window fills the screen
-     * short of the status bar and the taskbar; any other is made full screen.
+     * short of the status bar and the taskbar; a full-screen one already is as big as it gets.
      */
     static void maximize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
@@ -564,50 +564,95 @@ final class TaskbarApps {
             L.i("taskbar apps: " + pkg + " has no window on display " + display + " to maximise");
             return;
         }
+        int id = task.taskId;
         int mode = windowingMode(task);
-        // Only the monitor's floating windows are sized. On the tablet ZUI keeps its own sizes
-        // for floating windows - one sized to the screen came back as it was - so there, as with
-        // ZUI's own maximise button, every window is made full screen.
-        boolean floating = mode == WINDOWING_MODE_FREEFORM
-                && display != android.view.Display.DEFAULT_DISPLAY;
-        android.graphics.Rect area = floating
-                ? usableArea(ctx, display) : new android.graphics.Rect();
+        if (mode != WINDOWING_MODE_FREEFORM) {
+            // Full screen, a split, or unreadable: nothing to grow. Forcing an app into full
+            // screen mode, as the last version did, letterboxed one that keeps its own shape.
+            L.i("taskbar apps: " + pkg + " (task " + id + ", mode " + mode
+                    + ") is not a floating window - brought to front only");
+            TaskOverview.bringToFront(id, display);
+            return;
+        }
+        android.graphics.Rect area = usableArea(ctx, display);
+        if (area == null) {
+            L.i("taskbar apps: could not maximise " + pkg + " (no screen size)");
+            TaskOverview.bringToFront(id, display);
+            return;
+        }
+        // The system's own resize - what "am task resize" does - first: a window-transaction
+        // bounds change came back as it was on ZUI's desktops. The transaction is the fallback.
+        String how = resizeBySystem(id, area) ? "system resize"
+                : resizeByTransaction(task, area) ? "window transaction" : null;
+        if (how == null) {
+            TaskOverview.bringToFront(id, display);
+            return;
+        }
+        TaskOverview.bringToFront(id, display);
+        L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to " + area + " by " + how);
+        // What it really became, for the log: the only way to tell a refused resize from a done
+        // one on a build that answers both the same.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
+                if (t.taskId == id) {
+                    Object config = Reflect.field(t, "configuration");
+                    Object window = config == null ? null
+                            : Reflect.field(config, "windowConfiguration");
+                    Object bounds = window == null ? null : Reflect.call(window, "getBounds");
+                    L.i("taskbar apps: maximised " + pkg + " is now mode " + windowingMode(t)
+                            + " at " + bounds + " (wanted " + area + ")");
+                    return;
+                }
+            }
+        }, MAXIMIZE_CHECK_MS);
+    }
+
+    private static final long MAXIMIZE_CHECK_MS = 700L;
+
+    /** {@code IActivityTaskManager.resizeTask}, in the system's own mode; false when refused. */
+    private static boolean resizeBySystem(int taskId, android.graphics.Rect area) {
+        try {
+            Object atm = Class.forName("android.app.ActivityTaskManager")
+                    .getMethod("getService").invoke(null);
+            atm.getClass().getMethod("resizeTask", int.class, android.graphics.Rect.class,
+                    int.class).invoke(atm, taskId, area, RESIZE_MODE_SYSTEM);
+            return true;
+        } catch (Throwable t) {
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            L.i("taskbar apps: system resize refused (" + cause + ")");
+            return false;
+        }
+    }
+
+    private static final int RESIZE_MODE_SYSTEM = 0;
+
+    /** The window organizer's bounds change, as before; false when refused. */
+    private static boolean resizeByTransaction(android.app.ActivityManager.RunningTaskInfo task,
+            android.graphics.Rect area) {
         try {
             Object token = Reflect.field(task, "token");
-            if (token == null || (floating && area == null)) {
-                L.i("taskbar apps: could not maximise " + pkg + " ("
-                        + (token == null ? "no window token" : "no screen size") + ")");
-                return;
+            if (token == null) {
+                return false;
             }
             Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
             Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
             Object wct = wctClass.getConstructor().newInstance();
-            // A floating window on the monitor fills the area above the bar. Anything else - the
-            // tablet's windows, floating or not, a split - is made full screen, with no size of
-            // its own: giving a full-screen app a fixed size, as the first version did, shifted
-            // and letterboxed it. The empty size also undoes that.
             wctClass.getMethod("setBounds", tokenClass, android.graphics.Rect.class)
                     .invoke(wct, token, area);
-            if (!floating) {
-                wctClass.getMethod("setWindowingMode", tokenClass, int.class)
-                        .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
-            }
             wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
             Class<?> organizer = Class.forName("android.window.WindowOrganizer");
             organizer.getMethod("applyTransaction", wctClass)
                     .invoke(organizer.getConstructor().newInstance(), wct);
-            L.i("taskbar apps: maximized " + pkg + " (task " + task.taskId + ", mode " + mode
-                    + ") " + (floating ? "to " + area : "full screen"));
+            return true;
         } catch (Throwable t) {
             Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
                     && t.getCause() != null ? t.getCause() : t;
-            L.i("taskbar apps: could not maximise " + pkg + " (" + cause + ")");
-            // At least in front, where the user can see it.
-            TaskOverview.bringToFront(task.taskId, display);
+            L.i("taskbar apps: window transaction refused (" + cause + ")");
+            return false;
         }
     }
 
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     /** The task's windowing mode, from its configuration; -1 when it cannot be read. */
