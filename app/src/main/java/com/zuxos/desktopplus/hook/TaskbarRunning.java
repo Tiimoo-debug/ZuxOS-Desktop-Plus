@@ -1239,8 +1239,7 @@ final class TaskbarRunning {
             sShowing = out;
             return out;
         }
-        source(2, "nowhere - neither the activity manager nor the launcher will say what is "
-                + "open, so the taskbar is left alone");
+        source(2, "nothing open on this screen, or nowhere readable - no open apps shown");
         return out;
     }
 
@@ -1311,6 +1310,8 @@ final class TaskbarRunning {
             }
             WINDOWS.put(displayId, windows);
             if (everything.size() <= 1) {
+                // Nothing but the home screen on this display - or a list this launcher is not
+                // allowed to read, which looks the same. Either way nothing to show.
                 return new LinkedHashSet<>();
             }
             if (out.isEmpty()) {

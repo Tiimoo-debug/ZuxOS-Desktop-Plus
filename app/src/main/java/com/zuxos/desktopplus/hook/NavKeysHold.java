@@ -40,6 +40,8 @@ final class NavKeysHold {
     };
 
     private static boolean sInstalled;
+    /** The layoutter that last laid the keys out, for the taskbar's diagnostics. */
+    static volatile String sLastLayoutter = "none yet";
     private static int sHooked;
 
     /** Per keys container: its end margin, as last laid out at the end. */
@@ -92,6 +94,7 @@ final class NavKeysHold {
                     if (param.thisObject == null) {
                         return;
                     }
+                    sLastLayoutter = param.thisObject.getClass().getSimpleName();
                     try {
                         for (Field f : viewFields(param.thisObject.getClass())) {
                             Object v = f.get(param.thisObject);

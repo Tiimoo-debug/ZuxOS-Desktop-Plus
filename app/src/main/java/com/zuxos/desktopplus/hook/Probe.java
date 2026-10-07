@@ -313,6 +313,7 @@ public final class Probe {
                 // worked on.
                 sb.append("\n  --- taskbar on display ").append(displayOf(root)).append('\n');
                 try {
+                    sb.append("  built with: ").append(TaskbarDiag.snapshot(bar)).append('\n');
                     describeTaskbar(sb, bar);
                 } catch (Throwable t) {
                     sb.append("  (unreadable: ").append(t).append(")\n");

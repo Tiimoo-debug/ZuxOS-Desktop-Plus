@@ -57,6 +57,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
             if (Cfg.taskbarTray()) {
                 TaskbarTray.install(lpparam.classLoader);
             }
+            HotseatButton.install(lpparam.classLoader);
         } catch (Throwable t) {
             L.e("handleLoadPackage failed for " + lpparam.packageName, t);
         }

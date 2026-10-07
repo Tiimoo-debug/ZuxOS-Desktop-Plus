@@ -80,6 +80,7 @@ public final class TaskbarTray {
         TaskbarMenu.install(loader);
         TaskbarApps.install(loader);
         NavKeysHold.install(loader);
+        TaskbarDiag.install(loader);
         try {
             Class<?> impl = Reflect.findClass("android.view.WindowManagerImpl", loader);
             if (impl == null) {
@@ -136,6 +137,7 @@ public final class TaskbarTray {
         // minutes away.
         retint();
         TaskbarApps.describeLongPress(root);
+        TaskbarDiag.onBar(root);
     }
 
     /** Repaints every tray, for when the reason its colour might change is not its own state. */
