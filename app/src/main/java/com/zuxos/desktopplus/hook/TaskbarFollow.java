@@ -285,10 +285,10 @@ final class TaskbarFollow {
             // The keyboard comes up over where the bar is; ours go, as ZUI's icons do.
             alpha = 0f;
         }
-        boolean home = onTabletHome(dragLayer);
+        boolean home = onHome(dragLayer);
         if (home && !keyboardUp(dragLayer)) {
-            // ZUI's home or Recents on the tablet - its own, or Lawnchair's home: ZUI hides or
-            // stashes its own icon row there, ours stay, as in apps.
+            // Home or Recents - ZUI's or Lawnchair's home, or the monitor's desktop with nothing
+            // open: ZUI hides or stashes its own icon row there, ours stay, as in apps.
             float held = state.channels != null ? state.channels.onHome() : Float.NaN;
             alpha = Float.isNaN(held) ? 1f : held;
             shift = 0f;
@@ -399,19 +399,17 @@ final class TaskbarFollow {
     private static final float SNAP = 0.1f;
 
     /**
-     * Whether this is the tablet's bar with the home screen or Recents in front - the launcher's
-     * own package, which Recents is part of, or the default home. ZUI shows no icons of its
-     * own there; ours show as they do over an app. Only while the bar's window is up: on the
-     * lock screen it is not.
+     * Whether this bar has its screen's home or Recents in front - the launcher's own package,
+     * which Recents is part of, or the default home - or nothing open at all, the monitor's
+     * empty desktop. ZUI shows no icons of its own there; ours show as they do over an app. Only
+     * while the bar's window is up: on the lock screen it is not.
      */
-    private static boolean onTabletHome(ViewGroup dragLayer) {
-        int display = TaskbarTray.displayIdOf(dragLayer);
-        if (display != android.view.Display.DEFAULT_DISPLAY || !dragLayer.isShown()
-                || dragLayer.getWindowVisibility() != View.VISIBLE) {
+    private static boolean onHome(ViewGroup dragLayer) {
+        if (!dragLayer.isShown() || dragLayer.getWindowVisibility() != View.VISIBLE) {
             return false;
         }
-        String front = TaskbarRunning.frontPackage(display);
-        return front != null && isHome(dragLayer.getContext(), front);
+        String front = TaskbarRunning.frontPackage(TaskbarTray.displayIdOf(dragLayer));
+        return front == null || isHome(dragLayer.getContext(), front);
     }
 
     /** The launcher itself, or whatever is the default home now - Lawnchair, some days. */

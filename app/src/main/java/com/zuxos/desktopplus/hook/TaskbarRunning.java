@@ -109,8 +109,10 @@ final class TaskbarRunning {
         }
         Set<String> running = running(dragLayer.getContext(), icons,
                 TaskbarTray.displayIdOf(dragLayer));
-        if (onlyOpen && running.isEmpty()) {
-            // Nothing readable: better to leave the launcher's bar alone than to empty it.
+        if (onlyOpen && running.isEmpty() && pins.isEmpty()) {
+            // Nothing readable: better to leave the launcher's bar alone than to empty it. With
+            // pins there is something to show - the monitor's desktop with every app closed
+            // lost its pinned apps and folders here.
             restore(dragLayer);
             return;
         }
@@ -1285,9 +1287,10 @@ final class TaskbarRunning {
                     // Another screen's: never on this bar, whatever the test below makes of it.
                     continue;
                 }
-                if (front) {
-                    // The list is most recent first: this screen's first task is the one in
-                    // front, which the bar's fade asks about on every frame.
+                if (front && shownOrFocused(task)) {
+                    // The list is most recent first: this screen's first task on screen is the
+                    // one in front, which the bar's fade asks about on every frame. A closed or
+                    // minimised app's record ahead of it is not.
                     front = false;
                     String before = FRONT.put(displayId, pkg);
                     if (displayId == 0 && before != null && !before.equals(pkg)) {
@@ -1312,6 +1315,10 @@ final class TaskbarRunning {
                 java.util.Collections.sort(ids);
             }
             WINDOWS.put(displayId, windows);
+            if (front) {
+                // Nothing on screen here: the monitor's desktop with every app closed.
+                FRONT.remove(displayId);
+            }
             if (everything.size() <= 1) {
                 // Nothing but the home screen on this display - or a list this launcher is not
                 // allowed to read, which looks the same. Either way nothing to show.
@@ -1431,6 +1438,13 @@ final class TaskbarRunning {
             return (Boolean) running;
         }
         return true;
+    }
+
+    /** On screen, or just opened and about to be; true where the build tells neither. */
+    private static boolean shownOrFocused(Object task) {
+        Object visible = Reflect.field(task, "isVisible");
+        return !(visible instanceof Boolean) || (Boolean) visible
+                || Boolean.TRUE.equals(Reflect.field(task, "isFocused"));
     }
 
     /** This bar belongs to one display; an app on the tablet screen is not on it. */

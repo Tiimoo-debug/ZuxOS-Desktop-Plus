@@ -14,7 +14,8 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 
 /**
- * ZUX Home's own app-drawer button - the pill over its dock - taken away while our start button
+ * ZUX Home's own app-drawer button - the pill over its dock, and the arrow above it - taken
+ * away while our start button
  * is on: the start button opens the same drawer, from the bar, on every screen.
  *
  * <p>Done where ZUI builds and updates its dock ({@code ZuiHotseat}), after each of its own
@@ -70,7 +71,11 @@ final class HotseatButton {
             boolean ours = Cfg.enabled() && Cfg.startButtonLeft();
             for (int i = 0; i < hotseat.getChildCount(); i++) {
                 View child = hotseat.getChildAt(i);
-                if (!(child instanceof ImageButton)) {
+                // The button, and the pill under it with the arrow above: a plain view of ZUI's,
+                // the only one in the dock with a size. ZUI keeps the dock up in its Recents too.
+                boolean pill = child.getClass() == View.class
+                        && (child.getWidth() > 0 || child.getTag(TAG_HIDDEN) != null);
+                if (!(child instanceof ImageButton) && !pill) {
                     continue;
                 }
                 int want = ours ? View.GONE : View.VISIBLE;
@@ -80,7 +85,8 @@ final class HotseatButton {
                     child.setTag(TAG_HIDDEN, ours ? Boolean.TRUE : null);
                     if (ours && !sSaid) {
                         sSaid = true;
-                        L.i("zux home: drawer button hidden - the start button opens the drawer");
+                        L.i("zux home: drawer button and its pill hidden - the start button opens "
+                                + "the drawer");
                     }
                 }
             }
