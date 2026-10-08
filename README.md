@@ -241,7 +241,8 @@ so the build never depends on the often-offline Xposed maven repo.
 ```bash
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
 ./gradlew :logic:test         # the unit tests - seconds, no Android SDK needed
-tools/check.py                # a real compile check without the Android SDK
+tools/check.py                # a real compile check and the unit tests, no Android SDK
+tools/deadcode.py             # what nothing in the module reaches, to delete
 ```
 
 Or grab the APK from the **Build module APK** GitHub Actions run for any pushed commit.
@@ -260,7 +261,13 @@ guarantee about the UI.
 `tools/check.py` is the other half of that net. It compiles everything against Robolectric's
 `android-all` jar, which is fetched once from Maven Central and cached outside the repo. Plain
 `javac` can't do this: it gives up inside every class that touches a framework type, so a deleted
-method compiles clean and only fails in CI. Run it before pushing; it says what CI will say.
+method compiles clean and only fails in CI. It then runs the `logic` tests with JUnit, fetched
+the same way. Run it before pushing; it says what CI will say.
+
+`tools/deadcode.py` keeps the code free of what nothing uses. It compiles the module, asks ProGuard
+what no entry point reaches (kept from the Xposed entry point and the manifest's components),
+and adds fields that are written but never read, and constants, imports and private methods named
+nowhere else. Things reached only by name are listed in its `KEEP` set.
 
 Release and debug APKs are signed with the key committed in `keystore/`, and the version code
 climbs with the commit count, so **every build installs over the previous one**. The key is
@@ -288,7 +295,7 @@ app/src/main/java/com/zuxos/desktopplus/
   ui/        the settings app
 logic/       plain Java, no Android: the layout format and the decisions worth unit-testing
 xposed-api/  compile-only Xposed API stubs (never packaged)
-tools/       check.py, the SDK-free compile check
+tools/       check.py (compile check + tests), deadcode.py, glass_preview.py
 docs/        TUNING.md - adapting the module to another ZuxOS build
              ROADMAP.md - the agreed plan; read it before starting new work
 ```

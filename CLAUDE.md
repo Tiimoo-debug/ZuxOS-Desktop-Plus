@@ -37,15 +37,30 @@ and what is planned, in order.
   falls back to stock behaviour and logs why, once.
 - **Never break what already works.** Before pushing, re-read the diff for side effects in the
   other two modes.
-- **Zero latency, no overheating.** Use events, not polling. Do no work while idle.
+- **Least CPU, zero latency.** When two ways are equally smooth and equally quick to respond, take
+  the one that costs less CPU:
+  - events, not polling;
+  - nothing ticking while hidden;
+  - no work repeated when nothing changed.
+
+  Never trade latency or smoothness for it.
+- **Structure and clean code.**
+  - One package per area; each `package-info.java` says what belongs there.
+  - Shared helpers live in `core/` or `hook/`. An area never borrows another area's internals:
+    `hook/system` uses only `core` and `hook` basics.
+  - Match the surrounding code: its comments, naming and import order.
+- **No dead code.** When a feature is replaced, the old path goes in the same change. Run
+  `python3 tools/deadcode.py` and delete what it finds, after checking each finding is not
+  reached by name (reflection, Xposed, another tool). Its `KEEP` list holds the ones that are.
 - **iOS-quality motion and design**, with the springs from `core/motion/Motion`.
 
 ## Workflow
 
 - Work on the branch the session names. Commit with the trailers the session gives. Push with
   `git push -u origin <branch>`.
-- Run `python3 tools/check.py` before every commit. It compiles against the real Android framework.
-  A commit that touches only docs does not need it.
+- Run `python3 tools/check.py` before every commit. It compiles against the real Android framework
+  and runs the `logic` unit tests. A commit that touches only docs does not need it.
+- Run `python3 tools/deadcode.py` before any commit that removes or replaces code.
 - After pushing, wait for the CI workflow **Build module APK** to pass before telling the owner a
   build is ready. Its artifact is `zuxos-desktop-plus-1.0.<N>`.
 - The version is `1.0.<commit count>` (`git rev-list --count HEAD`), so the next build is the
