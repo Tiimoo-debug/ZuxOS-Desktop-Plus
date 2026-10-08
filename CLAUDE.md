@@ -38,7 +38,7 @@ and what is planned, in order.
 - **Never break what already works.** Before pushing, re-read the diff for side effects in the
   other two modes.
 - **Zero latency, no overheating.** Use events, not polling. Do no work while idle.
-- **iOS-quality motion and design**, with the springs from `core/Motion`.
+- **iOS-quality motion and design**, with the springs from `core/motion/Motion`.
 
 ## Workflow
 

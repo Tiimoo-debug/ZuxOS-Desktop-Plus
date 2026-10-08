@@ -5,8 +5,9 @@ import android.view.View;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Cfg;
-import com.zuxos.desktopplus.core.Motion;
+import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.motion.Motion;
 
 /**
  * How an open folder looks and moves - the same on the home screen, in the drawer and on the
@@ -264,7 +265,7 @@ public final class FolderStyle {
                     (h + side) / 2f);
         }
         if (SAID.add(source.getClass().getName())) {
-            com.zuxos.desktopplus.core.L.i("folder motion: icon of "
+            L.i("folder motion: icon of "
                     + source.getClass().getSimpleName() + " " + (int) w + "x" + (int) h
                     + " is " + (int) r.width() + "x" + (int) r.height() + " at "
                     + (int) r.left + "," + (int) r.top);
@@ -442,7 +443,7 @@ public final class FolderStyle {
                 }
             }
         }
-        com.zuxos.desktopplus.core.L.i("folder style: icon after close " + sizeOf(icon)
+        L.i("folder style: icon after close " + sizeOf(icon)
                 + (neighbour != null ? ", neighbour " + sizeOf(neighbour) : ""));
     }
 

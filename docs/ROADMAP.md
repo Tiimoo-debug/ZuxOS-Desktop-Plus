@@ -11,7 +11,7 @@ in a fresh session: it is the project's memory.
   one with more features.
 - **Every feature has its own off switch**, and falls back to stock behaviour when a hook cannot
   find what it expects - logging why, once.
-- **One motion language**: iOS-quality springs from `core/Motion`, used everywhere.
+- **One motion language**: iOS-quality springs from `core/motion/Motion`, used everywhere.
 - **Evidence first**: fixes come from LSPosed logs, probes, screenshots and recordings. Where
   they cannot show something (what ZUI itself does), trace it first - never guess.
 - **Disable, don't fight ZUI**: switch ZUI's own behaviour off where it starts (a setting, a
@@ -120,8 +120,8 @@ rows give only the date the owner confirmed.
 |-------|------|--------|
 | 2026-10-05 | **Navigation keys that never drop a press and never freeze the launcher.** The 2026-10-05 log proved: presses lost to our one-at-a-time root (`BUSY`); back sent to the desktop with no focused window → 5 s ANR → launcher killed; recents key to the monitor does nothing. Now: one persistent key shell, back/home handled in-process when the desktop is in front, ZUI's own recents button traced and backed up. | Built, testing |
 | 2026-10-05 | **Launcher crash on replug** - a recents drag layer (ZUI's `RecentsDragLayerDp`, quickstep's `fallback.RecentsDragLayer`) losing a child during teardown. Caught by `hook/DetachGuard`, launcher survives. | Guarded |
-| 2026-10-05 | **The monitor's own recents** (`hook/TaskOverview`): ZUI's monitor recents never became visible and quickstep's fallback is laid out for the tablet, so the monitor gets a recents drawn by the module - that screen's apps, newest first, snapshots, tap/X/swipe/clear all. Tablet recents kept off the monitor's home. | Built, testing |
-| 2026-10-05 | **Recents opens on the screen whose button was pressed, full screen, in front of every app, on the first press.** The tablet's home is Lawnchair, so recents is quickstep's fallback `RecentsActivity`; `hook/RecentsRoute` steers its launch options, corrects it when it appears wrong, and clears stale copies. | Built, testing |
+| 2026-10-05 | **The monitor's own recents** (`hook/recents/TaskOverview`): ZUI's monitor recents never became visible and quickstep's fallback is laid out for the tablet, so the monitor gets a recents drawn by the module - that screen's apps, newest first, snapshots, tap/X/swipe/clear all. Tablet recents kept off the monitor's home. | Built, testing |
+| 2026-10-05 | **Recents opens on the screen whose button was pressed, full screen, in front of every app, on the first press.** The tablet's home is Lawnchair, so recents is quickstep's fallback `RecentsActivity`; `hook/recents/RecentsRoute` steers its launch options, corrects it when it appears wrong, and clears stale copies. | Built, testing |
 
 ## Planned, in order
 
@@ -132,7 +132,7 @@ Risk is about where the code has to run: our launcher views are low risk; the sy
 |---|------|-----|------|--------|
 | 1 | **Seamless unplug and replug** of the external display | In the launcher: taskbar rebuild, the desktop, glass sessions, hooks re-attaching. Start from an LSPosed log of one unplug + replug. | Low-medium | Planned |
 | 2 | **Customise our own UI** - taskbar, app drawer, folders, menus, panels: colour, shape, transparency | Settings with live preview: colour, transparency, corner shape, glass strength (`LiquidGlass.Material` numbers), icon and bar size. Shareable presets. | Low | Planned |
-| 3 | **Quick panel tile editing**, like Android's own | Edit mode to reorder, add and remove tiles (`hook/QuickTiles`, `hook/QuickPanel`); other apps' quick-settings tiles if the launcher may bind them; tiles per row, shape, labels, pages. | Low-medium | Planned |
+| 3 | **Quick panel tile editing**, like Android's own | Edit mode to reorder, add and remove tiles (`hook/panel/QuickTiles`, `hook/panel/QuickPanel`); other apps' quick-settings tiles if the launcher may bind them; tiles per row, shape, labels, pages. | Low-medium | Planned |
 | 4 | **Animations for every control** - quick panel toggles, the drawer's power button, and so on | Shared motion: toggle springs with colour flow and icon morphs, press feedback, liquid sliders, power menu blooming out of its button, account bar, taskbar buttons. | Low | Planned |
 | 5 | **Notification pop-ups** on the external display, and **live notifications** like Android's | Glass overlay fed by `notify/NotifyService` (every notification already arrives): pop-ups with actions and inline reply; ongoing progress (deliveries, timers, media, Android 16 Live Updates) as a pill on the taskbar. | Low-medium | Planned |
 | 6 | **Customise the notification pop-ups** | Position, size, duration, style, per-app on/off, do-not-disturb. | Low | Planned |

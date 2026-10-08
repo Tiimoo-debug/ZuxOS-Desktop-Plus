@@ -3,6 +3,7 @@ package com.zuxos.desktopplus.hook;
 import android.view.View;
 
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

@@ -2,7 +2,7 @@
 """
 Offline preview of the module's liquid glass - the real shaders, not a re-implementation.
 
-The AGSL and the material table are read straight out of core/LiquidGlass.java and run through
+The AGSL and the material table are read straight out of core/glass/LiquidGlass.java and run through
 Skia, which is what AGSL is on Android, over real screenshots. Blurs are Skia's own, with the
 radius-to-sigma conversion RenderEffect.createBlurEffect uses, and each layer is cropped to the
 pane before it is blurred, exactly as a view's RenderEffect is. So what this draws is what the
@@ -24,7 +24,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JAVA = os.path.join(HERE, "..", "app", "src", "main", "java", "com", "zuxos", "desktopplus",
-                    "core", "LiquidGlass.java")
+                    "core", "glass", "LiquidGlass.java")
 
 # The external screen: 2560x1440, 1dp = 1.333px (the probe's 60px icons are 45dp).
 DENSITY = 1.333

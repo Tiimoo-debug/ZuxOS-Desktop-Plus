@@ -14,6 +14,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.motion.Hover;
+import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
 
@@ -60,7 +62,7 @@ public class ItemView extends LinearLayout {
                 parent.requestDisallowInterceptTouchEvent(true);
             }
             animate().scaleX(1.08f).scaleY(1.08f).setDuration(220)
-                    .setInterpolator(com.zuxos.desktopplus.core.Motion.SNAPPY).withLayer().start();
+                    .setInterpolator(Motion.SNAPPY).withLayer().start();
         }
     };
 
@@ -171,8 +173,8 @@ public class ItemView extends LinearLayout {
 
     private void releaseGesture() {
         setPressed(false);
-        animate().scaleX(1f).scaleY(1f).setDuration(com.zuxos.desktopplus.core.Motion.SPRING_MS)
-                .setInterpolator(com.zuxos.desktopplus.core.Motion.SNAPPY).withLayer().start();
+        animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SNAPPY).withLayer().start();
         ViewParent parent = getParent();
         if (parent != null) {
             parent.requestDisallowInterceptTouchEvent(false);
@@ -262,9 +264,9 @@ public class ItemView extends LinearLayout {
     public boolean onHoverEvent(android.view.MotionEvent event) {
         int action = event.getActionMasked();
         if (action == android.view.MotionEvent.ACTION_HOVER_ENTER) {
-            com.zuxos.desktopplus.core.Hover.enter(mIcon, 1.10f);
+            Hover.enter(mIcon, 1.10f);
         } else if (action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
-            com.zuxos.desktopplus.core.Hover.exit(mIcon);
+            Hover.exit(mIcon);
         }
         return super.onHoverEvent(event);
     }

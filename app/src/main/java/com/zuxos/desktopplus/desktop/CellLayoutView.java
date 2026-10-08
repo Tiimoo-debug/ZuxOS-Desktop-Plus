@@ -8,8 +8,10 @@ import android.view.DragEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.model.Item;
 
 /**
@@ -466,7 +468,7 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
      */
     private void glide(Item item, float dropX, float dropY, int grabCellX, int grabCellY) {
         View view = viewForItem(item);
-        if (view == null || view.getWidth() == 0 || !com.zuxos.desktopplus.core.Cfg.animations()) {
+        if (view == null || view.getWidth() == 0 || !Cfg.animations()) {
             return;
         }
         float heldX = item.spanX > 1 || item.spanY > 1
@@ -479,8 +481,8 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         view.setScaleX(1.08f);
         view.setScaleY(1.08f);
         view.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f)
-                .setDuration(com.zuxos.desktopplus.core.Motion.SPRING_MS)
-                .setInterpolator(com.zuxos.desktopplus.core.Motion.SPRING)
+                .setDuration(Motion.SPRING_MS)
+                .setInterpolator(Motion.SPRING)
                 .start();
     }
 

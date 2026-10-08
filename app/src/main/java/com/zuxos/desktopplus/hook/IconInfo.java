@@ -6,6 +6,7 @@ import android.os.Process;
 import android.os.UserHandle;
 
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.hook.drawer.NativeDrawerHooks;
 
 /**
  * What is behind a launcher icon.
@@ -17,7 +18,7 @@ import com.zuxos.desktopplus.core.Reflect;
  * again. Anything that reads that package as "the app behind this icon" ends up offering app info
  * for Desktop Plus on a folder, which is exactly the bug this is here to stop.
  */
-final class IconInfo {
+public final class IconInfo {
 
     private IconInfo() {
     }
@@ -28,7 +29,7 @@ final class IconInfo {
      * <p>The component first: an entry copied from a real app keeps that app's intent, so an
      * intent is the last thing to trust, not the first.
      */
-    static String packageOf(Object info) {
+    public static String packageOf(Object info) {
         if (info == null || NativeDrawerHooks.isFolderEntry(info)) {
             return null;
         }
@@ -53,7 +54,7 @@ final class IconInfo {
     }
 
     /** The package behind a view's tag, for a view that is a launcher icon. */
-    static String packageOfView(android.view.View icon) {
+    public static String packageOfView(android.view.View icon) {
         return icon == null ? null : packageOf(icon.getTag());
     }
 
@@ -66,7 +67,7 @@ final class IconInfo {
      * folder-free {@link #packageOfView}. The contents list is found by type, the way everything
      * else about the launcher's minified classes is found.
      */
-    static java.util.List<String> packagesOfView(android.view.View icon) {
+    public static java.util.List<String> packagesOfView(android.view.View icon) {
         java.util.List<String> out = new java.util.ArrayList<>();
         collect(icon == null ? null : icon.getTag(), out, 0);
         return out;
@@ -123,7 +124,7 @@ final class IconInfo {
     }
 
     /** Which user the icon belongs to - a work-profile app is not the personal one. */
-    static UserHandle userOf(Object info) {
+    public static UserHandle userOf(Object info) {
         Object user = Reflect.field(info, "user");
         return user instanceof UserHandle ? (UserHandle) user : Process.myUserHandle();
     }

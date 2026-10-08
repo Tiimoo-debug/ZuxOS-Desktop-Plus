@@ -8,8 +8,8 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
-import com.zuxos.desktopplus.core.Motion;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.model.Item;
 
 /**

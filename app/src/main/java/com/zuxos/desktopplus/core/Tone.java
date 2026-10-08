@@ -1,7 +1,7 @@
 package com.zuxos.desktopplus.core;
 
-import android.app.WallpaperManager;
 import android.app.WallpaperColors;
+import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;

@@ -9,6 +9,20 @@ import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Storage;
+import com.zuxos.desktopplus.core.Thermals;
+import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
+import com.zuxos.desktopplus.core.motion.FrameRate;
+import com.zuxos.desktopplus.hook.home.HostDetector;
+import com.zuxos.desktopplus.hook.home.SurfaceAttacher;
+import com.zuxos.desktopplus.hook.recents.RecentsRoute;
+import com.zuxos.desktopplus.hook.recents.TaskOverview;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarDiag;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarMenu;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarNav;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 
 /**
@@ -111,10 +125,10 @@ public final class Probe {
             sb.append("widgets : provider list unavailable (").append(t).append(")\n");
         }
         sb.append("glass   : shaders ")
-                .append(com.zuxos.desktopplus.core.LiquidGlass.isSupported() ? "on" : "off")
+                .append(LiquidGlass.isSupported() ? "on" : "off")
                 .append(", live screen capture ")
-                .append(com.zuxos.desktopplus.core.ScreenBackdrop.refused()
-                        ? "refused (" + com.zuxos.desktopplus.core.ScreenBackdrop.reason() + ")"
+                .append(ScreenBackdrop.refused()
+                        ? "refused (" + ScreenBackdrop.reason() + ")"
                         : "allowed or not tried yet")
                 .append('\n');
         sb.append("\nview tree\n");
@@ -124,7 +138,7 @@ public final class Probe {
             sb.append("  (no content view)\n");
         }
         try {
-            sb.append(com.zuxos.desktopplus.core.Thermals.describe());
+            sb.append(Thermals.describe());
         } catch (Throwable t) {
             sb.append("\nthermal zones\n  (unreadable: ").append(t).append(")\n");
         }
@@ -167,7 +181,7 @@ public final class Probe {
             sb.append(TaskOverview.describe());
             sb.append(RecentsRoute.describe());
             sb.append(KeepAlive.describe());
-            sb.append(com.zuxos.desktopplus.core.FrameRate.describe(activity));
+            sb.append(FrameRate.describe(activity));
         } catch (Throwable t) {
             sb.append("\nrecents\n  (unreadable: ").append(t).append(")\n");
         }
@@ -246,7 +260,7 @@ public final class Probe {
     }
 
     /** The windowing mode a task is in - full screen, split, freeform - by name where we have one. */
-    static String windowingMode(Object task) {
+    public static String windowingMode(Object task) {
         try {
             Object window = windowConfig(task);
             Object mode = window == null ? null : Reflect.call(window, "getWindowingMode");

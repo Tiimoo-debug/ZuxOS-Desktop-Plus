@@ -7,6 +7,9 @@ import android.view.View;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.hook.recents.TaskOverview;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarRebind;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;

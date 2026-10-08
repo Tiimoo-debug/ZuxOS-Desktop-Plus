@@ -9,6 +9,9 @@ import android.os.PowerManager;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.hook.system.SystemKeepAlive;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
+import com.zuxos.desktopplus.hook.taskbar.TaskbarRebind;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -68,7 +71,7 @@ public final class KeepAlive {
      * An app opened, closed or moved: the set to protect is read again in a moment, once the
      * move has settled - rather than on a five-second poll of every task.
      */
-    static void soon() {
+    public static void soon() {
         if (!sStarted) {
             return;
         }

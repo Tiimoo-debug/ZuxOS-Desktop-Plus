@@ -20,7 +20,7 @@ import java.util.concurrent.Executors;
  * once and kept; each key is a line written into it, in order, from one queue. Nothing waits on
  * the main thread and nothing is refused.
  */
-final class KeyShell {
+public final class KeyShell {
 
     /** How long a first start may take: it may be waiting on a Magisk prompt being read. */
     private static final long READY_MS = 20_000L;
@@ -45,7 +45,7 @@ final class KeyShell {
      * Presses {@code key} on {@code display}, off the main thread. {@code onFail} runs (on the
      * key thread) if root cannot be had, so the press can go somewhere else instead of nowhere.
      */
-    static void send(int display, int key, Runnable onFail) {
+    public static void send(int display, int key, Runnable onFail) {
         QUEUE.execute(() -> {
             String line = "input -d " + display + " keyevent " + key + "\n";
             if (write(line) || (restart() && write(line))) {
@@ -59,7 +59,7 @@ final class KeyShell {
     }
 
     /** Any one command as root, through the same shell, in order with the keys. */
-    static void run(String command) {
+    public static void run(String command) {
         QUEUE.execute(() -> {
             String line = command + "\n";
             if (!write(line)) {
@@ -174,7 +174,7 @@ final class KeyShell {
         t.start();
     }
 
-    static String describe() {
+    public static String describe() {
         return "key shell: " + (sReady ? "running" : "not running") + ", started "
                 + sStarts + "x, last error: " + sLastError
                 + (sLastSentAt == 0 ? "" : ", last key "

@@ -13,7 +13,6 @@ import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.model.AppsRepo;
-import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.model.Item;
 
 /** The panel shown when a folder is opened: rename field plus the folder's contents. */

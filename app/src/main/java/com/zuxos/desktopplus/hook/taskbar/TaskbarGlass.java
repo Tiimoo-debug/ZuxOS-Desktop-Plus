@@ -1,0 +1,729 @@
+package com.zuxos.desktopplus.hook.taskbar;
+
+import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Shader;
+import android.graphics.drawable.Drawable;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+
+import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.L;
+import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.Tone;
+import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.glass.Blur;
+import com.zuxos.desktopplus.core.glass.GlassBackdrop;
+import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.logic.ToneMath;
+
+import java.lang.ref.WeakReference;
+import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+
+/**
+ * Glass for the launcher's own taskbar.
+ *
+ * <p>Two things have to happen: the opaque bar the launcher paints has to stop being opaque, and
+ * a translucent pane has to take its place. A pane alone is not enough - it is translucent, so
+ * the original shows straight through it, which is what "the white is still behind" looked like.
+ *
+ * <p>Where that bar is painted differs by firmware, so all three known places are covered: an
+ * {@code onDraw} override, a background drawable, and - as on this tablet, which the probe dump
+ * settled - inside {@code dispatchDraw}, alongside the call that paints the icons.
+ *
+ * <p>There is deliberately no window blur here any more. An earlier version added
+ * {@code FLAG_BLUR_BEHIND} to the taskbar's own window; that window expands to fill the display
+ * whenever the app drawer opens, so it blurred the entire screen, and pushing new layout params
+ * into a window the launcher owns is the likeliest cause of the input that stopped responding
+ * along with it. Nothing here touches the launcher's window any more. It swaps a drawable on a
+ * view and adds a child, and both are undone exactly.
+ */
+public final class TaskbarGlass {
+
+    /** The bar's tint, lighter at the top edge and deeper towards the screen edge. */
+    private static final int TINT_TOP = 0x592A2A34;
+    private static final int TINT = 0x73161620;
+    private static final int TINT_BOTTOM = 0x8C0E0E14;
+
+    private static final String TAG_GLASS = "zux-desktop-plus-taskbar-glass";
+
+    /** The navigation buttons, by the ids Launcher3 gives them. */
+    private static final String[] NAV_IDS = {"back", "home", "recent_apps"};
+
+    /**
+     * The renderer class, by the names it goes under. Launcher3's own names survive this build's
+     * R8 pass - the probe shows TaskbarDragLayer and TaskbarScrimView in full - so this is a
+     * lookup rather than a search.
+     */
+    private static final String[] RENDERER_CLASSES = {
+            "com.android.launcher3.taskbar.TaskbarBackgroundRenderer",
+            "com.android.launcher3.taskbar.TaskbarDragLayerController$TaskbarBackgroundRenderer",
+            "com.android.launcher3.taskbar.customization.TaskbarBackgroundRenderer",
+    };
+
+    /** Raised while a glazed taskbar is drawing, so the renderer knows to stay out of the way. */
+    private static final ThreadLocal<Boolean> DRAWING_GLAZED = new ThreadLocal<>();
+
+    private static final Map<View, WeakReference<View>> PANES = new WeakHashMap<>();
+    /** The background each taskbar had before we replaced it, so it can be put back. */
+    private static final Map<View, Drawable> ORIGINAL_BACKGROUNDS = new WeakHashMap<>();
+    /**
+     * The tint each navigation button had before we brightened it.
+     *
+     * <p>A one-element array rather than the value itself, because "no tint" is a real state and
+     * a null value could not be told apart from "not ours to restore".
+     */
+    private static final Map<View, ColorStateList[]> ORIGINAL_NAV_TINTS = new WeakHashMap<>();
+    /** The layout listener each glazed taskbar owns, so it can be taken off again. */
+    private static final Map<View, Watcher> WATCHERS = new WeakHashMap<>();
+
+    private static boolean sInstalled;
+
+    /**
+     * What we last painted each glyph.
+     *
+     * <p>Per button, not one value for all of them: with two displays there are two sets, and a
+     * single field means one taskbar reads back the other's colour as though the launcher had
+     * chosen it - which flips the tone and asks for a repaint, on every layout, for ever.
+     */
+    private static final Map<View, Integer> APPLIED_NAV = new WeakHashMap<>();
+
+    /**
+     * The repaint, as one object so it can be coalesced.
+     *
+     * <p>One instance, so posting it again replaces the pending one instead of queuing a second.
+     */
+    private static final Runnable REPAINT = TaskbarTray::refresh;
+
+    private TaskbarGlass() {
+    }
+
+    /**
+     * Stops the taskbar painting its own bar.
+     *
+     * <p>Hooked on {@code TaskbarDragLayer} itself rather than on {@code View}, so every hook here
+     * runs only for the taskbar. This firmware does not declare {@code onDraw} at all, so that
+     * hook matches nothing and costs nothing; {@link #installDispatchDraw} is the one that does
+     * the work here.
+     */
+    static void install(ClassLoader loader) {
+        if (sInstalled) {
+            return;
+        }
+        sInstalled = true;
+        // What colour the bar's contents should be depends on whether it is our glass or the
+        // launcher's own bar, and this is the only thing that knows which.
+        Tone.glazedBy(TaskbarGlass::anyGlazed);
+        try {
+            Class<?> cls = Reflect.findClass(
+                    "com.android.launcher3.taskbar.TaskbarDragLayer", loader);
+            if (cls == null) {
+                L.w("taskbar glass: TaskbarDragLayer not found");
+                return;
+            }
+            int hooked = XposedBridge.hookAllMethods(cls, "onDraw", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    // Asked per drag layer, not from a global flag: with a second display there
+                    // are two taskbars, and one of them being glazed must not blank the other.
+                    if (isGlazed(param.thisObject)) {
+                        param.setResult(null);
+                    }
+                }
+            }).size();
+            L.i("taskbar glass: onDraw suppression installed x" + hooked);
+            L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
+                    + drawMethodsOf(cls));
+            installDispatchDraw(cls, loader);
+        } catch (Throwable t) {
+            L.e("taskbar glass: could not install", t);
+        }
+    }
+
+    /**
+     * Stops the object that paints the bar, rather than the method that calls it.
+     *
+     * <p>The previous attempt replaced {@code TaskbarDragLayer.dispatchDraw} and tried to call
+     * {@code ViewGroup.dispatchDraw} in its place, so the icons would still be drawn.
+     * {@code invokeOriginalMethod} only dispatches non-virtually for a method that is itself
+     * hooked; {@code ViewGroup.dispatchDraw} is not, so that was an ordinary reflective call, it
+     * dispatched virtually back into {@code TaskbarDragLayer.dispatchDraw}, and the stack died.
+     *
+     * <p>This goes at the painting instead. {@code dispatchDraw} raises a flag while a glazed
+     * taskbar is drawing, and the background renderer's own {@code draw} returns early while that
+     * flag is up. Both hooks are shallow, neither calls back into the other, and the flag is a
+     * {@link ThreadLocal} so a second display's taskbar is untouched.
+     */
+    private static void installDispatchDraw(Class<?> dragLayerCls, ClassLoader loader) {
+        Class<?> renderer = null;
+        StringBuilder tried = new StringBuilder();
+        for (String name : RENDERER_CLASSES) {
+            tried.append(tried.length() == 0 ? "" : ", ").append(name);
+            renderer = Reflect.findClass(name, loader);
+            if (renderer != null) {
+                break;
+            }
+        }
+        if (renderer == null) {
+            L.w("taskbar glass: no background renderer found (tried " + tried
+                    + ") - the stock bar will stay. Send a probe dump and it can be named.");
+            return;
+        }
+
+        try {
+            XC_MethodHook flag = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (isGlazed(param.thisObject)) {
+                        DRAWING_GLAZED.set(Boolean.TRUE);
+                    }
+                }
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    DRAWING_GLAZED.remove();
+                }
+            };
+            // Declared on the drag layer here, on the shared BaseDragLayer in other builds - the
+            // same walk the diagnostic does. isGlazed keeps the flag to taskbars we have glazed.
+            int flagged = 0;
+            for (Class<?> c = dragLayerCls; c != null && c != ViewGroup.class && c != View.class;
+                    c = c.getSuperclass()) {
+                try {
+                    flagged += XposedBridge.hookAllMethods(c, "dispatchDraw", flag).size();
+                } catch (Throwable ignored) {
+                    // Not declared at this level; keep walking.
+                }
+            }
+            if (flagged == 0) {
+                L.w("taskbar glass: nothing declares dispatchDraw - the renderer will never be "
+                        + "told to stand down, so the stock bar stays");
+                return;
+            }
+            int hooked = XposedBridge.hookAllMethods(renderer, "draw", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (Boolean.TRUE.equals(DRAWING_GLAZED.get())) {
+                        param.setResult(null);
+                    }
+                }
+            }).size();
+            L.i("taskbar glass: background renderer suppressed x" + hooked
+                    + " (" + renderer.getSimpleName() + ")");
+            if (hooked == 0) {
+                L.w("taskbar glass: " + renderer.getSimpleName() + " has no draw method - the "
+                        + "stock bar will stay");
+            }
+        } catch (Throwable t) {
+            L.e("taskbar glass: could not suppress the background renderer", t);
+        }
+    }
+
+    /** The draw-related methods this build actually overrides, for the log. */
+    private static String drawMethodsOf(Class<?> cls) {
+        StringBuilder sb = new StringBuilder();
+        for (Class<?> c = cls; c != null && c != View.class; c = c.getSuperclass()) {
+            for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                String name = m.getName();
+                if (name.equals("draw") || name.equals("onDraw") || name.equals("dispatchDraw")
+                        || name.startsWith("drawBackground")) {
+                    if (sb.length() > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(c.getSimpleName()).append('.').append(name)
+                            .append('(').append(m.getParameterCount()).append(')');
+                }
+            }
+        }
+        return sb.length() == 0 ? "none" : sb.toString();
+    }
+
+    /** Bars waiting for their first layout before the glass goes on. */
+    private static final Map<View, Boolean> WAITING = new java.util.WeakHashMap<>();
+    private static boolean sSaidWaiting;
+
+    private static void waitForGeometry(ViewGroup dragLayer, View reference) {
+        if (WAITING.containsKey(dragLayer)) {
+            return;
+        }
+        WAITING.put(dragLayer, Boolean.TRUE);
+        if (!sSaidWaiting) {
+            sSaidWaiting = true;
+            L.d("taskbar glass: the bar's geometry is not known yet - waiting for its layout");
+        }
+        View watched = reference != null ? reference : dragLayer;
+        watched.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot,
+                    int or, int ob) {
+                View now = TaskbarTray.rowReference(dragLayer);
+                if (now == null || now.getHeight() <= 0) {
+                    return;
+                }
+                v.removeOnLayoutChangeListener(this);
+                WAITING.remove(dragLayer);
+                dragLayer.post(() -> apply(dragLayer));
+            }
+        });
+    }
+
+    /** Applies or removes the glass on one taskbar, following the setting. */
+    static void apply(View root) {
+        if (!(root instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup dragLayer = (ViewGroup) root;
+        try {
+            if (!(Cfg.taskbarGlass() && Cfg.glass())) {
+                remove(dragLayer);
+                return;
+            }
+            if (paneIn(dragLayer) != null) {
+                return;
+            }
+            View reference = TaskbarTray.rowReference(dragLayer);
+            if (reference == null || reference.getHeight() <= 0) {
+                // Without the row's geometry the pane has no height to take, and a plain View
+                // asked to wrap its content fills the space it is offered - which is the whole
+                // drag layer. Applied once the bar has been laid out, by a listener that then
+                // goes: retrying on every resume logged and searched the bar twice a second.
+                waitForGeometry(dragLayer, reference);
+                return;
+            }
+            ViewGroup.LayoutParams lp = TaskbarTray.dragLayerParams(dragLayer, reference);
+            if (lp == null) {
+                L.w("taskbar glass: the drag layer's layout params are not reproducible, "
+                        + "leaving its background alone");
+                return;
+            }
+            BarView pane = new BarView(dragLayer.getContext());
+            pane.setTag(TAG_GLASS);
+            // Index 0 so it is behind every icon and every button.
+            dragLayer.addView(pane, 0, lp);
+            PANES.put(root, new WeakReference<>(pane));
+            sync(dragLayer, pane, reference);
+            watch(dragLayer, pane, reference);
+            // The pane is in the map by now, so the tone already reads as a glazed bar - which
+            // is what the tint below asks about.
+            Tone.forget();
+            brightenNavButtons(dragLayer);
+            takeBackground(dragLayer);
+            dragLayer.invalidate();
+            L.i("taskbar glass: applied");
+        } catch (Throwable t) {
+            // The pane is what licenses hiding the launcher's own bar, so dropping it puts the
+            // stock one back rather than leaving a transparent taskbar behind.
+            PANES.remove(root);
+            unwatch(dragLayer);
+            Tone.forget();
+            restoreNavButtons(dragLayer);
+            L.e("taskbar glass: could not apply", t);
+        }
+    }
+
+    /**
+     * Follows the bar's row, and can be taken off again.
+     *
+     * <p>Remembered rather than added and forgotten. A listener left on the row outlives the
+     * glass: it would keep re-tinting the navigation buttons after the setting was turned off and
+     * their own colours restored, and a second would be added every time the glass was applied.
+     */
+    private static void watch(ViewGroup dragLayer, View pane, View reference) {
+        unwatch(dragLayer);
+        if (reference == null) {
+            return;
+        }
+        View.OnLayoutChangeListener listener = (v, l, t, r, b, ol, ot, or, ob) -> {
+            sync(dragLayer, pane, reference);
+            // The launcher rebuilds this row - on a rotation, on a display change - and the
+            // buttons come back in their own colours when it does.
+            brightenNavButtons(dragLayer);
+        };
+        reference.addOnLayoutChangeListener(listener);
+        WATCHERS.put(dragLayer, new Watcher(reference, listener));
+    }
+
+    private static void unwatch(ViewGroup dragLayer) {
+        Watcher watcher = WATCHERS.remove(dragLayer);
+        if (watcher == null) {
+            return;
+        }
+        View row = watcher.row.get();
+        if (row != null) {
+            row.removeOnLayoutChangeListener(watcher.listener);
+        }
+    }
+
+    private static final class Watcher {
+        final WeakReference<View> row;
+        final View.OnLayoutChangeListener listener;
+
+        Watcher(View row, View.OnLayoutChangeListener listener) {
+            this.row = new WeakReference<>(row);
+            this.listener = listener;
+        }
+    }
+
+    /**
+     * Lifts the navigation glyphs off the glass.
+     *
+     * <p>Found by id rather than by position, and each button's own tint is remembered first, so
+     * turning the glass off puts the bar back exactly as the launcher drew it.
+     */
+    private static void brightenNavButtons(ViewGroup dragLayer) {
+        try {
+            List<View> buttons = Reflect.findByIdNames(dragLayer, NAV_IDS);
+            int tinted = 0;
+            boolean news = false;
+            for (View button : buttons) {
+                if (!(button instanceof ImageView)) {
+                    continue;
+                }
+                ImageView icon = (ImageView) button;
+                if (!ORIGINAL_NAV_TINTS.containsKey(icon)) {
+                    ORIGINAL_NAV_TINTS.put(icon, new ColorStateList[]{icon.getImageTintList()});
+                }
+                // Read before it is written over. Whatever is here that we did not put here is
+                // the launcher's own answer to "is the thing behind this bar light or dark",
+                // which it revises every time the app in front changes - and which is the one
+                // thing on the bar that actually knows.
+                ColorStateList current = icon.getImageTintList();
+                Integer ours = APPLIED_NAV.get(icon);
+                if (current != null && (ours == null || ours != current.getDefaultColor())) {
+                    news |= Tone.observeGlyph(current.getDefaultColor());
+                }
+                int wanted = TaskbarTray.textColor();
+                APPLIED_NAV.put(icon, wanted);
+                icon.setImageTintList(ColorStateList.valueOf(wanted));
+                tinted++;
+            }
+            if (tinted == 0) {
+                L.d("taskbar glass: no navigation buttons found by id (tried "
+                        + String.join(", ", NAV_IDS) + ")");
+            }
+            if (news) {
+                // The background changed under us, so everything else on the bar is now the
+                // wrong colour - including the glyphs just painted from the old answer.
+                //
+                // Coalesced rather than rate-limited: this runs from a layout pass, and layout
+                // passes come in bursts, but a change dropped for being too soon after the last
+                // one is a bar left in the wrong colour until something unrelated repaints it.
+                // Posting cancels the pending one and schedules this one, so the last word wins
+                // and none of them are lost.
+                L.i("taskbar glass: the background changed tone, repainting the bar");
+                dragLayer.removeCallbacks(REPAINT);
+                dragLayer.postDelayed(REPAINT, 150L);
+            }
+        } catch (Throwable t) {
+            L.d("taskbar glass: could not tint the navigation buttons (" + t + ")");
+        }
+    }
+
+    /** Puts each button's own tint back. */
+    private static void restoreNavButtons(ViewGroup dragLayer) {
+        try {
+            for (View button : Reflect.findByIdNames(dragLayer, NAV_IDS)) {
+                ColorStateList[] original = ORIGINAL_NAV_TINTS.remove(button);
+                if (original != null && button instanceof ImageView) {
+                    ((ImageView) button).setImageTintList(original[0]);
+                }
+            }
+        } catch (Throwable t) {
+            L.d("taskbar glass: could not restore the navigation buttons (" + t + ")");
+        }
+    }
+
+    /**
+     * Takes the taskbar's own background off, remembering it.
+     *
+     * <p>A background drawable is painted by {@code View.draw}, not by {@code onDraw}, so no hook
+     * on {@code onDraw} can suppress it - and a child pane is drawn over it but is translucent,
+     * so it shows through. Removing it is the only thing that works, and putting the same
+     * instance back afterwards is an exact undo.
+     */
+    private static void takeBackground(ViewGroup dragLayer) {
+        if (ORIGINAL_BACKGROUNDS.containsKey(dragLayer)) {
+            return;
+        }
+        Drawable background = dragLayer.getBackground();
+        ORIGINAL_BACKGROUNDS.put(dragLayer, background);
+        if (background == null) {
+            L.i("taskbar glass: the taskbar has no background drawable - if the stock bar is "
+                    + "still visible, this build paints it in its own drawing code");
+            return;
+        }
+        dragLayer.setBackground(null);
+        L.i("taskbar glass: removed the taskbar's background ("
+                + background.getClass().getName() + ")");
+    }
+
+    private static void restoreBackground(ViewGroup dragLayer) {
+        if (!ORIGINAL_BACKGROUNDS.containsKey(dragLayer)) {
+            return;
+        }
+        Drawable background = ORIGINAL_BACKGROUNDS.remove(dragLayer);
+        if (background != null) {
+            dragLayer.setBackground(background);
+        }
+    }
+
+    /**
+     * Whether this drag layer has our pane, which is what licenses hiding its own background.
+     *
+     * <p>Map lookup only. This is asked once per taskbar frame, so it must not walk the tree.
+     */
+    private static boolean isGlazed(Object dragLayer) {
+        WeakReference<View> ref = PANES.get(dragLayer);
+        View pane = ref != null ? ref.get() : null;
+        return pane != null && pane.getParent() != null;
+    }
+
+    /** Whether any taskbar currently has a live pane. See {@link Tone#glazedBy}. */
+    static boolean anyGlazed() {
+        for (WeakReference<View> ref : PANES.values()) {
+            View pane = ref != null ? ref.get() : null;
+            if (pane != null && pane.getParent() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Re-tints the navigation glyphs of every glazed taskbar, for when the tone has moved. */
+    static void retintNav() {
+        for (Map.Entry<View, WeakReference<View>> entry : PANES.entrySet()) {
+            View pane = entry.getValue() != null ? entry.getValue().get() : null;
+            if (pane != null && pane.getParent() != null
+                    && entry.getKey() instanceof ViewGroup) {
+                brightenNavButtons((ViewGroup) entry.getKey());
+            }
+        }
+    }
+
+    private static View paneIn(ViewGroup dragLayer) {
+        WeakReference<View> ref = PANES.get(dragLayer);
+        View pane = ref != null ? ref.get() : null;
+        if (pane != null && pane.getParent() != null) {
+            return pane;
+        }
+        View tagged = dragLayer.findViewWithTag(TAG_GLASS);
+        if (tagged != null) {
+            // Ours from an earlier pass whose bookkeeping was lost; adopt it rather than
+            // stacking a second pane on top.
+            PANES.put(dragLayer, new WeakReference<>(tagged));
+        }
+        return tagged;
+    }
+
+    private static void remove(ViewGroup dragLayer) {
+        // First: a listener still on the row would re-tint the buttons at the next layout, just
+        // after their own colours had been put back.
+        unwatch(dragLayer);
+        PANES.remove(dragLayer);
+        Tone.forget();
+        View pane = dragLayer.findViewWithTag(TAG_GLASS);
+        if (pane != null && pane.getParent() instanceof ViewGroup) {
+            ((ViewGroup) pane.getParent()).removeView(pane);
+            L.i("taskbar glass: removed, the setting is off");
+        }
+        restoreNavButtons(dragLayer);
+        restoreBackground(dragLayer);
+        dragLayer.invalidate();
+    }
+
+    private static void sync(ViewGroup dragLayer, View pane, View reference) {
+        try {
+            ViewGroup.LayoutParams raw = pane.getLayoutParams();
+            if (!(raw instanceof FrameLayout.LayoutParams)) {
+                return;
+            }
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+            if (reference == null || reference.getHeight() <= 0) {
+                // Never fall back to a size that fills the parent: this pane paints a tint, and
+                // one covering the whole drag layer is the "glass took over the screen" bug.
+                return;
+            }
+            lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            lp.gravity = Gravity.TOP | Gravity.START;
+            lp.height = reference.getHeight();
+            lp.topMargin = reference.getTop();
+            pane.setLayoutParams(lp);
+        } catch (Throwable t) {
+            L.d("taskbar glass: could not place the pane (" + t + ")");
+        }
+    }
+
+    /**
+     * The bar.
+     *
+     * <p>Liquid glass where the device allows it: the app behind the bar captured live, frosted,
+     * its top edge bending what is under it - see {@link GlassBackdrop}. Elsewhere, the system's
+     * blur with a lit gradient, a bright hairline along the top and a soft sheen. Either way the
+     * contrast veil goes on top, so the glyphs stay legible over whatever is behind.
+     */
+    private static final class BarView extends FrameLayout {
+
+        private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        /** Keeps the glyphs legible over whatever app is behind the glass; see dispatchDraw. */
+        private final Paint mContrast = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int mContrastFor;
+        private int mContrastColor;
+        private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float mRadius;
+        /** How far the shape runs past each end: the radius when the bar spans the screen. */
+        private float mSides;
+
+        private boolean mBlurred;
+        private boolean mLive;
+        private GlassBackdrop mGlass;
+        private static boolean sSaid;
+
+        BarView(Context ctx) {
+            super(ctx);
+            setWillNotDraw(false);
+            mEdge.setStyle(Paint.Style.STROKE);
+            mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
+            mEdge.setColor(0x4DFFFFFF);
+            mRadius = Ui.dp(ctx, 18);
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (mBlurred || mLive) {
+                return;
+            }
+            if (GlassBackdrop.possible()) {
+                mLive = true;
+                // Two frames apart, not one: the bar is always on screen, and what is behind it
+                // rarely moves faster than that.
+                boolean dark = Tone.lightOnDark(getContext());
+                mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius, mRadius,
+                        LiquidGlass.tintFor(dark), dark ? 0x99161620 : 0x99F2F2F5, 33L);
+                mGlass.setExtendSides(mSides);
+                addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
+                        LayoutParams.MATCH_PARENT));
+                mGlass.setLive(true, () -> {
+                    removeView(mGlass);
+                    mGlass = null;
+                    mLive = false;
+                    systemBlur();
+                    invalidate();
+                });
+                if (!sSaid) {
+                    sSaid = true;
+                    L.i("taskbar glass: liquid glass over the live screen");
+                }
+                return;
+            }
+            systemBlur();
+        }
+
+        /**
+         * The compositor blurs what is behind this strip and nothing else. Where it is unavailable
+         * the painted tint carries the bar on its own.
+         */
+        private void systemBlur() {
+            Drawable backdrop = Blur.backdrop(this, Ui.dp(getContext(), 40), mRadius, 0x1AFFFFFF);
+            if (backdrop != null) {
+                setBackground(backdrop);
+                mBlurred = true;
+            }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            // The drawable belongs to the window that made it. On the next attach the question
+            // is asked again, so a device that has since turned blur off gets its tint back.
+            if (mBlurred) {
+                setBackground(null);
+                mBlurred = false;
+            }
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (h <= 0) {
+                return;
+            }
+            // A bar from one end of the screen to the other has no ends of its own: its shape
+            // runs on past both, so the rim is one straight line, flush with the screen's edges,
+            // instead of curving back in and reading as a second bar inside the first.
+            mSides = w >= getResources().getDisplayMetrics().widthPixels - 2 ? mRadius : 0f;
+            if (mGlass != null) {
+                mGlass.setExtendSides(mSides);
+            }
+            // Lighter at the top, where a sheet of glass catches the light.
+            mFill.setShader(new LinearGradient(0, 0, 0, h,
+                    new int[]{TINT_TOP, TINT, TINT_BOTTOM},
+                    new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+            mSheen.setShader(new LinearGradient(0, 0, 0, h * 0.5f,
+                    0x2BFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
+        }
+
+        private Paint contrastPaint(boolean lightGlyphs) {
+            int glyph = Tone.text(getContext());
+            if (glyph != mContrastFor || mContrastColor == 0) {
+                int scrim = lightGlyphs ? 0xFF000000 : 0xFFFFFFFF;
+                int alpha = ToneMath.scrimAlphaFor(
+                        0xFF000000 | glyph, scrim, 3.0);
+                mContrastFor = glyph;
+                mContrastColor = (alpha << 24) | (scrim & 0xFFFFFF);
+                mContrast.setColor(mContrastColor);
+            }
+            return mContrast;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            if (mLive || mBlurred || !Tone.lightOnDark(getContext())) {
+                // Painted over a real blur this tint is exactly the colour cast that stops it
+                // reading as glass; under dark glyphs it is what made them disappear.
+                return;
+            }
+            float w = getWidth();
+            float h = getHeight();
+            if (w > 0 && h > 0) {
+                RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
+                canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+            }
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+            // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
+            // rectangle is extended past it and the bottom corners fall off the view - and past
+            // both ends too when the bar spans the screen.
+            RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
+            // The floor under every glyph, over the glass: the lightest veil, in the colour
+            // opposite the glyphs, that keeps them at 3:1 against anything behind.
+            canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(Tone.lightOnDark(getContext())));
+            if (!mLive) {
+                // Live glass lights its own rim.
+                canvas.drawRoundRect(r, mRadius, mRadius, mSheen);
+                canvas.drawRoundRect(r, mRadius, mRadius, mEdge);
+            }
+        }
+    }
+}

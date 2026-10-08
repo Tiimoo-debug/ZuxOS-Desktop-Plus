@@ -1,10 +1,10 @@
 package com.zuxos.desktopplus.core;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
-import android.content.res.ColorStateList;
 import android.util.TypedValue;
 import android.widget.TextView;
 

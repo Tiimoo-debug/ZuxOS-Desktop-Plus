@@ -5,8 +5,8 @@ import android.view.MotionEvent;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
-import com.zuxos.desktopplus.core.Motion;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.motion.Motion;
 
 /**
  * A tile under the pointer: a soft highlight comes up behind it and its picture grows a
@@ -16,13 +16,13 @@ import com.zuxos.desktopplus.core.Ui;
  * enter/exit: those fire every time the pointer crosses the tile's X or icon, and the tile
  * used to grow and shrink with each crossing - taking the icon and X with it.
  */
-final class HoverTile extends LinearLayout {
-    ImageView mThumb;
+public final class HoverTile extends LinearLayout {
+    public ImageView mThumb;
     private boolean mHovered;
     private final android.graphics.drawable.GradientDrawable mGlow;
     private android.animation.ValueAnimator mFade;
 
-    HoverTile(Context ctx) {
+    public HoverTile(Context ctx) {
         super(ctx);
         mGlow = Ui.roundRect(0x1FFFFFFF, Ui.dp(ctx, 16));
         mGlow.setAlpha(0);

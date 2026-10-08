@@ -2,7 +2,7 @@
 
 ## LiquidGlass for Android
 
-`core/LiquidGlass.java` ports the optical model - the signed-distance lens, its bevel profile and
+`core/glass/LiquidGlass.java` ports the optical model - the signed-distance lens, its bevel profile and
 inverse-power falloff, the per-channel dispersion, the vibrancy curve and the two-lobe rim
 specular - from **LiquidGlass for Android** by pandadog:
 https://github.com/QWEA0/Liquid-Glass-Android

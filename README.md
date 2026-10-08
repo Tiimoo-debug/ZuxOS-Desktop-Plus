@@ -270,8 +270,18 @@ deliberately not secret. Use your own signing config if you distribute this.
 
 ```
 app/src/main/java/com/zuxos/desktopplus/
-  core/      settings, logging, storage, reflection, glass, tone, menus, icons
-  hook/      LSPosed entry point and every hook: taskbar, stock drawer, nav keys, tray, probe
+  core/      settings, logging, storage, reflection, root, tone, menus
+    glass/     liquid glass: shaders, live backdrop, glass views
+    motion/    iOS springs, animations, hover, refresh rate
+    icons/     the start button robot, menu glyphs, tray icons
+  hook/      LSPosed entry point and what every hook shares: windows, overlays, probe
+    system/    runs in the system process - must never crash (boot loop)
+    taskbar/   ZUI's three taskbars: our app row, start button, tray, menus, nav keys
+    drawer/    ZUI's own app drawer: folders, order, drag out, glass, account bar
+    home/      home screens: our desktop on the monitor, ZUI's dock and folders
+    panel/     quick settings, sound, notifications, tray state
+    shots/     screenshot button, preview, share sheet
+    recents/   the monitor's recents, recents press routing
   model/     items, desktop/drawer persistence, app and icon repository
   desktop/   the desktop surface: grid, icons, folders, widgets, menus, drag and drop
   drawer/    the module's own app drawer

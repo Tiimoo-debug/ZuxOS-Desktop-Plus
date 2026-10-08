@@ -16,20 +16,24 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
-import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Storage;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.glass.Glass;
+import com.zuxos.desktopplus.core.motion.Anim;
+import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.drawer.DrawerPanel;
-import com.zuxos.desktopplus.hook.OemBridge;
+import com.zuxos.desktopplus.hook.KeepAlive;
 import com.zuxos.desktopplus.hook.Probe;
-import com.zuxos.desktopplus.hook.StockUnlockHooks;
-import com.zuxos.desktopplus.hook.SurfaceAttacher;
+import com.zuxos.desktopplus.hook.Windows;
+import com.zuxos.desktopplus.hook.home.OemBridge;
+import com.zuxos.desktopplus.hook.home.StockUnlockHooks;
+import com.zuxos.desktopplus.hook.home.SurfaceAttacher;
+import com.zuxos.desktopplus.hook.taskbar.AppMenu;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DesktopStore;
 import com.zuxos.desktopplus.model.DrawerStore;
@@ -122,18 +126,18 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mActivity = activity;
         AppCtx.set(activity);
         mExternal = external;
-        com.zuxos.desktopplus.hook.KeepAlive.start(activity);
+        KeepAlive.start(activity);
         if (external) {
             // The desktop at the monitor's fastest refresh rate: everything drawn on it - the
             // folders, the drawer, the icons - moves at what the screen can show.
             try {
                 android.view.WindowManager.LayoutParams attrs =
                         activity.getWindow().getAttributes();
-                com.zuxos.desktopplus.core.FrameRate.forWindow(attrs,
+                FrameRate.forWindow(attrs,
                         activity.getWindowManager().getDefaultDisplay());
                 activity.getWindow().setAttributes(attrs);
             } catch (Throwable t) {
-                com.zuxos.desktopplus.core.L.d("desktop: could not ask for the refresh rate ("
+                L.d("desktop: could not ask for the refresh rate ("
                         + t + ")");
             }
         }
@@ -572,7 +576,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
      * glass, the pill right on top of the back key.
      */
     private void clearTaskbar() {
-        int bar = com.zuxos.desktopplus.hook.Windows.taskbarHeight(mDisplayId);
+        int bar = Windows.taskbarHeight(mDisplayId);
         FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
         int bottom = bar + Ui.dp(mActivity, 10);
         if (dlp.bottomMargin != bottom) {
@@ -951,7 +955,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
      */
     private boolean launch(Item item, View source) {
         if (item.type == Item.TYPE_APP && mExternal
-                && com.zuxos.desktopplus.hook.AppMenu.bringIfOpen(mActivity, item.pkg,
+                && AppMenu.bringIfOpen(mActivity, item.pkg,
                 mDisplayId)) {
             return true;
         }
@@ -1263,7 +1267,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         } else {
             entries.add(new Menus.Entry("Open", () -> openItem(item, null)));
             if (item.type == Item.TYPE_APP) {
-                com.zuxos.desktopplus.hook.AppMenu.addTo(entries, mActivity, item.pkg,
+                AppMenu.addTo(entries, mActivity, item.pkg,
                         mRepo.userFor(item.userSerial), mDisplayId, null);
                 entries.add(new Menus.Entry("Pin a shortcut from this app",
                         () -> Dialogs.pickShortcut(mActivity, mRepo, item.pkg,
@@ -1844,7 +1848,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                     mRepo.showAppInfo(item, mDisplayId);
                     closeOverlays();
                 }));
-                com.zuxos.desktopplus.hook.AppMenu.addTo(entries, mActivity, item.pkg,
+                AppMenu.addTo(entries, mActivity, item.pkg,
                         mRepo.userFor(item.userSerial), mDisplayId, this::closeOverlays);
             }
         }

@@ -10,10 +10,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.zuxos.desktopplus.core.Anim;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.core.motion.Anim;
+import com.zuxos.desktopplus.desktop.Dialogs;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
@@ -152,7 +154,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         };
 
         GlassPanel sheet = new GlassPanel(ctx, Ui.dp(ctx, 28), 0x66141419,
-                com.zuxos.desktopplus.core.LiquidGlass.THICK);
+                LiquidGlass.THICK);
         mSheet = sheet;
         sheet.setClickable(true);
 
@@ -175,7 +177,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mSearch.setBackground(Ui.roundRect(0x22FFFFFF, Ui.dp(ctx, 18)));
         int sp = Ui.dp(ctx, 12);
         mSearch.setPadding(sp, sp / 2, sp, sp / 2);
-        mSearch.addTextChangedListener(new com.zuxos.desktopplus.desktop.Dialogs.SimpleWatcher(text -> {
+        mSearch.addTextChangedListener(new Dialogs.SimpleWatcher(text -> {
             mQuery = text.toLowerCase();
             rebuild();
         }));

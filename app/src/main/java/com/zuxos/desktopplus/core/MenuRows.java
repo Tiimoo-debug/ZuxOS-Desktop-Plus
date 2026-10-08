@@ -11,6 +11,10 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.zuxos.desktopplus.core.glass.GlassSurface;
+import com.zuxos.desktopplus.core.icons.Glyphs;
+import com.zuxos.desktopplus.core.motion.Motion;
+
 /**
  * One look for every menu: a pane of glass with a row per entry, icon on the left.
  *

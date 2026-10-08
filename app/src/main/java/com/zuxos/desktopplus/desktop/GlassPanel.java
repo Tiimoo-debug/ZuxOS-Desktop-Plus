@@ -5,12 +5,12 @@ import android.graphics.Bitmap;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import com.zuxos.desktopplus.core.Glass;
-import com.zuxos.desktopplus.core.GlassBackdrop;
 import com.zuxos.desktopplus.core.L;
-import com.zuxos.desktopplus.core.LiquidGlass;
-import com.zuxos.desktopplus.core.ScreenBackdrop;
 import com.zuxos.desktopplus.core.Snapshot;
+import com.zuxos.desktopplus.core.glass.Glass;
+import com.zuxos.desktopplus.core.glass.GlassBackdrop;
+import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 
 import java.util.ArrayList;
 import java.util.List;

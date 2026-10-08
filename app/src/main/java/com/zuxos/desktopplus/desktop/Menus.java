@@ -8,10 +8,11 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-import com.zuxos.desktopplus.core.Ui;
-import com.zuxos.desktopplus.core.Glyphs;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.MenuRows;
+import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.icons.Glyphs;
+import com.zuxos.desktopplus.hook.Windows;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -184,7 +185,7 @@ public final class Menus {
             if (view.getDisplay() == null) {
                 return 0;
             }
-            int bar = com.zuxos.desktopplus.hook.Windows.taskbarHeight(
+            int bar = Windows.taskbarHeight(
                     view.getDisplay().getDisplayId());
             int[] at = new int[2];
             view.getLocationOnScreen(at);
