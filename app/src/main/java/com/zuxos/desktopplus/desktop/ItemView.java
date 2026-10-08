@@ -110,10 +110,6 @@ public class ItemView extends LinearLayout {
         }
     }
 
-    public boolean isPicked() {
-        return mPicked;
-    }
-
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (mGestures == null) {
@@ -207,10 +203,6 @@ public class ItemView extends LinearLayout {
         return mItem;
     }
 
-    public ImageView iconView() {
-        return mIcon;
-    }
-
     public void bind(Item item, AppsRepo repo) {
         mItem = item;
         mLabel.setText(item.label != null ? item.label : "");
@@ -234,13 +226,6 @@ public class ItemView extends LinearLayout {
                 mIcon.setImageDrawable(Ui.roundRect(0x55FFFFFF, Ui.dp(getContext(), 12)));
             }
         }
-    }
-
-    public void bindApp(AppsRepo.AppEntry entry, AppsRepo repo) {
-        mItem = entry.toItem();
-        mLabel.setText(entry.label);
-        Drawable d = repo.iconFor(entry);
-        mIcon.setImageDrawable(d != null ? d : Ui.roundRect(0x55FFFFFF, Ui.dp(getContext(), 12)));
     }
 
     /** For an icon on a light surface - an open folder: dark label, no shadow. */

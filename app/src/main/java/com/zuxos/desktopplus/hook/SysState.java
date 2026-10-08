@@ -57,7 +57,6 @@ public final class SysState {
 
     private int mNetType = NET_NONE;
     private int mNetLevel = 0;
-    private boolean mValidated;
     private String mNetDetail = "";
     private int mBatteryPercent = -1;
     private boolean mCharging;
@@ -102,11 +101,6 @@ public final class SysState {
     /** 0..4, meaningful for Wi-Fi and cellular. */
     public int netLevel() {
         return mNetLevel;
-    }
-
-    /** True when the network actually reaches the internet, not just an access point. */
-    public boolean netValidated() {
-        return mValidated;
     }
 
     /** A second line for the network: an SSID or address where readable, else a status. */
@@ -330,7 +324,6 @@ public final class SysState {
         }
         mNetType = type;
         mNetLevel = level;
-        mValidated = validated;
         mNetDetail = detail;
         notifyListeners();
     }

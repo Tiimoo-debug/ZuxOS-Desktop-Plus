@@ -29,8 +29,6 @@ public class CellLayoutView extends ViewGroup implements View.OnDragListener {
         void onDropRejected(DragPayload payload);
 
         void onDragEnded(DragPayload payload);
-
-        void onEmptySpaceMenu(float x, float y);
     }
 
     public static class CellParams extends ViewGroup.LayoutParams {

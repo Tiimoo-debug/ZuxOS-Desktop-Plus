@@ -23,18 +23,6 @@ public class WrapGrid extends ViewGroup {
         requestLayout();
     }
 
-    public int getColumns() {
-        return mColumns;
-    }
-
-    public int getCellWidth() {
-        return mCellWidth;
-    }
-
-    public int getCellHeight() {
-        return mCellHeight;
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);

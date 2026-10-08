@@ -53,11 +53,6 @@ public final class DrawerFolderWindow {
     private DrawerFolderWindow() {
     }
 
-    public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
-            int iconSizePx, DrawerStore store) {
-        show(ctx, folder, repo, displayId, iconSizePx, store, null);
-    }
-
     /** Opens the folder out of {@code source}, the icon that was tapped, when there is one. */
     public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
             int iconSizePx, DrawerStore store, View source) {

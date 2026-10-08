@@ -15,7 +15,6 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
-import com.zuxos.desktopplus.core.Storage;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;

@@ -103,14 +103,12 @@ public final class Const {
     /** Apps pinned to the taskbar by this module - never the launcher's own hotseat. */
     public static final String FILE_TASKBAR_PINS = "taskbar.json";
     public static final String FILE_PROBE = "probe.txt";
-    public static final String FILE_LOG = "module.log";
 
     /** AppWidgetHost id owned by this module. Deliberately far away from launcher host ids. */
     public static final int WIDGET_HOST_ID = 0x5A78;
 
     public static final int REQ_BIND_WIDGET = 0x5A70;
     public static final int REQ_CONFIGURE_WIDGET = 0x5A71;
-    public static final int REQ_PICK_SHORTCUT = 0x5A72;
 
     private Const() {
     }

@@ -284,10 +284,6 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         rebuild();
     }
 
-    public boolean isSelecting() {
-        return mSelecting;
-    }
-
     private void togglePicked(Item item, ItemView view) {
         if (item.type == Item.TYPE_FOLDER) {
             // Folders do not nest, so they cannot join a selection.
@@ -553,20 +549,6 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     public void addToFolder(Item folder, Item item) {
         folder.children.add(copyOf(item));
         mStore.order().remove(item.key());
-        mListener.onDrawerChanged();
-        rebuild();
-    }
-
-    public void removeFromFolder(Item folder, Item child) {
-        folder.children.remove(child);
-        if (folder.children.size() <= 1) {
-            // A folder with one app left is just an app: dissolve it.
-            for (Item remaining : folder.children) {
-                mStore.order().add(remaining.key());
-            }
-            mStore.folders().remove(folder);
-            mStore.order().remove(folder.key());
-        }
         mListener.onDrawerChanged();
         rebuild();
     }

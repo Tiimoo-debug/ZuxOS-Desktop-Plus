@@ -1131,11 +1131,6 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
     }
 
-    @Override
-    public void onEmptySpaceMenu(float x, float y) {
-        showDesktopMenu(x, y);
-    }
-
     private void removeItem(DragPayload payload) {
         try {
             if (payload.source == DragPayload.SRC_FOLDER && payload.folder != null) {
@@ -1479,7 +1474,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
      * Writes a setting back from inside the launcher.
      *
      * <p>Our own prefs file is not writable from here, so the value is remembered in the
-     * launcher-side layout file and applied by {@link #applyLocalOverrides()}.
+     * launcher-side layout file and read back through {@link #override}.
      */
     private void writeSetting(String key, int value) {
         try {
@@ -1510,11 +1505,6 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         } catch (Throwable t) {
             return fallback;
         }
-    }
-
-    public void applyLocalOverrides() {
-        mGrid.setPreferredCellPx(Ui.dp(mActivity,
-                override(mActivity, Const.KEY_CELL_SIZE, Cfg.cellSizeDp())));
     }
 
     // --- WidgetFrame.Host -------------------------------------------------
@@ -2016,9 +2006,5 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         } catch (Throwable t) {
             return 0;
         }
-    }
-
-    public boolean isExternal() {
-        return mExternal;
     }
 }

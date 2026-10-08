@@ -85,10 +85,6 @@ public class Item {
         return i;
     }
 
-    public boolean isContainer() {
-        return type == TYPE_FOLDER;
-    }
-
     /** Stable identity of the launchable behind this item, used for drawer bookkeeping. */
     public String key() {
         switch (type) {

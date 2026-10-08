@@ -114,11 +114,6 @@ public final class Blur {
         }
     }
 
-    /** True once a blur drawable has actually been made, so callers can say which look is live. */
-    public static boolean live() {
-        return Boolean.TRUE.equals(sAvailable);
-    }
-
     private static Method find(Class<?> cls, String name) {
         for (Class<?> c = cls; c != null; c = c.getSuperclass()) {
             for (Method m : c.getDeclaredMethods()) {

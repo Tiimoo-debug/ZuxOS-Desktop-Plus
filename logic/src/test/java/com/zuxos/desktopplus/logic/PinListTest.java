@@ -20,6 +20,11 @@ public class PinListTest {
         return Item.app(pkg, pkg + ".Main", 0L, pkg);
     }
 
+    /** A pin added at the end, as the bar's own "Pin" does. */
+    private static List<Item> add(List<Item> pins, Item item) {
+        return PinList.add(pins, item, PinList.AT_THE_END);
+    }
+
     private static List<String> packages(List<Item> pins) {
         List<String> out = new ArrayList<>();
         for (Item pin : pins) {
@@ -30,8 +35,8 @@ public class PinListTest {
 
     @Test
     public void aDroppedAppIsPinnedAtTheEnd() {
-        List<Item> pins = PinList.add(Collections.<Item>emptyList(), app("com.a"));
-        pins = PinList.add(pins, app("com.b"));
+        List<Item> pins = add(Collections.<Item>emptyList(), app("com.a"));
+        pins = add(pins, app("com.b"));
 
         assertEquals(Arrays.asList("com.a", "com.b"), packages(pins));
     }
@@ -60,21 +65,21 @@ public class PinListTest {
 
     @Test
     public void theSameAppUnderADifferentNameIsStillTheSamePin() {
-        List<Item> pins = PinList.add(Collections.<Item>emptyList(), app("com.a"));
+        List<Item> pins = add(Collections.<Item>emptyList(), app("com.a"));
 
         Item renamed = Item.app("com.a", "com.a.Main", 0L, "Something else");
 
-        assertEquals(1, PinList.add(pins, renamed).size());
+        assertEquals(1, add(pins, renamed).size());
         assertTrue(PinList.holds(pins, renamed.key()));
     }
 
     @Test
     public void theSameAppOnAWorkProfileIsADifferentPin() {
-        List<Item> pins = PinList.add(Collections.<Item>emptyList(), app("com.a"));
+        List<Item> pins = add(Collections.<Item>emptyList(), app("com.a"));
 
         Item work = Item.app("com.a", "com.a.Main", 10L, "Work");
 
-        assertEquals(2, PinList.add(pins, work).size());
+        assertEquals(2, add(pins, work).size());
     }
 
     @Test
@@ -96,7 +101,7 @@ public class PinListTest {
 
     @Test
     public void theLastPinCanBeTakenOff() {
-        List<Item> pins = PinList.add(Collections.<Item>emptyList(), app("com.a"));
+        List<Item> pins = add(Collections.<Item>emptyList(), app("com.a"));
 
         assertTrue(PinList.remove(pins, app("com.a").key()).isEmpty());
     }
@@ -105,7 +110,7 @@ public class PinListTest {
     public void whatIsPassedInIsNotChanged() {
         List<Item> pins = new ArrayList<>(Arrays.asList(app("com.a")));
 
-        PinList.add(pins, app("com.b"));
+        add(pins, app("com.b"));
         PinList.remove(pins, app("com.a").key());
 
         assertEquals(1, pins.size());
@@ -115,31 +120,8 @@ public class PinListTest {
     public void nothingIsPinnedToStartWith() {
         assertFalse(PinList.holds(null, "anything"));
         assertEquals(-1, PinList.indexOf(null, "anything"));
-        assertTrue(PinList.add(null, app("com.a")).size() == 1);
+        assertTrue(add(null, app("com.a")).size() == 1);
         assertTrue(PinList.remove(null, "com.a").isEmpty());
-    }
-
-    /** A pinned folder stands for everything inside it, or its apps show up twice. */
-    @Test
-    public void aPinnedFolderSpeaksForTheAppsInIt() {
-        Item folder = Item.folder("Tools");
-        folder.children.add(app("com.inside"));
-        folder.children.add(app("com.alsoInside"));
-
-        List<String> packages = PinList.packagesOf(Arrays.asList(app("com.a"), folder));
-
-        assertTrue(packages.contains("com.a"));
-        assertTrue(packages.contains("com.inside"));
-        assertTrue(packages.contains("com.alsoInside"));
-    }
-
-    @Test
-    public void thePackageListHasNoRepeats() {
-        Item folder = Item.folder("Tools");
-        folder.children.add(app("com.a"));
-
-        assertEquals(Collections.singletonList("com.a"),
-                PinList.packagesOf(Arrays.asList(app("com.a"), folder)));
     }
 
     private static List<Item> abcd() {
@@ -187,6 +169,5 @@ public class PinListTest {
         List<Item> pins = Arrays.asList(app("com.a"), folder);
 
         assertEquals(Collections.singletonList("com.a"), PinList.directPackagesOf(pins));
-        assertTrue(PinList.packagesOf(pins).contains("com.browser"));
     }
 }

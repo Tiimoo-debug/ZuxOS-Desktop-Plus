@@ -17,13 +17,10 @@ import android.widget.TextView;
  */
 public final class Ui {
 
-    public static final int COLOR_PANEL = 0xF01C1C1E;
-    public static final int COLOR_PANEL_LIGHT = 0xF0FFFFFF;
     public static final int COLOR_ACCENT = 0xFF4C8DFF;
     public static final int COLOR_TEXT = 0xFFFFFFFF;
     public static final int COLOR_TEXT_DIM = 0xB3FFFFFF;
     public static final int COLOR_DROP_HINT = 0x334C8DFF;
-    public static final int COLOR_SCRIM = 0x59000000;
 
     private Ui() {
     }
@@ -38,12 +35,6 @@ public final class Ui {
         d.setShape(GradientDrawable.RECTANGLE);
         d.setColor(color);
         d.setCornerRadius(radiusPx);
-        return d;
-    }
-
-    public static GradientDrawable stroked(int color, int strokePx, int strokeColor, int radiusPx) {
-        GradientDrawable d = roundRect(color, radiusPx);
-        d.setStroke(strokePx, strokeColor);
         return d;
     }
 

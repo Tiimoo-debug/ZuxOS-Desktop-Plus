@@ -10,7 +10,6 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Storage;
 
-import java.io.File;
 
 /**
  * Diagnostics.

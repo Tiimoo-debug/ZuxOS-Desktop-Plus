@@ -33,11 +33,6 @@ public final class Glass {
         return build(ctx, radiusPx, radiusPx, 0xB0202024);
     }
 
-    /** Sheet with only the top corners rounded, for bottom-anchored panels. */
-    public static Drawable sheet(Context ctx, int radiusPx) {
-        return build(ctx, radiusPx, 0, 0xC01A1A1E);
-    }
-
     public static Drawable pill(Context ctx, int radiusPx, int tint) {
         return build(ctx, radiusPx, radiusPx, tint);
     }

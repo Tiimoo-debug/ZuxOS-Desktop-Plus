@@ -20,15 +20,13 @@ public final class Motion {
     public static final TimeInterpolator EXIT = new PathInterpolator(0.4f, 0f, 1f, 1f);
 
     /*
-     * The three springs SwiftUI names, which is what iOS motion is made of:
+     * Two of the springs SwiftUI names, which is what iOS motion is made of:
      *   smooth - critically damped, no overshoot: for moving and resizing;
-     *   snappy - one barely-there settle: for appearing, hovering, pressing;
-     *   bouncy - a visible settle: kept for the few playful moments.
-     * The old default here (0.72) was close to bouncy, so everything wobbled a little.
+     *   snappy - one barely-there settle: for appearing, hovering, pressing.
+     * SwiftUI's third, bouncy, is not used: a visible wobble reads as a toy on a desktop.
      */
     public static final TimeInterpolator SMOOTH = spring(0.99f);
     public static final TimeInterpolator SNAPPY = spring(0.86f);
-    public static final TimeInterpolator BOUNCY = spring(0.72f);
 
     /** For things appearing and landing. */
     public static final TimeInterpolator SPRING = SNAPPY;

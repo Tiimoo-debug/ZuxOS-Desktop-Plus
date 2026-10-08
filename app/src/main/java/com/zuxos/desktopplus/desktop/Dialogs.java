@@ -86,15 +86,6 @@ public final class Dialogs {
                 .create());
     }
 
-    public static void confirm(Activity a, String title, String message, Runnable onYes) {
-        show(new AlertDialog.Builder(a)
-                .setTitle(title)
-                .setMessage(message)
-                .setPositiveButton(android.R.string.ok, (d, w) -> onYes.run())
-                .setNegativeButton(android.R.string.cancel, null)
-                .create());
-    }
-
     public static void message(Activity a, String title, String message) {
         show(new AlertDialog.Builder(a)
                 .setTitle(title)

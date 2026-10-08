@@ -290,27 +290,6 @@ public final class TrayIcons {
         };
     }
 
-    /** A cog. */
-    public static Drawable gear(int color) {
-        return new BoxIcon(color) {
-            @Override
-            void drawBox(Canvas canvas, Paint fill, Paint stroke) {
-                float cx = 12f;
-                float cy = 12f;
-                canvas.drawCircle(cx, cy, 3.2f, stroke);
-                // Eight teeth, each a short spoke from the rim outwards.
-                for (int i = 0; i < 8; i++) {
-                    double a = Math.PI * i / 4.0;
-                    float sin = (float) Math.sin(a);
-                    float cos = (float) Math.cos(a);
-                    canvas.drawLine(cx + cos * 5.6f, cy + sin * 5.6f,
-                            cx + cos * 8.4f, cy + sin * 8.4f, stroke);
-                }
-                canvas.drawCircle(cx, cy, 5.6f, stroke);
-            }
-        };
-    }
-
     /** A speaker, for the volume rows. */
     public static Drawable volume(int color) {
         return new BoxIcon(color) {

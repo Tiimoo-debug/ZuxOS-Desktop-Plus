@@ -246,13 +246,6 @@ public final class AppsRepo {
         return d;
     }
 
-    public void clearIconCache() {
-        mIconCache.clear();
-        for (AppEntry e : mApps) {
-            e.mIcon = null;
-        }
-    }
-
     private Drawable loadIcon(Item item) {
         try {
             if (item.type == Item.TYPE_APP && item.pkg != null && item.cls != null) {
@@ -363,17 +356,6 @@ public final class AppsRepo {
             L.e("launch failed for " + item.key(), t);
         }
         return false;
-    }
-
-    public boolean launchApp(AppEntry entry, View source, int displayId) {
-        try {
-            mLauncherApps.startMainActivity(entry.cn, entry.user, sourceBounds(source),
-                    launchOptions(displayId));
-            return true;
-        } catch (Throwable t) {
-            L.e("launch failed for " + entry.key(), t);
-            return false;
-        }
     }
 
     public void showAppInfo(Item item, int displayId) {

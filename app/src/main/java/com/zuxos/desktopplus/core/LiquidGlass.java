@@ -77,8 +77,6 @@ public final class LiquidGlass {
      * background at all - so, like iOS, menus carry far more of their own tint.
      */
     public static final Material MENU = new Material("menu", 30f, 1.5f, 18f, 22f, 1.5f, 0.06f, 1.4f, 0.04f, 0.58f, 0.16f, 0.8f, 0.12f);
-    /** Small controls: barely frosted, nearly all lens. */
-    public static final Material CLEAR = new Material("clear", 6f, 1f, 14f, 20f, 1.5f, 0.07f, 1.2f, 0.01f, 0.04f, 0.2f, 1.0f, 0.08f);
 
     /** Superellipse exponent of the corners: 2 is a circle, iOS's continuous corner is about 4. */
     public static final float SMOOTH = 4f;
@@ -240,31 +238,16 @@ public final class LiquidGlass {
     /**
      * The body of a pane of this size.
      *
+     * <p>Every length - size, corner, blur - is given at {@code pxScale} of the pane's size, for
+     * a frost layer drawn small and scaled up: the heavy blur runs over a quarter of the pixels
+     * at half size and looks the same once scaled.
+     *
      * @param extendBottomPx how far the shape runs past the view's bottom edge (0 for a free
      *                       pane; the corner radius for one sitting on the screen edge)
+     * @param extendSidesPx  how far it runs past both sides: a bar from one end of the screen to
+     *                       the other, whose rim would otherwise curve back in at both ends
      * @param tintRgb        the material's colour; its alpha comes from the material
      * @param base           shown where the backdrop has nothing, as ARGB; 0 for none
-     */
-    public static RenderEffect frost(Context ctx, Material m, int width, int height,
-            float radiusPx, float extendBottomPx, int tintRgb, int base) {
-        return frost(ctx, m, width, height, radiusPx, extendBottomPx, tintRgb, base, 1f);
-    }
-
-    /**
-     * The same, for a frost layer drawn at a fraction of the pane's size and scaled up: every
-     * length - size, corner, blur - is given at that fraction, so the heavy blur runs over a
-     * quarter of the pixels at half size and looks the same once scaled.
-     */
-    public static RenderEffect frost(Context ctx, Material m, int width, int height,
-            float radiusPx, float extendBottomPx, int tintRgb, int base, float pxScale) {
-        return frost(ctx, m, width, height, radiusPx, extendBottomPx, 0f, tintRgb, base,
-                pxScale);
-    }
-
-    /**
-     * The same, for a pane that also runs past both sides of the view by
-     * {@code extendSidesPx}: a bar from one end of the screen to the other, whose rim would
-     * otherwise curve back in at both ends.
      */
     public static RenderEffect frost(Context ctx, Material m, int width, int height,
             float radiusPx, float extendBottomPx, float extendSidesPx, int tintRgb, int base,
@@ -288,12 +271,6 @@ public final class LiquidGlass {
     }
 
     /** The rim of the same pane, drawn over its {@link #frost}. */
-    public static RenderEffect lens(Context ctx, Material m, int width, int height,
-            float radiusPx, float extendBottomPx, int tintRgb) {
-        return lens(ctx, m, width, height, radiusPx, extendBottomPx, 0f, tintRgb);
-    }
-
-    /** The same, past both sides too; see {@link #frost}. */
     public static RenderEffect lens(Context ctx, Material m, int width, int height,
             float radiusPx, float extendBottomPx, float extendSidesPx, int tintRgb) {
         if (!isSupported() || width <= 0 || height <= 0) {
@@ -351,18 +328,6 @@ public final class LiquidGlass {
         if (!sBroken) {
             sBroken = true;
             L.e("liquid glass: the shaders would not build on this device - plain blur instead", t);
-        }
-    }
-
-    /** Plain backdrop blur, for devices without AGSL. */
-    public static RenderEffect blurOnly(float blurPx) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || blurPx <= 0f) {
-            return null;
-        }
-        try {
-            return blur(blurPx);
-        } catch (Throwable t) {
-            return null;
         }
     }
 }

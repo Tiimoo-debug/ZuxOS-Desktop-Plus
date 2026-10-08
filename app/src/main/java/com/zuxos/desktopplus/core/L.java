@@ -20,10 +20,6 @@ public final class L {
         sDebug = debug;
     }
 
-    public static boolean isDebug() {
-        return sDebug;
-    }
-
     public static void d(String msg) {
         if (!sDebug) {
             return;

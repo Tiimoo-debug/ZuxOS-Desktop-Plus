@@ -673,31 +673,6 @@ final class TaskbarRunning {
         return left;
     }
 
-    /** Where the row's icons sit vertically, in the drag layer's own coordinates. */
-    static int rowTop(ViewGroup dragLayer) {
-        RunningRow row = rowIn(dragLayer);
-        if (row == null) {
-            return 0;
-        }
-        int top = row.getTop();
-        for (View v = row.getParent() instanceof View ? (View) row.getParent() : null;
-                v != null && v != dragLayer; ) {
-            top += v.getTop();
-            v = v.getParent() instanceof View ? (View) v.getParent() : null;
-        }
-        return top;
-    }
-
-    /** The scroller's bounds in the drag layer, so what it hides is not drawn over. */
-    static int[] rowBounds(ViewGroup dragLayer) {
-        ScrollRow scroller = scrollerIn(dragLayer);
-        if (scroller == null) {
-            return null;
-        }
-        int left = offsetIn(dragLayer, scroller);
-        return new int[]{left, left + scroller.getWidth()};
-    }
-
     /**
      * Whether the launcher is already showing this app in its own row.
      *
@@ -1529,16 +1504,6 @@ final class TaskbarRunning {
         // every bar is how the tablet's got the monitor's, small at the tablet's density.
         View button = TaskbarStart.allAppsButton(icons);
         return TaskbarStart.size(button, icons.getContext());
-    }
-
-    /** True when any of these packages is in that set. */
-    private static boolean anyOf(List<String> packages, Set<String> running) {
-        for (String pkg : packages) {
-            if (running.contains(pkg)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

@@ -518,15 +518,10 @@ final class TaskbarApps {
     }
 
     /**
-     * Sends the app to the back of its screen, still running: whatever was under it comes
-     * forward - the previous app, or the desktop. Nothing is stopped; an app on the monitor is
-     * only ever closed by the user.
+     * Sends one window to the back of its screen, still running: {@code taskId}, or the app's
+     * front one here when -1. Whatever was under it comes forward - the previous app, or the
+     * desktop. Nothing is stopped; an app on the monitor is only ever closed by the user.
      */
-    static void minimize(Context ctx, String pkg, int display) {
-        minimize(ctx, pkg, display, -1);
-    }
-
-    /** The same, for one window: {@code taskId}, or the app's front one here when -1. */
     static void minimize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
         if (taskId >= 0) {

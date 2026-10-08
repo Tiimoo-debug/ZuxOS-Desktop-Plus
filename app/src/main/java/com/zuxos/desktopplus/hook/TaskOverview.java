@@ -103,7 +103,6 @@ final class TaskOverview {
         boolean running;
         /** On screen now, and where: its tile is cut straight out of a screen capture. */
         boolean visible;
-        android.graphics.Rect bounds;
         /** The app's uid: its tile is a capture of that app's layers alone. */
         int uid = -1;
         /** Its tile is being fed from its own capture right now (else the snapshot rotation). */
@@ -539,7 +538,6 @@ final class TaskOverview {
                         task.topActivity != null ? task.topActivity : task.baseActivity, true);
                 if (card != null) {
                     card.visible = Boolean.TRUE.equals(Reflect.field(task, "isVisible"));
-                    card.bounds = boundsOf(task);
                 }
                 if (card != null && seen.add(card.taskId)) {
                     out.add(card);
@@ -574,22 +572,6 @@ final class TaskOverview {
             L.d("task overview: could not list tasks (" + t + ")");
         }
         return out;
-    }
-
-    /** Where the task's window is on its screen; null if it cannot be read. */
-    private static android.graphics.Rect boundsOf(Object task) {
-        try {
-            Object config = Reflect.call(task, "getConfiguration");
-            if (config == null) {
-                config = Reflect.field(task, "configuration");
-            }
-            Object window = config == null ? null : Reflect.field(config, "windowConfiguration");
-            Object rect = window == null ? null : Reflect.call(window, "getBounds");
-            return rect instanceof android.graphics.Rect && !((android.graphics.Rect) rect).isEmpty()
-                    ? new android.graphics.Rect((android.graphics.Rect) rect) : null;
-        } catch (Throwable t) {
-            return null;
-        }
     }
 
     private static Card cardFor(Context ctx, PackageManager pm, int taskId, Intent base,

@@ -41,8 +41,6 @@ public final class FolderStyle {
     /** Behind the panel: enough to set it apart, not enough to black the screen out. */
     public static final int SCRIM = 0x40000000;
 
-    private static final float FROM_SCALE = 0.25f;
-
     private FolderStyle() {
     }
 

@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetHost;
 import android.appwidget.AppWidgetHostView;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -405,10 +404,5 @@ public class WidgetHostCtl {
             row.addView(texts, tlp);
             return row;
         }
-    }
-
-    /** Component of the pending provider, for logging. */
-    public ComponentName pendingProvider() {
-        return mPendingInfo != null ? mPendingInfo.provider : null;
     }
 }

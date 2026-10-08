@@ -33,10 +33,6 @@ public final class SurfaceAttacher {
             this.mHow = how;
         }
 
-        public boolean isWindowMode() {
-            return mWindowMode;
-        }
-
         public String describe() {
             return mHow;
         }

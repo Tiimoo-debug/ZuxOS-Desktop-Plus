@@ -42,9 +42,6 @@ final class Notifications {
     private static final String METHOD_DISMISS = "dismiss";
     private static final String METHOD_CLEAR_ALL = "clearAll";
 
-    /** How many fit above the sliders without the panel becoming a shade. */
-    private static final int MAX_ROWS = 4;
-
     /** The last thing said about the shade, so the same line is not repeated every open. */
     private static String sLastReport;
 

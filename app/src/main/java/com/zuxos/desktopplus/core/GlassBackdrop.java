@@ -109,14 +109,6 @@ public class GlassBackdrop extends FrameLayout {
         }
     }
 
-    public void setTint(int tintRgb) {
-        if (tintRgb != mTintRgb) {
-            mTintRgb = tintRgb;
-            mEffectW = 0;
-            applyEffects();
-        }
-    }
-
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();

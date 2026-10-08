@@ -32,26 +32,6 @@ public final class Anim {
                 .setInterpolator(Motion.EASE).start();
     }
 
-    public static void fadeOut(View view, Runnable onEnd) {
-        view.animate().cancel();
-        if (!Cfg.animations()) {
-            view.setVisibility(View.GONE);
-            if (onEnd != null) {
-                onEnd.run();
-            }
-            return;
-        }
-        view.animate().alpha(0f).setDuration(FAST)
-                .setInterpolator(Motion.EXIT)
-                .withEndAction(() -> {
-                    view.setVisibility(View.GONE);
-                    view.setAlpha(1f);
-                    if (onEnd != null) {
-                        onEnd.run();
-                    }
-                }).start();
-    }
-
     /** Slides a sheet up from the bottom edge. */
     public static void slideUp(View view, View sheet) {
         view.animate().cancel();
@@ -92,25 +72,6 @@ public final class Anim {
                         onEnd.run();
                     }
                 }).start();
-    }
-
-    /** Pops a panel open from slightly small and transparent. */
-    public static void popIn(View view, View panel) {
-        view.animate().cancel();
-        panel.animate().cancel();
-        view.setVisibility(View.VISIBLE);
-        if (!Cfg.animations()) {
-            panel.setScaleX(1f);
-            panel.setScaleY(1f);
-            view.setAlpha(1f);
-            return;
-        }
-        view.setAlpha(0f);
-        panel.setScaleX(0.92f);
-        panel.setScaleY(0.92f);
-        view.animate().alpha(1f).setDuration(FAST).start();
-        panel.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
-                .setInterpolator(Motion.SPRING).withLayer().start();
     }
 
     /** Slides the desktop sideways when changing page. */

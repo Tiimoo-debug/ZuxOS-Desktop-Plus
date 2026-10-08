@@ -91,7 +91,6 @@ public class ItemJsonTest {
         Item back = roundTrip(folder);
 
         assertEquals(Item.TYPE_FOLDER, back.type);
-        assertTrue(back.isContainer());
         assertEquals(3, back.children.size());
         assertEquals("com.a", back.children.get(0).pkg);
         assertEquals("com.b", back.children.get(1).pkg);

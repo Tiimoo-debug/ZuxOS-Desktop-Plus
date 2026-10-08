@@ -5,14 +5,12 @@ import android.graphics.Bitmap;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Glass;
 import com.zuxos.desktopplus.core.GlassBackdrop;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.LiquidGlass;
 import com.zuxos.desktopplus.core.ScreenBackdrop;
 import com.zuxos.desktopplus.core.Snapshot;
-import com.zuxos.desktopplus.core.Ui;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -269,10 +267,5 @@ public class GlassPanel extends FrameLayout {
         if (w != oldw || h != oldh) {
             post(this::refresh);
         }
-    }
-
-    /** True when the panel is drawing real glass rather than the fallback. */
-    public boolean isLiquid() {
-        return LiquidGlass.isSupported() && Cfg.glass();
     }
 }

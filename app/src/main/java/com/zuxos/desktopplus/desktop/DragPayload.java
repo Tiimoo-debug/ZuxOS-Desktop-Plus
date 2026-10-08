@@ -53,10 +53,6 @@ public final class DragPayload {
                 ? batch : java.util.Collections.singletonList(item);
     }
 
-    public boolean isCopy() {
-        return source == SRC_DRAWER;
-    }
-
     // --- crossing a window --------------------------------------------------
 
     /**

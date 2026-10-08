@@ -51,47 +51,6 @@ public final class Mirror {
         return null;
     }
 
-    /** First field whose declared type's name contains {@code fragment} (e.g. "BitmapInfo"). */
-    public static Field fieldOfTypeNamed(Class<?> owner, String fragment) {
-        for (Field f : fields(owner)) {
-            if (f.getType().getName().contains(fragment)) {
-                return f;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The field holding a {@code List} whose elements are instances of {@code elementType}.
-     *
-     * <p>Distinguishes the app list from the adapter-item and fast-scroll lists next to it,
-     * none of which can be told apart by name any more.
-     */
-    public static Field listFieldOf(Object owner, Class<?> elementType) {
-        for (Field f : fields(owner.getClass())) {
-            if (!List.class.isAssignableFrom(f.getType())) {
-                continue;
-            }
-            try {
-                Object value = f.get(owner);
-                if (!(value instanceof List)) {
-                    continue;
-                }
-                List<?> list = (List<?>) value;
-                if (list.isEmpty()) {
-                    continue;
-                }
-                Object first = list.get(0);
-                if (first != null && elementType.isInstance(first)) {
-                    return f;
-                }
-            } catch (Throwable ignored) {
-                // Unreadable field: just try the next one.
-            }
-        }
-        return null;
-    }
-
     public static Object get(Field f, Object target) {
         try {
             return f.get(target);

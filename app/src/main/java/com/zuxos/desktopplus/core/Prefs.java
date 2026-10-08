@@ -25,15 +25,4 @@ public final class Prefs {
             return ctx.getSharedPreferences(Const.PREFS, Context.MODE_PRIVATE);
         }
     }
-
-    /** True when the preferences could be opened world-readable, i.e. LSPosed is hosting us. */
-    public static boolean isModuleActive(Context ctx) {
-        try {
-            @SuppressWarnings("deprecation")
-            SharedPreferences ignored = ctx.getSharedPreferences(Const.PREFS, Context.MODE_WORLD_READABLE);
-            return ignored != null;
-        } catch (SecurityException e) {
-            return false;
-        }
-    }
 }

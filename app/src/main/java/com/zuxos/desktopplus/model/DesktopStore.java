@@ -87,13 +87,6 @@ public final class DesktopStore {
         mItems.remove(item);
     }
 
-    /** Removes an item from whichever folder holds it. */
-    public synchronized void removeFromFolders(Item item) {
-        for (Item i : mItems) {
-            i.children.remove(item);
-        }
-    }
-
     /** Pages in use, always at least one. */
     public int pageCount() {
         int max = 0;
@@ -119,29 +112,5 @@ public final class DesktopStore {
                 i.page--;
             }
         }
-    }
-
-    public Item findById(String id) {
-        for (Item i : mItems) {
-            if (i.id.equals(id)) {
-                return i;
-            }
-            for (Item c : i.children) {
-                if (c.id.equals(id)) {
-                    return c;
-                }
-            }
-        }
-        return null;
-    }
-
-    /** The folder holding {@code item}, or null when it sits directly on the desktop. */
-    public Item parentOf(Item item) {
-        for (Item i : mItems) {
-            if (i.children.contains(item)) {
-                return i;
-            }
-        }
-        return null;
     }
 }

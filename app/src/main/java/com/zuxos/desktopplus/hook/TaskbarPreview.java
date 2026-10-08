@@ -82,7 +82,6 @@ final class TaskbarPreview {
         return sRoot;
     }
     private static WindowManager sWm;
-    private static String sPkg;
     /** The icon whose window the preview shows. */
     private static View sShown;
 
@@ -402,7 +401,6 @@ final class TaskbarPreview {
         wm.addView(root, lp);
         sRoot = root;
         sWm = wm;
-        sPkg = pkg;
         sShown = icon;
         sOverPane = false;
 
@@ -590,7 +588,6 @@ final class TaskbarPreview {
         WindowManager wm = sWm;
         sRoot = null;
         sWm = null;
-        sPkg = null;
         sShown = null;
         sOverPane = false;
         if (root == null || wm == null) {
@@ -606,7 +603,6 @@ final class TaskbarPreview {
         WindowManager wm = sWm;
         sRoot = null;
         sWm = null;
-        sPkg = null;
         sShown = null;
         if (root != null && wm != null) {
             remove(wm, root);

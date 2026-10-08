@@ -1,7 +1,6 @@
 package com.zuxos.desktopplus.hook;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Context;
@@ -58,9 +57,8 @@ final class RecentsRoute {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static volatile int sTarget = Display.DEFAULT_DISPLAY;
-    /** When recents last showed, either kind, and whether it was open when the button went. */
-    private static volatile long sShownAt;
     private static long sReopenedAt;
+    /** Whether recents was open when the button went. */
     private static volatile boolean sWasOpen;
     /** Until when every SystemUiProxy call is written down: the trace after a press. */
     private static volatile long sTraceUntil;
@@ -364,7 +362,6 @@ final class RecentsRoute {
     /** The fallback is on screen: make sure it is where it was asked for, full, and in front. */
     private static void appeared(Activity activity) {
         sLive = new WeakReference<>(activity);
-        sShownAt = SystemClock.uptimeMillis();
         if (!Cfg.recentsRoute()) {
             return;
         }
@@ -448,9 +445,6 @@ final class RecentsRoute {
                         Activity home = (Activity) param.thisObject;
                         boolean visible = recentsVisible(home);
                         int display = displayOf(home);
-                        if (visible) {
-                            sShownAt = SystemClock.uptimeMillis();
-                        }
                         com.zuxos.desktopplus.desktop.DesktopHost.setOverview(display, visible);
                         note("ZUI's recents on display " + display + ": " + name
                                 + (visible ? " - visible" : " - not visible"));

@@ -47,10 +47,6 @@ public final class PinList {
         return out;
     }
 
-    public static List<Item> add(List<Item> pins, Item item) {
-        return add(pins, item, AT_THE_END);
-    }
-
     /**
      * The list with a pin moved to a slot, where the slot is counted in the list as it is on
      * screen - with the moved pin still in it.
@@ -109,23 +105,6 @@ public final class PinList {
     }
 
     /**
-     * The packages the pins stand for, folders included.
-     *
-     * <p>A pinned folder is open when anything inside it is, which is what stops an app being
-     * shown twice - once as the folder holding it and once as an icon of its own.
-     */
-    public static List<String> packagesOf(List<Item> pins) {
-        List<String> out = new ArrayList<>();
-        if (pins == null) {
-            return out;
-        }
-        for (Item pin : pins) {
-            collect(pin, out);
-        }
-        return out;
-    }
-
-    /**
      * The packages pinned as apps in their own right, folders left out.
      *
      * <p>What decides whether an open app needs an icon of its own: an app inside a pinned folder
@@ -144,17 +123,5 @@ public final class PinList {
             }
         }
         return out;
-    }
-
-    private static void collect(Item item, List<String> out) {
-        if (item == null) {
-            return;
-        }
-        if (item.pkg != null && !out.contains(item.pkg)) {
-            out.add(item.pkg);
-        }
-        for (Item child : item.children) {
-            collect(child, out);
-        }
     }
 }
