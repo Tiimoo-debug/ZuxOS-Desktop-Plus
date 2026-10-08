@@ -32,6 +32,88 @@ in a fresh session: it is the project's memory.
 | 2026-10 | Live liquid glass (blur + real refraction) on everything translucent, CPU-tuned, there from the first frame |
 | 2026-10 | iOS folder morph: folders grow out of their icon and back, icon hidden while open, one material closed and open |
 
+## Fixed
+
+Every bug fixed since the start, from the owner's own messages. **Confirmed** means the owner said
+so on the device. Update this section whenever the owner confirms a fix or reopens a bug. Build is
+the build that fixed it; "by" means the fix was in the build the owner confirmed it on. Early
+rows give only the date the owner confirmed.
+
+### Confirmed by the owner
+
+| Confirmed | Build | Bug |
+|-----------|-------|-----|
+| 2026-09-15 | - | Apps, folders and shortcuts could not be put on the monitor's home screen |
+| 2026-09-16 | - | Widgets: could not be added, resized (the spinning CD widget left its frame) or removed |
+| 2026-09-16 | - | ZUI's own drawer did not show folders |
+| 2026-09-16 | - | Folder names missing when closed, or changing to an app's name; no home screen pages |
+| 2026-09-16 | - | No way to add several apps to a folder at once, on the home screen or in the drawer |
+| 2026-09-17 | - | No App info in the menu of an app inside a folder |
+| 2026-09-17 | - | Apps and App info opening behind the drawer, which stayed open |
+| 2026-09-17 | - | Taskbar tray text unreadable; CPU reading wrong and not updating |
+| 2026-09-18 | - | Home screen and drawer stopped responding to touches (the screen-wide blur) |
+| 2026-09-18 | - | Holding the taskbar brought no menu |
+| 2026-09-18 | - | Wi-Fi and torch toggles; volume control |
+| 2026-09-18 | - | Taskbar menu and quick panel did not close when tapping outside |
+| 2026-09-19 | - | Notifications did not open their app |
+| 2026-09-19 | - | The screenshot button took the tablet's screen instead of the monitor's |
+| 2026-09-19 | - | Media card: one card per playing app; play and pause buttons |
+| 2026-10-03 | - | No glass on the drawer |
+| 2026-10-03 | - | Could not drag apps from the drawer to the taskbar and home screen, or apps and folders from the home screen to the taskbar |
+| 2026-10-03 | - | No menu when holding an open app on the taskbar |
+| 2026-10-03 | - | Menus without glass or icons; pins could not be rearranged |
+| 2026-10-04 | - | Open apps out of order and running into the taskbar's buttons |
+| 2026-10-04 | - | The line under open apps lagging behind the scroll |
+| 2026-10-04 | - | Start button: pressing it with the drawer open reopened the drawer instead of closing it |
+| 2026-10-04 | - | Glass: blurred background behind the drawer, no real refraction |
+| 2026-10-04 | - | Folders opened as a duplicate beside their icon (now they open out of their icon) |
+| 2026-10-05 | - | Home and back keys on the monitor pressed but did nothing |
+| 2026-10-05 | - | Recents on the monitor: never shown, opened as a small window, or opened behind apps. The monitor now has its own recents with live tiles |
+| 2026-10-06 | 1.0.87 | Taskbar preview: X button and icon falling out of place while zooming |
+| 2026-10-06 | 1.0.89 | After boot on the monitor: no start button, apps opening on the tablet, recents dead |
+| 2026-10-06 | 1.0.94 | Screenshot preview shown on the tablet instead of the screen it was taken on |
+| 2026-10-07 | 1.0.91 | New window: refused for some apps, or slow to open |
+| 2026-10-07 | by 1.0.107 | Two rows of apps on the tablet's taskbar |
+| 2026-10-07 | 1.0.106 | Hover wiggle making icons leave their frame |
+| 2026-10-07 | 1.0.97 | Screenshot edit did not open (ZUI's photo editor in split screen) |
+| 2026-10-07 | 1.0.108 | Home screen menus going under the taskbar |
+| 2026-10-07 | 1.0.114 | **Boot loop**: display service called from the system process at load time |
+| 2026-10-07 | 1.0.120 | Our home screen overlay drawn over ZUI's home on the tablet |
+| 2026-10-07 | 1.0.121 | Tablet: taskbar disappearing in Recents (Lawnchair as home); nav keys now always at the right |
+| 2026-10-07 | 1.0.125 | Bright pill on ZUI's dock, on the home screen and in Recents |
+| 2026-10-07 | 1.0.128 | **Boot loop**: settings copy written from the system process |
+| 2026-10-07 | 1.0.131 | Swipe-up arrow on ZUI's home. Its image is now never loaded |
+| 2026-10-07 | 1.0.133 | Maximize on the tablet, in regular and desktop mode. 1.0.135 keeps this exact path on the tablet only |
+
+### Shipped, awaiting the owner's test
+
+| Build | Bug |
+|-------|-----|
+| 1.0.108-1.0.109 | Two windows of one app: its icon switching between them, and Close closing both or the wrong one |
+| 1.0.109 | Drag and drop out of ZUI's drawer (apps, folders, apps inside folders) |
+| 1.0.109 | Drawer folder smaller after opening and closing it (came back once) |
+| 1.0.117 | Taskbar covering the keyboard's bottom row |
+| 1.0.118 | Home and Recents not responding with desktop mode set to "Both" and ZUX Home as the default home |
+| 1.0.122 | Monitor taskbar losing its pins when no app is open |
+| 1.0.127-1.0.128 | ZUI's recent and suggested apps flashing on the taskbar after boot (came back once) |
+| 1.0.134 | Dark pill left on ZUI's home: the dock's background blur switched off |
+| 1.0.134 | Window "…" menu opening on the tablet instead of the monitor (caused by 1.0.133's full screen on the monitor; 1.0.135 keeps full screen off the monitor) |
+
+### Open
+
+| Since | Bug | Next step |
+|-------|-----|-----------|
+| 2026-10-07 | Maximize on the monitor does not fill the screen like ZUI's own window menu does | The owner maximises one window from ZUI's own window menu on the monitor and sends the log. Its `system trace:` lines show what ZUI does; Maximize then copies that |
+
+### Not caused by the module
+
+| Seen | What |
+|------|------|
+| 2026-10-07 | ZUI's sidebar freezing during drags: ZUI waits on its own AI service |
+| 2026-10-07 | LSPosed manager crashing |
+| 2026-10-07 | The ZTool module logging every ~7 ms on the launcher's main thread |
+| 2026-10-03 | File apps stuck, storage access lost. The owner fixed it on 10-03; it came back on 10-04 and was gone after a reboot and a build. The module was never shown to cause it |
+
 ## In progress
 
 | Since | What | Status |
