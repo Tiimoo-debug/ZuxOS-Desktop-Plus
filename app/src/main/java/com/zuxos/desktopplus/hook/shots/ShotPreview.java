@@ -37,8 +37,8 @@ import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Probe;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.system.SystemFullscreen;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
@@ -585,9 +585,7 @@ final class ShotPreview {
             android.app.ActivityManager am = (android.app.ActivityManager)
                     ctx.getSystemService(Context.ACTIVITY_SERVICE);
             for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(20)) {
-                Object d = Reflect.field(task, "displayId");
-                if (pkg.equals(TaskbarApps.packageOf(task))
-                        && d instanceof Integer && (Integer) d == display) {
+                if (pkg.equals(Tasks.packageOf(task)) && Tasks.displayOf(task) == display) {
                     return "in mode " + Probe.windowingMode(task);
                 }
             }

@@ -24,6 +24,7 @@ import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.hook.IconInfo;
 import com.zuxos.desktopplus.hook.KeepAlive;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.drawer.DrawerFolderWindow;
 import com.zuxos.desktopplus.hook.drawer.NativeDrawerHooks;
@@ -1441,8 +1442,8 @@ public final class TaskbarRunning {
         if (displayId < 0) {
             return true;
         }
-        Object where = Reflect.field(task, "displayId");
-        return !(where instanceof Integer) || (Integer) where == displayId;
+        int where = Tasks.displayOf(task);
+        return where == Tasks.UNKNOWN || where == displayId;
     }
 
     /**

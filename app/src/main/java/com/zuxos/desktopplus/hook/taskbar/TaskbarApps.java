@@ -16,6 +16,7 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Su;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.hook.IconInfo;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.recents.TaskOverview;
 import com.zuxos.desktopplus.hook.system.SystemBridge;
@@ -495,8 +496,7 @@ public final class TaskbarApps {
             android.app.ActivityManager am = (android.app.ActivityManager)
                     ctx.getSystemService(Context.ACTIVITY_SERVICE);
             for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(40)) {
-                Object d = Reflect.field(task, "displayId");
-                if (d instanceof Integer && (Integer) d == display) {
+                if (Tasks.displayOf(task) == display) {
                     out.add(task);
                 }
             }
@@ -506,17 +506,10 @@ public final class TaskbarApps {
         return out;
     }
 
-    public static String packageOf(android.app.ActivityManager.RunningTaskInfo task) {
-        android.content.ComponentName c = task.baseIntent != null
-                && task.baseIntent.getComponent() != null ? task.baseIntent.getComponent()
-                : task.topActivity != null ? task.topActivity : task.baseActivity;
-        return c == null ? null : c.getPackageName();
-    }
-
     private static android.app.ActivityManager.RunningTaskInfo taskOf(Context ctx, String pkg,
             int display) {
         for (android.app.ActivityManager.RunningTaskInfo task : tasksOn(ctx, display)) {
-            if (pkg.equals(packageOf(task))) {
+            if (pkg.equals(Tasks.packageOf(task))) {
                 return task;
             }
         }
@@ -556,7 +549,7 @@ public final class TaskbarApps {
     static void maximize(Context ctx, String pkg, int display, int taskId) {
         android.app.ActivityManager.RunningTaskInfo task = null;
         for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
-            if (taskId >= 0 ? t.taskId == taskId : pkg.equals(packageOf(t))) {
+            if (taskId >= 0 ? t.taskId == taskId : pkg.equals(Tasks.packageOf(t))) {
                 task = t;
                 break;
             }
@@ -763,7 +756,7 @@ public final class TaskbarApps {
     static List<Integer> windowIds(Context ctx, String pkg, int display) {
         List<Integer> ids = new ArrayList<>();
         for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
-            if (pkg.equals(packageOf(t)) && TaskbarRunning.isOpen(t)) {
+            if (pkg.equals(Tasks.packageOf(t)) && TaskbarRunning.isOpen(t)) {
                 ids.add(t.taskId);
             }
         }
@@ -830,7 +823,7 @@ public final class TaskbarApps {
     static boolean minimizeIfFront(Context ctx, String pkg, int taskId, int display) {
         try {
             android.app.ActivityManager.RunningTaskInfo front = frontTask(ctx, display);
-            if (front == null || !pkg.equals(packageOf(front))
+            if (front == null || !pkg.equals(Tasks.packageOf(front))
                     || (taskId >= 0 && front.taskId != taskId)) {
                 return false;
             }
@@ -844,7 +837,7 @@ public final class TaskbarApps {
 
     static void minimizeTask(Context ctx, android.app.ActivityManager.RunningTaskInfo task,
             int display) {
-        String pkg = packageOf(task);
+        String pkg = Tasks.packageOf(task);
         // The window itself goes to the back - under the desktop - and stays running. The
         // monitor's windows are free-floating (the probe lists them as freeform), so bringing
         // another app forward, as this used to, left the "minimised" one in sight.
@@ -969,7 +962,7 @@ public final class TaskbarApps {
     private static int windowsOf(Context ctx, String pkg, int display) {
         int n = 0;
         for (android.app.ActivityManager.RunningTaskInfo t : tasksOn(ctx, display)) {
-            if (pkg.equals(packageOf(t))) {
+            if (pkg.equals(Tasks.packageOf(t))) {
                 n++;
             }
         }

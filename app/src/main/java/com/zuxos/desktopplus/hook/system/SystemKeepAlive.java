@@ -8,7 +8,7 @@ import android.os.HandlerThread;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
+import com.zuxos.desktopplus.hook.Tasks;
 
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -279,8 +279,8 @@ public final class SystemKeepAlive {
             Set<Integer> uids = new HashSet<>();
             boolean anyOther = false;
             for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(100)) {
-                Object d = Reflect.field(task, "displayId");
-                if (!(d instanceof Integer) || (Integer) d == 0) {
+                int d = Tasks.displayOf(task);
+                if (d == Tasks.UNKNOWN || d == 0) {
                     continue;
                 }
                 anyOther = true;
@@ -307,7 +307,7 @@ public final class SystemKeepAlive {
         if (effective instanceof Integer && (Integer) effective > 0) {
             return (Integer) effective;
         }
-        String pkg = TaskbarApps.packageOf(task);
+        String pkg = Tasks.packageOf(task);
         if (pkg == null) {
             return -1;
         }

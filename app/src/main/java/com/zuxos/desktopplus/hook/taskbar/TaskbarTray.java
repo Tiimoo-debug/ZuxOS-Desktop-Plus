@@ -37,6 +37,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -553,7 +554,11 @@ public final class TaskbarTray {
         private final ImageView mBell;
         private final ImageView mPanelButton;
         private final Runnable mOnChanged = this::render;
-        /** The clock shows seconds, so it repaints once a second while the tray is on screen. */
+        /**
+         * The clock shows seconds, so it repaints once a second - only while the tray can be
+         * seen: a bar hidden under a full-screen app, or a tray in a window that is not shown,
+         * has nothing ticking. It is right again the moment it shows.
+         */
         private final Runnable mTick = new Runnable() {
             @Override
             public void run() {
@@ -563,6 +568,16 @@ public final class TaskbarTray {
         };
 
         private SysState mState;
+        private boolean mVisible;
+        /**
+         * The clock's formats, made again only when what they were made for changes: the
+         * 12/24-hour setting, the language, or the time zone (a format keeps the zone it was
+         * made in).
+         */
+        private String mClockFor;
+        private SimpleDateFormat mClockFormat;
+        private SimpleDateFormat mDateFormat;
+        private String mShownDate;
         private int mShownNetType = -1;
         private int mShownNetLevel = -1;
         private int mShownBattery = Integer.MIN_VALUE;
@@ -684,7 +699,25 @@ public final class TaskbarTray {
                 L.e("tray: no system state", t);
             }
             render();
-            mTick.run();
+        }
+
+        /** Shown or hidden: the window, this view, or anything holding it. */
+        @Override
+        public void onVisibilityAggregated(boolean isVisible) {
+            super.onVisibilityAggregated(isVisible);
+            mVisible = isVisible;
+            removeCallbacks(mTick);
+            if (isVisible) {
+                mTick.run();
+            }
+            watchTemps();
+        }
+
+        /** Temperatures are read only while a tray that shows them can be seen. */
+        private void watchTemps() {
+            if (mState != null) {
+                mState.watchTemps(this, mVisible && isAttachedToWindow() && Cfg.taskbarTemps());
+            }
         }
 
         @Override
@@ -692,6 +725,7 @@ public final class TaskbarTray {
             super.onDetachedFromWindow();
             removeCallbacks(mTick);
             if (mState != null) {
+                mState.watchTemps(this, false);
                 mState.removeListener(mOnChanged);
             }
             // These are windows of their own and would outlive the tray that opened them,
@@ -745,6 +779,8 @@ public final class TaskbarTray {
             }
             renderTemps(state);
             renderClock();
+            // The setting may have changed since the tray was shown.
+            watchTemps();
         }
 
         /**
@@ -780,9 +816,20 @@ public final class TaskbarTray {
         private void renderClock() {
             Date now = new Date();
             boolean h24 = android.text.format.DateFormat.is24HourFormat(getContext());
-            mClock.setText(new SimpleDateFormat(h24 ? "HH:mm:ss" : "h:mm:ss a",
-                    Locale.getDefault()).format(now));
-            mDate.setText(new SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(now));
+            String clockFor = h24 + " " + Locale.getDefault() + " " + TimeZone.getDefault().getID();
+            if (!clockFor.equals(mClockFor)) {
+                mClockFor = clockFor;
+                mClockFormat = new SimpleDateFormat(h24 ? "HH:mm:ss" : "h:mm:ss a",
+                        Locale.getDefault());
+                mDateFormat = new SimpleDateFormat("EEE d MMM", Locale.getDefault());
+            }
+            mClock.setText(mClockFormat.format(now));
+            // The date changes once a day; setting the same text still lays the bar out again.
+            String date = mDateFormat.format(now);
+            if (!date.equals(mShownDate)) {
+                mShownDate = date;
+                mDate.setText(date);
+            }
         }
 
         /**

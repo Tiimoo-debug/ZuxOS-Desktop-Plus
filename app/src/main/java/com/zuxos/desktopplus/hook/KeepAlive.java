@@ -8,9 +8,7 @@ import android.os.PowerManager;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
-import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.hook.system.SystemKeepAlive;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarRebind;
 
 import java.util.LinkedHashSet;
@@ -94,11 +92,11 @@ public final class KeepAlive {
         ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
         Set<String> now = new LinkedHashSet<>();
         for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(100)) {
-            Object d = Reflect.field(task, "displayId");
-            if (!(d instanceof Integer) || (Integer) d == 0) {
+            int d = Tasks.displayOf(task);
+            if (d == Tasks.UNKNOWN || d == 0) {
                 continue;
             }
-            String pkg = TaskbarApps.packageOf(task);
+            String pkg = Tasks.packageOf(task);
             if (pkg != null && !pkg.equals(ctx.getPackageName())) {
                 now.add(pkg);
             }

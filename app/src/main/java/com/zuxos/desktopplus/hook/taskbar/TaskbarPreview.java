@@ -34,6 +34,7 @@ import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.Overlays;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.recents.TaskOverview;
 
 import java.util.ArrayDeque;
@@ -277,7 +278,7 @@ public final class TaskbarPreview {
         }
         List<ActivityManager.RunningTaskInfo> windows = new ArrayList<>();
         for (ActivityManager.RunningTaskInfo task : TaskbarApps.tasksOn(ctx, display)) {
-            if (!pkg.equals(TaskbarApps.packageOf(task))) {
+            if (!pkg.equals(Tasks.packageOf(task))) {
                 continue;
             }
             // One icon, one window: this icon's own task, or the app's only one.

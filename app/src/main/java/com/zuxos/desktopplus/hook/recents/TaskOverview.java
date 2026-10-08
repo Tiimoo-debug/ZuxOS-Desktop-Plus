@@ -41,6 +41,7 @@ import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.KeyShell;
 import com.zuxos.desktopplus.hook.Overlays;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarMenu;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
@@ -539,8 +540,7 @@ public final class TaskOverview {
             // carries every task with its display.
             int here = 0;
             for (ActivityManager.RunningTaskInfo task : am.getRunningTasks(40)) {
-                Object d = Reflect.field(task, "displayId");
-                if (!(d instanceof Integer) || (Integer) d != display) {
+                if (Tasks.displayOf(task) != display) {
                     continue;
                 }
                 Card card = cardFor(ctx, pm, task.taskId, task.baseIntent,
@@ -561,10 +561,8 @@ public final class TaskOverview {
                 if (seen.contains(task.taskId)) {
                     continue;
                 }
-                Object d = Reflect.field(task, "displayId");
-                int on = d instanceof Integer ? (Integer) d : -1;
                 boolean running = Boolean.TRUE.equals(Reflect.field(task, "isRunning"));
-                if (on >= 0 && running) {
+                if (Tasks.displayOf(task) >= 0 && running) {
                     elsewhere++;
                     continue;
                 }

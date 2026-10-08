@@ -16,6 +16,7 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.hook.KeyShell;
+import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.drawer.DrawerFolderWindow;
 import com.zuxos.desktopplus.hook.panel.NotifyPanel;
 import com.zuxos.desktopplus.hook.panel.QuickPanel;
@@ -223,8 +224,7 @@ public final class TaskbarNav {
             android.app.ActivityManager.RunningTaskInfo first = null;
             android.app.ActivityManager.RunningTaskInfo focused = null;
             for (android.app.ActivityManager.RunningTaskInfo task : am.getRunningTasks(24)) {
-                Object d = Reflect.field(task, "displayId");
-                if (!(d instanceof Integer) || (Integer) d != display) {
+                if (Tasks.displayOf(task) != display) {
                     continue;
                 }
                 if (first == null) {

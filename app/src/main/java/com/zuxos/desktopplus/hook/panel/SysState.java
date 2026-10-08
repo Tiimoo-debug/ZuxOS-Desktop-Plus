@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class SysState {
 
-    /** How often the thermal zones are re-read while a tray is visible. */
+    /** How often the thermal zones are re-read while a tray showing them is visible. */
     private static final long THERMAL_POLL_SECONDS = 5;
 
     /** How the tray should draw the active connection. */
@@ -54,6 +54,8 @@ public final class SysState {
     private final Context mCtx;
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private final Set<Runnable> mListeners = new LinkedHashSet<>();
+    /** The trays on screen that show temperatures: the zones are read only while there is one. */
+    private final Set<Object> mTempWatchers = new java.util.HashSet<>();
 
     private int mNetType = NET_NONE;
     private int mNetLevel = 0;
@@ -80,17 +82,27 @@ public final class SysState {
 
     /** Called on the main thread whenever anything below changes. */
     public void addListener(Runnable listener) {
-        boolean wasIdle = mListeners.isEmpty();
         mListeners.add(listener);
-        if (wasIdle) {
-            startThermalPolling();
-        }
     }
 
     public void removeListener(Runnable listener) {
         mListeners.remove(listener);
-        if (mListeners.isEmpty()) {
+    }
+
+    /**
+     * Whether {@code who} - a tray - is on screen and showing temperatures. The thermal zones
+     * are polled while at least one is, and not at all otherwise. Main thread; repeating the same
+     * answer costs nothing.
+     */
+    public void watchTemps(Object who, boolean watching) {
+        boolean changed = watching ? mTempWatchers.add(who) : mTempWatchers.remove(who);
+        if (!changed) {
+            return;
+        }
+        if (mTempWatchers.isEmpty()) {
             stopThermalPolling();
+        } else {
+            startThermalPolling();
         }
     }
 
@@ -239,7 +251,7 @@ public final class SysState {
      * Polls the thermal zones while something is watching.
      *
      * <p>Reading them means touching the filesystem, so it happens on a background thread and
-     * only while a tray is actually on screen - an idle launcher polls nothing.
+     * only while a tray showing them is actually on screen - an idle launcher polls nothing.
      */
     private void startThermalPolling() {
         if (mThermalTask != null) {
@@ -261,7 +273,7 @@ public final class SysState {
     }
 
     private void scheduleThermalPoll() {
-        if (mThermalTask != null || mListeners.isEmpty() || mThermalPoll == null) {
+        if (mThermalTask != null || mTempWatchers.isEmpty() || mThermalPoll == null) {
             return;
         }
         mThermalTask = mThermalPoll.scheduleWithFixedDelay(() -> {
