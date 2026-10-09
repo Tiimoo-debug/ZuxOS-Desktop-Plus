@@ -113,7 +113,7 @@ firmware; the probe lists them.
   - The memory cleaner's add and remove change its permanent list in memory, which also holds the
     config's `PermanentPackageName` entries; its get shows only the file. So a caller must read
     the config too, or it may take one of ZUI's own off.
-  - The module uses both from 1.0.164 (`hook/KeepAlive`): it adds only names on neither list,
+  - The module uses both from 1.0.165 (`hook/KeepAlive`): it adds only names on neither list,
     records what it added in the launcher's own `zux_keep_alive` preferences, and removes only
     those.
 - **Fixed importance per app** (`ZuiAdjCustomize`, `/system/etc/adj_customize_config.xml`): the
@@ -149,7 +149,7 @@ vendor power HAL's, not in these jars.
   stable bounds, or for an app that cannot resize, when it has their full width or height
   (`isTaskMaximized`); the button then restores the size it remembered, or, for a window it never
   saw before, 3/4 of the display each way, centred (`calculateDefaultDesktopTaskBounds`). The
-  module's Maximize on the monitor follows all of this from 1.0.164 (`logic/WindowMath`), and
+  module's Maximize on the monitor follows all of this from 1.0.165 (`logic/WindowMath`), and
   offers Restore in the same place.
 - The launcher's desktop interface (`IDesktopMode`) has no maximize call, so the module cannot
   ask the shell to do it; it has to set the same bounds itself.
@@ -200,7 +200,7 @@ Checked 2026-10-09. Every hook below matches by name and parameters, unless mark
 | New window | `ActivityStarter.setInitialState(...)`, fields `mIntent`, `mLaunchMode`, `mLaunchFlags` | found |
 | New window | `ActivityStarter.getReusableTask` | **missing**: it is `resolveReusableTask(boolean)` here. The owner's log says "task reuse x0". The hook is gone; `setInitialState` alone does the job, confirmed on 1.0.91 |
 | Drag | `DragState.isValidDropTarget(WindowState, boolean, boolean)`, fields `mFlags`, `mUid`; `WindowState.getOwningUid()` | found |
-| Trace | `WindowOrganizerController.applyTransaction`, `applySyncTransaction`, `startTransition` | found. `startLegacyTransition` is not, which only drops one traced name. From 1.0.164 the overloads taking an `ActionChain` are left out: they are the system's own step inside a call, under its own uid. The shell's `startNewTransition` goes through `startTransition(int, IBinder, …)`, so its type is in the line |
+| Trace | `WindowOrganizerController.applyTransaction`, `applySyncTransaction`, `startTransition` | found. `startLegacyTransition` is not, which only drops one traced name. From 1.0.165 the overloads taking an `ActionChain` are left out: they are the system's own step inside a call, under its own uid. The shell's `startNewTransition` goes through `startTransition(int, IBinder, …)`, so its type is in the line |
 
 ## The roadmap rows against ZUI's code
 
