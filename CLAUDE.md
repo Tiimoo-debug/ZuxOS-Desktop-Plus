@@ -9,6 +9,10 @@ Read [`docs/ROADMAP.md`](docs/ROADMAP.md) before doing anything else. It is the 
 the rules, what is done, every bug fixed and whether the owner confirmed it, what is in progress,
 and what is planned, in order.
 
+Then [`docs/ZUI-NOTES.md`](docs/ZUI-NOTES.md): what ZUI's own apps do, read from their decompiled
+code - which app runs which mode, the settings that switch them, ZUI's heat and app-killing
+policy, and where each of our hooks lands. Read it before hooking anything of ZUI's.
+
 ## Rules agreed with the owner
 
 - **Polish and stability before new features.**
@@ -25,6 +29,11 @@ and what is planned, in order.
   | Tablet, regular | `DrawerLauncher` | ZUI's tablet bar |
   | Tablet, desktop mode | `CustomModeLauncher` | `TaskbarActivityContext`, with ZUI's search box |
   | Monitor desktop | `SecondaryDisplayLauncher` (display 2 or 3) | `TaskbarActivityContextDp`, the `...Dp` classes |
+
+  ZUI says which mode is on in `Settings.System`: `zui_ov_desktop_mode` (tablet desktop mode) and
+  `zui_dp_display_pc_mode` (the monitor's desktop). A fourth, **work mode** (`zui_pc_mode`), makes
+  a different app the home - Work Launcher, `com.zui.desktoplauncher` - which the module does not
+  load into. See `docs/ZUI-NOTES.md`.
 
 - **The system process must never be able to crash** (`android`, system_server):
   - nothing runs at load time but hooks;
