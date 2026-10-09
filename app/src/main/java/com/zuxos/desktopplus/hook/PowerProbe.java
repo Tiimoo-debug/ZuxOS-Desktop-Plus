@@ -53,8 +53,9 @@ public final class PowerProbe {
      *
      * <p>First what is busy - the device's busiest processes and the GPU's load. Then the policy
      * the device runs: each CPU cluster's governor and limits, the GPU's, which thermal limits
-     * are holding something back right now, the vendor's thermal and perf configs, their
-     * properties, and Android's own thermal service. Last, whether the kernel offers any control
+     * are holding something back right now, the vendor's thermal and perf configs, ZUI's own
+     * (its performance service's heat, cleaning and refresh-rate lists) and the apps force-stopped
+     * lately, the properties, and Android's own thermal service. Last, whether the kernel offers any control
      * of voltage at all - the question behind undervolting, answered by looking, never by trying.
      * Missing files print nothing; the script always ends well, so a partial answer still comes.
      */
@@ -88,6 +89,15 @@ public final class PowerProbe {
               echo "== $f"
               head -25 /vendor/etc/$f 2>/dev/null
             done
+            echo "--- ZUX Performance Service's configs (#12, #18)"
+            ls -l /system/etc/zuipp_*.xml /system/etc/*refresh_app.xml /system/etc/game_policy.xml /system/etc/otherapp_policy.xml /system/etc/performanceconfig.xml /system/etc/special_game_temp.xml 2>/dev/null
+            grep -v -E '^[[:space:]]*$|^[[:space:]]*<!--' /system/etc/zuipp_powercfg.xml 2>/dev/null | head -250
+            for f in white_refresh_app full_screen_white_refresh_app; do
+              echo "== $f"
+              grep -v -E '^[[:space:]]*$|^[[:space:]]*<!--' /system/etc/$f.xml 2>/dev/null | head -40
+            done
+            echo "--- apps force-stopped lately (#12)"
+            logcat -d -b main,system 2>/dev/null | grep -E 'Force stopping|force stop \\[' | tail -20
             echo "--- properties"
             getprop | grep -i -E 'perf|therm|power|game' | head -40
             echo "--- voltage controls (read only)"

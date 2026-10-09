@@ -182,8 +182,8 @@ public final class Su {
         }
     }
 
-    /** The most of a command's output kept: the probe's power read is a few pages. */
-    private static final int MAX_OUTPUT = 64_000;
+    /** The most of a command's output kept: the probe's root read is some pages. */
+    private static final int MAX_OUTPUT = 128_000;
 
     /** What the command printed, written and read on the shell thread. See {@link #read}. */
     private static final java.util.concurrent.atomic.AtomicReference<String> LAST_OUTPUT =

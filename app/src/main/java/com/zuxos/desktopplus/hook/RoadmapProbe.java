@@ -52,9 +52,10 @@ public final class RoadmapProbe {
     /**
      * Read through root, and only read. Where ZUI's and Lenovo's apps are (#10, #11, #18 - and
      * which files to copy for decompiling), the settings that speak of the taskbar, desktop mode,
-     * windows and animation (#10, #11, #14), the window manager's feature flags and its shell as
-     * SystemUI reports it (#10 window looks, #11 window animations), and the boot animation and
-     * the root solution a boot-animation module would sit on (#9).
+     * windows and animation (#10, #11, #14), the window manager's feature flags, work mode's keys
+     * and whether Work Launcher is the home, running or showing a window (#19), the window
+     * manager's shell as SystemUI reports it (#10 window looks, #11 window animations), and the
+     * boot animation and the root solution a boot-animation module would sit on (#9).
      */
     public static final String ROOT_READ = """
             echo
@@ -71,6 +72,15 @@ public final class RoadmapProbe {
             echo "--- window manager flags (#10, #11)"
             device_config list window_manager 2>/dev/null | grep -i -E 'desktop|freeform|caption|decor' | head -30
             getprop | grep -i -E 'desktop_mode|freeform|caption' | head -30
+            echo "--- work mode, ZUI's PC mode (#19)"
+            for ns in secure system global; do
+              settings list $ns 2>/dev/null | grep -i -E 'pc_?mode|work_?mode' | sed "s/^/$ns: /"
+            done | head -30
+            getprop | grep -i -E 'pc_?mode' | head -10
+            echo "home: $(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -1)"
+            echo "Work Launcher pid: $(pidof com.zui.desktoplauncher)"
+            dumpsys activity processes com.zui.desktoplauncher 2>/dev/null | grep -E 'ProcessRecord|oom:|curProcState|lastPss' | head -8
+            dumpsys window windows 2>/dev/null | grep -E 'Window[{].*com[.]zui[.]desktoplauncher' | head -10
             echo "--- the window manager shell, as SystemUI reports it (#10, #11)"
             dumpsys activity service com.android.systemui/.SystemUIService WMShell 2>/dev/null | head -150
             echo "--- boot animation (#9)"
