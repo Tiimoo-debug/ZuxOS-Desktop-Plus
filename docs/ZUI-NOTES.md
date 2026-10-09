@@ -12,7 +12,7 @@ code; the decompiled sources stay outside the repo.
 | Work Launcher | `com.zui.desktoplauncher` | 18.0.0.0178 | A second, complete Launcher3 fork in `/system/priv-app/ZuiLauncherPC`: `workmode.WorkLauncher`, its own `DrawerLauncher` / `NormalLauncher` / `SecondaryDisplayLauncher`, `workmode.pcallapps.PcAllAppsActivity`, `WorkSearchService`, its own quickstep (`com.zui.quickstep.*`). Always running. **The module does not load into it.** |
 | ZUX Performance Service | `com.zui.pp` | 3.1.4.4 | Runs as the system uid. ZUI's heat, refresh-rate and app-killing policy (below). |
 | Game Assistant | `com.zui.game.service` | 2.3.0.4834 | Game profiles. Not read yet. |
-| SystemUI | `com.android.systemui` | 16 | Window decorations and menus, the WM shell. Not read yet. |
+| SystemUI | `com.android.systemui` | 16 | Window decorations and menus, the WM shell, and work mode's own bar (below). Strings read, code not yet. |
 | HomeSettings | `com.zui.homesettings` | 18.1.0.0054 | Fonts and app badges only - nothing about the desktop. |
 | "Android System" | `android` (framework-res) | 16 | Resources only, no code. The system's code is in `services.jar` and `framework.jar` - **still to get**. |
 
@@ -36,6 +36,29 @@ answer to "which mode is this", where the module has been inferring it from view
 
 **For the module:** `TaskbarScope` tells the tablet's desktop mode from its bar by the search box;
 `zui_ov_desktop_mode` says it exactly. Work mode is a fourth mode the module does not cover.
+
+## Work mode is ZUI's PC mode
+
+Read from the strings in SystemUI's code and in framework-res; SystemUI's code itself is not read
+yet.
+
+- **What it is:** a full-screen mode on the tablet's own screen. framework-res names its home
+  (`config_pcmode_launcher_package` / `config_pcmode_launcher_class`): Work Launcher's
+  `WorkLauncher`. SystemUI replaces the bar with its own (`pcmode.nav.WorkNavLayout`,
+  `NavigationBarViewPcMode`): pinned apps plus Wi-Fi, volume, notification and search icons.
+  Window decorations are SystemUI's own too (`OvPcMode`, the `decor_*_pcmode` buttons). None of
+  it is ZUX Home, so none of the module's hooks apply.
+- **Ways in:** a PC-mode quick-settings tile (`qPCModeTileProvider`), a Settings page
+  (`com.zui.settings.PC_MODE_SETTINGS`), attaching a keyboard (`enter_work_mode_from_keyboard`,
+  `startPcModeByInputKeyguard`), and the broadcast `com.zui.intent.action.SWITCH_PC_MODE`.
+- **What turns it off:** `zui_pcmode_not_support`, `persist.sys.csdk.disallowSetPcMode`, and
+  ZUI's "OV" desktop features all disabled ("pcMode can not use"). Other keys:
+  `zui_pc_mode_switch`, `zui_pc_mode_trigger`, `zui_pcmode_cannot_switch`, `zui_test_pcmode`,
+  `zux_pcmode_ui_style`, `current_pc_mode_state`, `persist.sys.zui.pcmode`.
+- **Old or current:** "PC mode" is ZUI's name from before ZUX, but Work Launcher is version 18.0
+  next to ZUX Home's 18.2, so it is maintained. Whether this tablet offers it is open: the probe
+  reads the keys above.
+- **Not PC mode:** SystemUI's `WorkModeTile` is AOSP's work-profile tile.
 
 ## Heat and app killing: ZUX Performance Service (`com.zui.pp`)
 
@@ -82,5 +105,5 @@ every build, which is why the module finds those by type and shape, not by name.
 
 - `services.jar` and `framework.jar` (with their oat/vdex if the jars hold no code): Maximize
   (#7), the system's refresh-rate decisions, how tasks are killed.
-- SystemUI: window decorations and their menus (#10, #11).
+- SystemUI's code: window decorations and their menus (#10, #11).
 - Game Assistant (#18).
