@@ -27,24 +27,25 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Maximize and Restore, for the taskbar's and the desktop's menus.
+ * Maximize and Floating, for the taskbar's and the desktop's menus.
  *
  * <p>On the tablet's desktop mode a window goes full screen, app and all, as ZUI's own button
  * does there. On the monitor too, ZUI's button makes the window full screen: its trace on
  * 1.0.166 showed SystemUI starting a transition of Android's type for "leave desktop mode by the
  * window's button" (1106) that sets full screen, no bounds, not always on top, and in front - and
- * for Restore one of type "enter desktop mode by the window's button" (1101) that hands the
+ * for its Restore one of type "enter desktop mode by the window's button" (1101) that hands the
  * window back with the size it had. This starts the same two, so SystemUI follows them as it
  * follows its own; sending the change around it, as 1.0.133 did, left its window menu opening
  * on the tablet.
  *
  * <p>If the system refuses the transition, the window is grown in place instead, to the area ZUI
- * leaves a floating window ({@link WindowMath}), and Restore shrinks it back.
+ * leaves a floating window ({@link WindowMath}), and Floating shrinks it back.
  */
 final class Maximize {
 
     static final String MAXIMIZE = "Maximize";
-    static final String RESTORE = "Restore";
+    /** Back to a floating window: ZUI's Restore, named for what it gives. */
+    static final String FLOATING = "Floating";
 
     private static final int WINDOWING_MODE_UNDEFINED = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
@@ -57,14 +58,14 @@ final class Maximize {
     /** ZUI's own size for a window it restores without having seen it before: 3/4 each way. */
     private static final float RESTORE_SCALE = 0.75f;
 
-    /** Each window's size before this maximised it, by task id: what Restore puts back. */
+    /** Each window's size before this maximised it, by task id: what Floating puts back. */
     private static final Map<Integer, Rect> BEFORE = new HashMap<>();
 
     private Maximize() {
     }
 
     /**
-     * The menu's word for {@link #toggle}: Restore for a window on the monitor that is full
+     * The menu's word for {@link #toggle}: Floating for a window on the monitor that is full
      * screen - by this menu or ZUI's button - or grown in place, Maximize for everything else.
      * {@code tasks} are the display's, already read for the menu, so this asks the system for
      * nothing more.
@@ -77,10 +78,10 @@ final class Maximize {
         ActivityManager.RunningTaskInfo task = find(tasks, pkg, taskId);
         int mode = task == null ? -1 : windowingMode(task);
         if (mode == WINDOWING_MODE_FULLSCREEN) {
-            return RESTORE;
+            return FLOATING;
         }
         return mode == WINDOWING_MODE_FREEFORM && grownInPlace(ctx, task, display)
-                ? RESTORE : MAXIMIZE;
+                ? FLOATING : MAXIMIZE;
     }
 
     /** A floating window already as big as one can be, by ZUI's own test. */
@@ -126,7 +127,7 @@ final class Maximize {
                 L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen");
             } else {
                 // Full screen refused, or a window grown in place by this same fallback, which
-                // Restore shrinks back.
+                // Floating shrinks back.
                 resize(ctx, tasks, task, display);
             }
             TaskOverview.bringToFront(id, display);
@@ -193,7 +194,7 @@ final class Maximize {
 
     /**
      * The monitor: ZUI's own change to full screen, as the transition its button starts. The
-     * window's size is kept for Restore. False when refused.
+     * window's size is kept for Floating. False when refused.
      */
     private static boolean toFullScreenAsZui(List<ActivityManager.RunningTaskInfo> tasks,
             ActivityManager.RunningTaskInfo task) {
@@ -227,8 +228,8 @@ final class Maximize {
     }
 
     /**
-     * Back to a window, as ZUI's Restore does: the size it had before this made it full screen,
-     * or, for one ZUI's own button made full screen, ZUI's own 3/4 of the screen.
+     * Back to a floating window, as ZUI's Restore does: the size it had before this made it full
+     * screen, or, for one ZUI's own button made full screen, ZUI's own 3/4 of the screen.
      */
     private static void toWindow(Context ctx, ActivityManager.RunningTaskInfo task, int display) {
         Rect before;

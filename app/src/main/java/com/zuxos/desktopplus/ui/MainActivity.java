@@ -26,9 +26,12 @@ import com.zuxos.desktopplus.core.ModuleStatus;
 import com.zuxos.desktopplus.core.Prefs;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.notify.TestNotifications;
 
 /** Settings for the module, plus a short explanation of what to expect on the device. */
 public class MainActivity extends Activity {
+
+    private static final int REQUEST_NOTIFY = 1;
 
     private SharedPreferences mPrefs;
     private LinearLayout mRoot;
@@ -222,6 +225,10 @@ public class MainActivity extends Activity {
         });
         addSummary("Find \"ZuxOS Desktop Plus\" in that list and switch it on. Without it the "
                 + "panel simply shows no notifications; nothing else is affected.");
+        addButton("Send test notifications", this::sendTestNotifications);
+        addSummary("Three, a moment apart: a message with a picture, a button and a reply box; "
+                + "a long one with two buttons; a plain one. With the monitor's desktop on, they "
+                + "pop up above its tray. Replying updates the first without popping it up again.");
 
         addHeader("Diagnostics");
         addSwitch("Verbose log", "Writes details to the LSPosed log", Const.KEY_DEBUG, false);
@@ -372,6 +379,30 @@ public class MainActivity extends Activity {
         mRoot.addView(et, rowParams());
         if (summary != null) {
             addSummary(summary);
+        }
+    }
+
+    private void sendTestNotifications() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_NOTIFY);
+            return;
+        }
+        if (!TestNotifications.send(this)) {
+            android.widget.Toast.makeText(this,
+                    "Notifications are off for Desktop Plus - allow them in its app settings",
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] results) {
+        if (requestCode == REQUEST_NOTIFY && results.length > 0
+                && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            sendTestNotifications();
         }
     }
 

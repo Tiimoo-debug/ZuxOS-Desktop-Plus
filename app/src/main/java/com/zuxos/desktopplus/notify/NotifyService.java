@@ -118,7 +118,9 @@ public final class NotifyService extends NotificationListenerService {
      */
     private boolean pops(StatusBarNotification sbn, RankingMap rankingMap, boolean update) {
         Notification n = sbn.getNotification();
-        if (n == null || Const.MODULE_PKG.equals(sbn.getPackageName())) {
+        if (n == null || (Const.MODULE_PKG.equals(sbn.getPackageName())
+                && !n.extras.getBoolean(TestNotifications.EXTRA_TEST))) {
+            // The module's own are not news - except the tests sent from its settings.
             return false;
         }
         if ((n.flags & (Notification.FLAG_ONGOING_EVENT | Notification.FLAG_GROUP_SUMMARY

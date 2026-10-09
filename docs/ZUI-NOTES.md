@@ -158,7 +158,8 @@ vendor power HAL's, not in these jars.
   the transition.
 - The launcher's desktop interface (`IDesktopMode`) has no maximize or full-screen call (it has
   `moveTaskToDesktop` and launch and show calls). So from 1.0.167 the module's Maximize on the
-  monitor starts the same two transitions itself (`WindowOrganizer.startNewTransition`). SystemUI
+  monitor starts the same two transitions itself (`WindowOrganizer.startNewTransition`); its
+  menus call the way back "Floating" (1.0.169). SystemUI
   follows them like its own: its request handler (`DesktopTasksController.handleRequest`, read
   from the raw instructions) only steps in for "open" and "to front" transitions and lets others
   pass as they are. 1.0.133 instead applied the change directly (`applyTransaction`), which

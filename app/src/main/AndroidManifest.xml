@@ -3,6 +3,8 @@
 
     <!-- The settings UI lists installed apps so you can pre-build drawer folders. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Only for the test notifications the settings send, to try the monitor's pop-ups. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -51,6 +53,11 @@
             android:name=".notify.NotifyProvider"
             android:authorities="com.zuxos.desktopplus.notifications"
             android:exported="true" />
+
+        <!-- The test notifications' buttons and reply. Only this app's own intents reach it. -->
+        <receiver
+            android:name=".notify.TestNotifications"
+            android:exported="false" />
 
         <!-- Xposed / LSPosed module metadata -->
         <meta-data

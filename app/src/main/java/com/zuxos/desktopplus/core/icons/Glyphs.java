@@ -49,6 +49,7 @@ public final class Glyphs {
     public static final int SHARE = 26;
     public static final int MAXIMIZE = 27;
     public static final int TASKS = 28;
+    public static final int FLOATING = 29;
 
     private Glyphs() {
     }
@@ -94,6 +95,8 @@ public final class Glyphs {
             glyph = MINIMIZE;
         } else if (t.startsWith("maximi")) {
             glyph = MAXIMIZE;
+        } else if (t.startsWith("floating")) {
+            glyph = FLOATING;
         } else if (t.startsWith("task manager")) {
             glyph = TASKS;
         } else if (t.contains("new window")) {
@@ -372,6 +375,14 @@ public final class Glyphs {
                 p.addRoundRect(new RectF(4, 6, 20, 19), 2f, 2f, Path.Direction.CW);
                 p.moveTo(4, 9);
                 p.lineTo(20, 9);
+                return p;
+            case FLOATING:
+                // The screen's frame, and a smaller window floating in it with its title bar.
+                p.addRoundRect(new RectF(3.5f, 4.5f, 20.5f, 19.5f), 2.5f, 2.5f,
+                        Path.Direction.CW);
+                p.addRoundRect(new RectF(8, 8.5f, 17, 16), 1.5f, 1.5f, Path.Direction.CW);
+                p.moveTo(8, 11);
+                p.lineTo(17, 11);
                 return p;
             case NEW_WINDOW:
                 // A window, and another opening in front of it.
