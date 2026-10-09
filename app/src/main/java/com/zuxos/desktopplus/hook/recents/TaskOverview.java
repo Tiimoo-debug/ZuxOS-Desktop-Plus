@@ -86,10 +86,10 @@ public final class TaskOverview {
     private TaskOverview() {
     }
 
-    /** Opens it on the display of {@code anchor}, or closes it if it is already up there. */
     /** When a touch outside last closed it: the recents button's own press is one of those. */
     private static long sOutsideAt;
 
+    /** Opens it on the display of {@code anchor}, or closes it if it is already up there. */
     public static void toggle(View anchor, int display) {
         if (sRoot != null) {
             close();
@@ -380,7 +380,6 @@ public final class TaskOverview {
         return box;
     }
 
-    /** Up and away closes the app, as in any recents; anything shorter springs back. */
     /**
      * The close button: a circle of white liquid glass with a wheel of colour turning in it, and
      * a black X. The wheel turns slowly all the time and fast while the X spins - in when the card
@@ -477,6 +476,7 @@ public final class TaskOverview {
         }
     }
 
+    /** Up and away closes the app, as in any recents; anything shorter springs back. */
     private static void swipeToClose(View handle, Card owner, View box, Runnable onClose) {
         final float[] down = new float[2];
         final boolean[] dragging = new boolean[1];

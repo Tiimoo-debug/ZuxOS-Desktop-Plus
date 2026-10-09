@@ -7,7 +7,8 @@ Four checks, each one a different kind of dead code:
   kept from what Android and LSPosed start (the Xposed entry point and the manifest's
   components), and asked what it would remove;
 - fields that are written but never read, from the bytecode;
-- constants, imports and private methods named nowhere else, from the source.
+- constants, imports and private methods named nowhere else, and doc comments left behind with
+  no code under them, from the source.
 
 Before deleting a finding, check it is not reached by name: a string handed to reflection or
 Xposed, a resource, or another tool that reads the source. ``KEEP`` below lists the ones that are,
@@ -170,6 +171,14 @@ def write_only(classes):
 def source_checks():
     out = []
     files = check.java_files(["app/src/main/java", "logic/src/main/java"])
+    for path in files:
+        lines = open(path).read().split("\n")
+        for k in range(len(lines) - 1):
+            # A doc comment straight on top of another documents nothing: what it was written
+            # for has moved or gone.
+            if lines[k].strip().endswith("*/") and lines[k + 1].strip().startswith("/**"):
+                out.append("%s:%d: doc comment with no code under it"
+                           % (os.path.basename(path)[:-5], k + 1))
     code = {f: code_only(open(f).read()) for f in files}
     everything = "\n".join(code.values())
     for path, text in code.items():

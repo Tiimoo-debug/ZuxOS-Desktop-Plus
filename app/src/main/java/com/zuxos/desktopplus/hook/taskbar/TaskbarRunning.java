@@ -78,7 +78,6 @@ public final class TaskbarRunning {
     /** Icons the launcher put there which we have hidden, so they can be shown again. */
     private static final Map<View, Boolean> HIDDEN = new WeakHashMap<>();
 
-    /** The last list we acted on. Written on the UI thread, but published for safety. */
     /** Per display: where its open apps were last read from, so a change is said once. */
     private static final Map<Integer, Integer> SOURCE = new java.util.concurrent.ConcurrentHashMap<>();
     /** Per taskbar: with two displays, one ticking must not stand for the other. */

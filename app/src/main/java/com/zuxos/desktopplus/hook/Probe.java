@@ -62,6 +62,9 @@ public final class Probe {
      * The probe from the taskbar, with whatever app open: no activity of the launcher's is at
      * hand there, so it is the bars, the tasks, the windows and what the bar has logged - the
      * part of the probe that is about the taskbar - written to the same file.
+     *
+     * <p>With what the screens and the device are spending ({@link PowerProbe}): the file is
+     * written a couple of seconds after the tap, once the CPU has been watched.
      */
     public static void dumpFromBar(android.content.Context ctx, int displayId) {
         try {
@@ -89,11 +92,22 @@ public final class Probe {
                 // The rest still goes out.
             }
             sb.append(describeAllWindows());
-            String text = sb.toString();
-            String out = Storage.export(ctx, Const.FILE_PROBE, text);
-            Storage.write(Storage.file(ctx, Const.FILE_PROBE), text);
-            L.i("probe from the taskbar" + (out != null ? " written to " + out : ""));
-            TaskbarMenu.toast(ctx, out != null ? "Probe saved to Download" : "Probe saved");
+            // Into the log as well as the file: it is what a hot device is asked about.
+            String powerNow = PowerProbe.now(ctx);
+            sb.append(powerNow);
+            TaskbarMenu.toast(ctx, "Probe: measuring for a few seconds");
+            PowerProbe.sample(ctx, power -> {
+                try {
+                    String text = sb.append(power).toString();
+                    String out = Storage.export(ctx, Const.FILE_PROBE, text);
+                    Storage.write(Storage.file(ctx, Const.FILE_PROBE), text);
+                    L.i("probe from the taskbar" + (out != null ? " written to " + out : "")
+                            + "\n" + powerNow + power);
+                    TaskbarMenu.toast(ctx, out != null ? "Probe saved to Download" : "Probe saved");
+                } catch (Throwable t) {
+                    L.e("probe from the taskbar failed", t);
+                }
+            });
         } catch (Throwable t) {
             L.e("probe from the taskbar failed", t);
         }

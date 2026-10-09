@@ -122,7 +122,6 @@ public final class Storage {
         return true;
     }
 
-    /** Best-effort copy into {@code /sdcard/Android/data/<launcher>/files/} for easy pulling. */
     /**
      * Writes a copy somewhere you can actually find it.
      *

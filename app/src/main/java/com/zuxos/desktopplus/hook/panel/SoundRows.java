@@ -71,12 +71,6 @@ public final class SoundRows {
     }
 
     /**
-     * A transport card per app that is playing: what it is, and the three buttons.
-     *
-     * <p>This is what fills the gap left by per-app volume, which Android does not have. The
-     * session list is already in hand and the controls cost one call each.
-     */
-    /**
      * The media card, and a way through the others.
      *
      * <p>One card at a time rather than a stack of them: with three things playing, three cards

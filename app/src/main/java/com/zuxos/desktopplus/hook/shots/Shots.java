@@ -64,11 +64,11 @@ public final class Shots {
     private Shots() {
     }
 
-    /** Takes a screenshot of the display the taskbar is on. */
     /** A second press this soon after the first is the same press: a mouse's double click. */
     private static final long REPEAT_MS = 400L;
     private static long sLastPress;
 
+    /** Takes a screenshot of the display the taskbar is on. */
     public static void take(Context ctx, int displayId) {
         long now = android.os.SystemClock.uptimeMillis();
         if (now - sLastPress < REPEAT_MS) {

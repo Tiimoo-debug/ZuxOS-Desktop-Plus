@@ -111,6 +111,25 @@ public final class ScreenBackdrop {
         });
     }
 
+    /**
+     * Every pane's live glass and what it cost lately - captures, skips, time - for the probe.
+     * Main thread, where the sessions live.
+     */
+    public static String describe() {
+        StringBuilder sb = new StringBuilder("\nliquid glass\n");
+        sb.append("  live capture: ").append(sState == WORKS ? "works"
+                : sState == REFUSED ? "refused (" + sReason + ")" : "not tried yet").append('\n');
+        java.util.List<Session> sessions = new java.util.ArrayList<>(SESSIONS);
+        if (sessions.isEmpty()) {
+            sb.append("  no pane is capturing\n");
+        }
+        long now = SystemClock.uptimeMillis();
+        for (Session s : sessions) {
+            s.describe(sb, now);
+        }
+        return sb.toString();
+    }
+
     // --- the seed: what a pane shows on its very first frame -----------------------------------
 
     /**
@@ -223,7 +242,8 @@ public final class ScreenBackdrop {
 
         /** Past this many pixels a pane is captured smaller: the frost would hide the detail. */
         private static final int LARGE_AREA = 600_000;
-        /** Slowest the glass checks for change while nothing behind it moves. */
+        /** How long one window of the probe's figures is. */
+        private static final long WINDOW_MS = 10_000L;
         /**
          * The slowest a pane checks an unchanged backdrop, reached by doubling after a few
          * seconds of nothing changing. A quarter of a second kept four probes a second going
@@ -270,6 +290,16 @@ public final class ScreenBackdrop {
         private long mCaptureMs;
         private boolean mReported;
 
+        /** The ten seconds now running, and the last whole ten before them: for the probe. */
+        private long mWindowStart;
+        private int mWindowCaptures;
+        private int mWindowSkipped;
+        private long mWindowMs;
+        /** -1 until the pane has been up for ten seconds. */
+        private int mLastCaptures = -1;
+        private int mLastSkipped;
+        private long mLastMs;
+
         /**
          * @param scale      how much smaller than the screen the capture is; the frost blurs it
          *                   anyway, so half size costs a quarter and looks the same
@@ -294,6 +324,7 @@ public final class ScreenBackdrop {
             mRunning = true;
             mForce = true;
             mStartedAt = SystemClock.uptimeMillis();
+            mWindowStart = mStartedAt;
             SESSIONS.add(this);
             // The first picture is asked for just before the pane's first frame is drawn, the
             // moment it has a place on screen - not on the next frame callback, which came a
@@ -487,6 +518,8 @@ public final class ScreenBackdrop {
         void skipped() {
             mInFlight = false;
             mSkipped++;
+            roll(SystemClock.uptimeMillis());
+            mWindowSkipped++;
             mIntervalMs = Math.min(IDLE_MS, Math.max(mBaseIntervalMs, mIntervalMs * 2));
         }
 
@@ -514,6 +547,9 @@ public final class ScreenBackdrop {
             }
             mCaptures++;
             mCaptureMs += took;
+            roll(SystemClock.uptimeMillis());
+            mWindowCaptures++;
+            mWindowMs += took;
             // Something changed: back to full rate.
             mIntervalMs = took > mBaseIntervalMs * 3 / 2
                     ? Math.min(66, mBaseIntervalMs * 2) : mBaseIntervalMs;
@@ -525,6 +561,41 @@ public final class ScreenBackdrop {
             }
             mCurrent = frame;
             mSink.onFrame(frame);
+        }
+
+        /** Starts the next ten seconds once these are up; a quiet gap counts as nothing done. */
+        private void roll(long now) {
+            long age = now - mWindowStart;
+            if (age < WINDOW_MS) {
+                return;
+            }
+            boolean adjacent = age < 2 * WINDOW_MS;
+            mLastCaptures = adjacent ? mWindowCaptures : 0;
+            mLastSkipped = adjacent ? mWindowSkipped : 0;
+            mLastMs = adjacent ? mWindowMs : 0;
+            mWindowCaptures = 0;
+            mWindowSkipped = 0;
+            mWindowMs = 0;
+            mWindowStart = now;
+        }
+
+        /** One line for the probe: where the pane is, how it is paced, what it cost lately. */
+        void describe(StringBuilder sb, long now) {
+            roll(now);
+            View parent = mPane.getParent() instanceof View ? (View) mPane.getParent() : mPane;
+            sb.append("  ").append(parent.getClass().getSimpleName())
+                    .append(" on display ")
+                    .append(mPane.getDisplay() != null ? mPane.getDisplay().getDisplayId() : -1)
+                    .append(": ").append(mParked ? "parked (hidden)" : "showing")
+                    .append(", checked every ").append(mIntervalMs).append(" ms");
+            if (mLastCaptures >= 0) {
+                sb.append(", last 10 s: ").append(mLastCaptures).append(" captures, ")
+                        .append(mLastSkipped).append(" skipped as unchanged, avg ")
+                        .append(mLastCaptures > 0 ? mLastMs / mLastCaptures : 0).append(" ms");
+            }
+            sb.append(", since then: ").append(mWindowCaptures).append(" captures, ")
+                    .append(mWindowSkipped).append(" skipped in ")
+                    .append((now - mWindowStart) / 1000).append(" s\n");
         }
 
         /** Once per session, after its first ten seconds: what the glass actually cost. */

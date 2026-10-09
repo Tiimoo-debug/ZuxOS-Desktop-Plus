@@ -219,14 +219,6 @@ public final class DrawerGlass {
     private static final Map<View, View.OnLayoutChangeListener> CLIPPED = new WeakHashMap<>();
 
     /**
-     * Ends the drawer's drawing where the taskbar begins, on the desktop's screen.
-     *
-     * <p>ZUI's sheet, its scrim and the next row of its apps all carry on underneath the bar,
-     * where ZUI's own opaque bar hid them. Under our see-through one they showed: a pale band
-     * across the bar and stray icons beside the open apps. Only drawing is clipped; touches are
-     * untouched.
-     */
-    /**
      * Drops a window's entry once the window is gone. The listener kept as the entry's value
      * holds the window itself, so a weak map alone never let go of it: every drawer opened on
      * the monitor - a new window each time - stayed in memory.
@@ -245,6 +237,14 @@ public final class DrawerGlass {
         });
     }
 
+    /**
+     * Ends the drawer's drawing where the taskbar begins, on the desktop's screen.
+     *
+     * <p>ZUI's sheet, its scrim and the next row of its apps all carry on underneath the bar,
+     * where ZUI's own opaque bar hid them. Under our see-through one they showed: a pale band
+     * across the bar and stray icons beside the open apps. Only drawing is clipped; touches are
+     * untouched.
+     */
     private static void stopAtTheBar(ViewGroup window) {
         if (CLIPPED.containsKey(window)) {
             return;

@@ -481,13 +481,6 @@ public final class TaskbarApps {
         }
     }
 
-    /**
-     * Stops the app.
-     *
-     * <p>{@code killBackgroundProcesses} only reaches an app that is already in the background,
-     * which is precisely not the one you are looking at in the taskbar. Force-stopping is a
-     * privileged thing to do, so it goes the same way as the other privileged things here.
-     */
     /** The app's tasks on a display, front first, from the running list. */
     static List<android.app.ActivityManager.RunningTaskInfo> tasksOn(Context ctx,
             int display) {
@@ -927,10 +920,6 @@ public final class TaskbarApps {
     }
 
     /**
-     * Another window of the app, beside the one already open. Apps that allow it open a second
-     * one; an app that only ever has one just comes forward.
-     */
-    /**
      * Whether the new window came, checked for a few seconds: a heavy app can take more than a
      * second to make its task, and checking once at 1.5 s said "only one window" for Claude, whose
      * second window then opened anyway.
@@ -969,6 +958,10 @@ public final class TaskbarApps {
         return n;
     }
 
+    /**
+     * Another window of the app, beside the one already open. Apps that allow it open a second
+     * one; an app that only ever has one just comes forward.
+     */
     static void newWindow(Context ctx, String pkg, int display) {
         try {
             Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
@@ -988,6 +981,13 @@ public final class TaskbarApps {
         }
     }
 
+    /**
+     * Stops the app.
+     *
+     * <p>{@code killBackgroundProcesses} only reaches an app that is already in the background,
+     * which is precisely not the one you are looking at in the taskbar. Force-stopping is a
+     * privileged thing to do, so it goes the same way as the other privileged things here.
+     */
     static void close(Context ctx, String pkg) {
         Su.run(outcome -> {
             if (outcome.ok()) {

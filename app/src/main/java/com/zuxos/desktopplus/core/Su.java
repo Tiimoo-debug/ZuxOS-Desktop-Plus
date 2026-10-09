@@ -110,11 +110,6 @@ public final class Su {
     }
 
     /**
-     * Runs shell lines as root, off the calling thread.
-     *
-     * @param onDone called on the shell thread, not the main one; hop back yourself if you must
-     */
-    /**
      * Runs one command and hands back what it printed, on the shell thread.
      *
      * <p>The text is read on the shell thread before the busy flag is cleared, so it belongs to
@@ -125,6 +120,11 @@ public final class Su {
         run(null, onDone, command);
     }
 
+    /**
+     * Runs shell lines as root, off the calling thread.
+     *
+     * @param onDone called on the shell thread, not the main one; hop back yourself if you must
+     */
     public static void run(Result onDone, String... commands) {
         run(onDone, null, commands);
     }

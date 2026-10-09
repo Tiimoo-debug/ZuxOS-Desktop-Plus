@@ -28,6 +28,7 @@ import com.zuxos.desktopplus.core.motion.Anim;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.drawer.DrawerPanel;
 import com.zuxos.desktopplus.hook.KeepAlive;
+import com.zuxos.desktopplus.hook.PowerProbe;
 import com.zuxos.desktopplus.hook.Probe;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.home.OemBridge;
@@ -1451,12 +1452,24 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
                 ? (ViewGroup) mRoot.getParent() : null;
         sb.append(Probe.describe(mActivity, content));
         sb.append(Probe.describeAllWindows());
+        sb.append(PowerProbe.now(mActivity));
         sb.append("\n\n--- desktop layout ---\n").append(mStore.exportJson());
-        String out = Storage.export(mActivity, Const.FILE_PROBE, sb.toString());
-        Dialogs.message(mActivity, "Exported", out != null
-                ? "Written to:\n" + out
-                : "Could not write to storage - the same dump is in the LSPosed log.");
-        L.i(sb.toString());
+        toast("Measuring for a few seconds");
+        // What the device is spending takes a couple of seconds to watch; written after.
+        PowerProbe.sample(mActivity, power -> {
+            try {
+                String text = sb.append(power).toString();
+                String out = Storage.export(mActivity, Const.FILE_PROBE, text);
+                if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
+                    Dialogs.message(mActivity, "Exported", out != null
+                            ? "Written to:\n" + out
+                            : "Could not write to storage - the same dump is in the LSPosed log.");
+                }
+                L.i(text);
+            } catch (Throwable t) {
+                L.e("could not export the probe", t);
+            }
+        });
     }
 
     private void openModuleSettings() {
