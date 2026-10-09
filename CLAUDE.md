@@ -83,7 +83,7 @@ policy, and where each of our hooks lands. Read it before hooking anything of ZU
   - Grep for `ZuxDesktopPlus`.
   - `log/` holds the current boot; `log.old/` holds the previous one.
   - Read the whole module log, not only the lines about the reported bug.
-- **Probe (`probe.txt`):**
+- **Probe (`probe-<date>_<time>.txt`):**
   - Tasks, with display, bounds, windowing mode and a `fit:` line.
   - The window tree of each launcher window.
   - The drawables on ZUI's home.

@@ -208,7 +208,7 @@ something misbehaves.
 ## Reporting a problem
 
 1. Turn on **Dump launcher info on attach**. Or, from the desktop, right-click → **Export layout
-   + launcher info**. Both write `probe.txt` to `Download/`.
+   + launcher info**. Both write `probe-<date>_<time>.txt` to `Download/`, a new file each time.
 2. Export the LSPosed log (Manager → Logs → save).
 3. Send both, with a screenshot if it is visual.
 

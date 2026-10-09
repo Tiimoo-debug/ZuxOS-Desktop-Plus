@@ -12,6 +12,9 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Small text-file store living in the hooked launcher's private data dir.
@@ -120,6 +123,18 @@ public final class Storage {
             return false;
         }
         return true;
+    }
+
+    /**
+     * The name with this moment in it, before the extension - {@code probe.txt} becomes
+     * {@code probe-2026-10-09_17-42-05.txt} - so an export never replaces an earlier one, and a
+     * file manager sorts them by time. No colons: file names cannot hold them.
+     */
+    public static String stamped(String name) {
+        String now = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.ROOT).format(new Date());
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name + "-" + now : name.substring(0, dot) + "-" + now
+                + name.substring(dot);
     }
 
     /**

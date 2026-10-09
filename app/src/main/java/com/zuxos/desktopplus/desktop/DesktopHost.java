@@ -1464,7 +1464,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         PowerProbe.sample(mActivity, RoadmapProbe.ROOT_READ, power -> {
             try {
                 String text = sb.append(power).toString();
-                String out = Storage.export(mActivity, Const.FILE_PROBE, text);
+                String out = Storage.export(mActivity, Storage.stamped(Const.FILE_PROBE), text);
                 if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
                     Dialogs.message(mActivity, "Exported", out != null
                             ? "Written to:\n" + out

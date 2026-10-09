@@ -9,7 +9,7 @@ Settings → Diagnostics → **Dump launcher info on attach**, then go back to t
 The dump lands in two places:
 
 - the LSPosed log (Manager → Logs), and
-- `Download/probe.txt` on the tablet's storage
+- `Download/probe-<date>_<time>.txt` on the tablet's storage, a new file each time
 
 You can also trigger it any time from the desktop: right-click empty space →
 **Export layout + launcher info**.

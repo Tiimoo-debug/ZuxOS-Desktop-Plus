@@ -50,7 +50,7 @@ public final class Probe {
             // Every window too, as the exported probe has: the taskbars are windows of their own,
             // and a dump without them could not show a bar at all.
             String text = describe(activity, content) + describeAllWindows();
-            String out = Storage.export(activity, Const.FILE_PROBE, text);
+            String out = Storage.export(activity, Storage.stamped(Const.FILE_PROBE), text);
             Storage.write(Storage.file(activity, Const.FILE_PROBE), text);
             L.i("probe dump" + (out != null ? " written to " + out : "") + ":\n" + text);
         } catch (Throwable t) {
@@ -100,7 +100,7 @@ public final class Probe {
             PowerProbe.sample(ctx, RoadmapProbe.ROOT_READ, power -> {
                 try {
                     String text = sb.append(power).toString();
-                    String out = Storage.export(ctx, Const.FILE_PROBE, text);
+                    String out = Storage.export(ctx, Storage.stamped(Const.FILE_PROBE), text);
                     Storage.write(Storage.file(ctx, Const.FILE_PROBE), text);
                     L.i("probe from the taskbar" + (out != null ? " written to " + out : "")
                             + "\n" + powerNow + power);
