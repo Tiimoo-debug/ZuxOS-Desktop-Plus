@@ -202,6 +202,11 @@ public class MainActivity extends Activity {
         addSwitch("Notifications in the quick panel",
                 "Shows what is in the shade, with a tap to open and a cross to dismiss",
                 Const.KEY_NOTIFICATIONS, true);
+        addSwitch("Pop-ups on the monitor",
+                "A new notification that would pop up on the tablet shows above the tray on the "
+                        + "external screen for a few seconds, with its buttons and a reply box. "
+                        + "Takes effect when the launcher restarts",
+                Const.KEY_NOTIFY_POPUPS, true);
         addButton("Grant notification access", () -> {
             try {
                 // The launcher may not read notifications and cannot be granted permission to.

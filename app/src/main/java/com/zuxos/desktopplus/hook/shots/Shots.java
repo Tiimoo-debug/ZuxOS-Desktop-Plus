@@ -21,6 +21,7 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Su;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 import com.zuxos.desktopplus.hook.panel.NotifyPanel;
+import com.zuxos.desktopplus.hook.panel.NotifyPopup;
 import com.zuxos.desktopplus.hook.panel.QuickPanel;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarMenu;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarPreview;
@@ -80,7 +81,8 @@ public final class Shots {
         // the screen: their layers are skipped by the capture itself, then they close.
         List<SurfaceControl> leave = new ArrayList<>();
         for (View open : new View[]{QuickPanel.current(), NotifyPanel.current(),
-                TaskbarMenu.current(), TaskbarPreview.current(), ShotPreview.current(), ShotTargets.current()}) {
+                NotifyPopup.current(), TaskbarMenu.current(), TaskbarPreview.current(),
+                ShotPreview.current(), ShotTargets.current()}) {
             SurfaceControl layer = open != null ? ScreenBackdrop.surfaceOf(open) : null;
             if (layer != null) {
                 leave.add(layer);

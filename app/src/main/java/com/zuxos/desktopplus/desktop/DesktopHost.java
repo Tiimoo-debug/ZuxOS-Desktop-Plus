@@ -36,6 +36,7 @@ import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.home.OemBridge;
 import com.zuxos.desktopplus.hook.home.StockUnlockHooks;
 import com.zuxos.desktopplus.hook.home.SurfaceAttacher;
+import com.zuxos.desktopplus.hook.panel.NotifyPopup;
 import com.zuxos.desktopplus.hook.taskbar.AppMenu;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DesktopStore;
@@ -131,6 +132,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         mExternal = external;
         KeepAlive.start(activity);
         if (external) {
+            NotifyPopup.start(activity);
             // The desktop at the monitor's fastest refresh rate: everything drawn on it - the
             // folders, the drawer, the icons - moves at what the screen can show.
             try {
@@ -332,6 +334,16 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         }
     }
 
+    /** The monitor's display while our desktop is on it, else -1. */
+    public static synchronized int externalDisplay() {
+        for (DesktopHost host : ACTIVE.values()) {
+            if (host.mExternal) {
+                return host.mDisplayId;
+            }
+        }
+        return -1;
+    }
+
     /** The activity our desktop lives in on this display, or null. */
     public static synchronized Activity activityOn(int displayId) {
         for (DesktopHost host : ACTIVE.values()) {
@@ -359,6 +371,9 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
             return;
         }
         DisplayTimeline.note("desktop detached from display " + host.mDisplayId);
+        if (host.mExternal) {
+            NotifyPopup.dismissAll();
+        }
         try {
             host.mRepo.stopWatching();
             host.mWidgets.stop();

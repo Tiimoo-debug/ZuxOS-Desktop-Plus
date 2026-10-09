@@ -2,11 +2,16 @@ package com.zuxos.desktopplus.notify;
 
 import android.app.Notification;
 import android.app.PendingIntent;
+import android.app.RemoteInput;
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
@@ -14,6 +19,10 @@ import android.service.notification.StatusBarNotification;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Prefs;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * The window through which the launcher sees the notification list.
@@ -31,6 +40,12 @@ public final class NotifyProvider extends ContentProvider {
 
     public static final String AUTHORITY = "com.zuxos.desktopplus.notifications";
     public static final Uri URI = Uri.parse("content://" + AUTHORITY + "/active");
+    /**
+     * Told when a notification arrives that should pop up on the monitor. It carries no key and
+     * nothing else: an observer is not checked like a caller is, so what arrived is asked for
+     * through {@link #METHOD_POPS}.
+     */
+    public static final Uri POSTED = Uri.parse("content://" + AUTHORITY + "/posted");
     /** The picture chosen for the account bar on the desktop's app drawer. */
     public static final Uri AVATAR = Uri.parse("content://" + AUTHORITY + "/avatar");
     /** Where the module keeps that picture, in its own files. */
@@ -54,6 +69,34 @@ public final class NotifyProvider extends ContentProvider {
     public static final String METHOD_CLEAR_ALL = "clearAll";
     /** For the probe: what kinds of notification are up - never what they say. */
     public static final String METHOD_DESCRIBE = "describe";
+    /**
+     * The pop-ups that arrived after the time in the extras ({@link #EXTRA_SINCE}): a list of
+     * bundles under {@link #EXTRA_POPS}, oldest first, with the {@code POP_*} keys.
+     */
+    public static final String METHOD_POPS = "pops";
+    public static final String EXTRA_SINCE = "since";
+    public static final String EXTRA_POPS = "pops";
+
+    /** A pop-up's bundle. */
+    public static final String POP_KEY = "key";
+    public static final String POP_PACKAGE = "package";
+    public static final String POP_TITLE = "title";
+    public static final String POP_TEXT = "text";
+    public static final String POP_WHEN = "when";
+    /** The sender's picture (a contact, an album), small; absent when it has none. */
+    public static final String POP_PICTURE = "picture";
+    public static final String POP_INTENT = "pendingIntent";
+    public static final String POP_AUTO_CANCEL = "autoCancel";
+    /** Its buttons, as bundles with the {@code ACTION_*} keys. */
+    public static final String POP_ACTIONS = "actions";
+    public static final String ACTION_TITLE = "title";
+    public static final String ACTION_INTENT = "intent";
+    /** The typed answer it takes, when it is a reply: a {@link RemoteInput}. */
+    public static final String ACTION_INPUT = "input";
+
+    /** As many buttons as the tablet's own pop-ups show. */
+    private static final int MAX_ACTIONS = 3;
+    private static final int PICTURE_PX = 96;
 
     @Override
     public boolean onCreate() {
@@ -116,22 +159,125 @@ public final class NotifyProvider extends ContentProvider {
                 || (extras != null && extras.containsKey("android.mediaSession"))) {
             return;
         }
-        CharSequence title = extras != null ? extras.getCharSequence(Notification.EXTRA_TITLE) : null;
-        CharSequence text = extras != null ? extras.getCharSequence(Notification.EXTRA_TEXT) : null;
-        if (text == null && extras != null) {
-            text = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
-        }
-        if ((title == null || title.length() == 0) && (text == null || text.length() == 0)) {
+        String title = title(notification);
+        String text = text(notification);
+        if (title.isEmpty() && text.isEmpty()) {
             return;
         }
         cursor.addRow(new Object[]{
                 sbn.getKey(),
                 sbn.getPackageName(),
-                title == null ? "" : title.toString(),
-                text == null ? "" : text.toString(),
+                title,
+                text,
                 sbn.getPostTime(),
                 sbn.isClearable() ? 1 : 0,
         });
+    }
+
+    static String title(Notification notification) {
+        Bundle extras = notification.extras;
+        CharSequence title = extras != null ? extras.getCharSequence(Notification.EXTRA_TITLE) : null;
+        return title == null ? "" : title.toString();
+    }
+
+    static String text(Notification notification) {
+        Bundle extras = notification.extras;
+        CharSequence text = extras != null ? extras.getCharSequence(Notification.EXTRA_TEXT) : null;
+        if (text == null && extras != null) {
+            text = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        }
+        return text == null ? "" : text.toString();
+    }
+
+    /** The pop-ups after {@code since}, still up, oldest first. */
+    private Bundle pops(NotifyService service, long since) {
+        ArrayList<Bundle> out = new ArrayList<>();
+        List<String> keys = NotifyService.popsSince(since);
+        StatusBarNotification[] found = keys.isEmpty() ? null
+                : service.getActiveNotifications(keys.toArray(new String[0]));
+        if (found != null) {
+            List<StatusBarNotification> sorted = new ArrayList<>(Arrays.asList(found));
+            sorted.removeIf(sbn -> sbn == null || sbn.getNotification() == null);
+            sorted.sort((a, b) -> Long.compare(a.getPostTime(), b.getPostTime()));
+            for (StatusBarNotification sbn : sorted) {
+                try {
+                    out.add(pop(sbn));
+                } catch (Throwable t) {
+                    L.d("notifications: no pop-up for " + sbn.getPackageName() + " (" + t + ")");
+                }
+            }
+        }
+        Bundle result = new Bundle();
+        result.putParcelableArrayList(EXTRA_POPS, out);
+        return result;
+    }
+
+    /**
+     * One pop-up: what it says, what a tap opens, and its buttons. All of it parcels as it is,
+     * except the picture, which is drawn small here so a large photo cannot overflow the call.
+     */
+    private Bundle pop(StatusBarNotification sbn) {
+        Notification n = sbn.getNotification();
+        Bundle pop = new Bundle();
+        pop.putString(POP_KEY, sbn.getKey());
+        pop.putString(POP_PACKAGE, sbn.getPackageName());
+        pop.putString(POP_TITLE, title(n));
+        pop.putString(POP_TEXT, text(n));
+        pop.putLong(POP_WHEN, sbn.getPostTime());
+        pop.putParcelable(POP_INTENT, n.contentIntent);
+        pop.putBoolean(POP_AUTO_CANCEL, sbn.isClearable()
+                && (n.flags & Notification.FLAG_AUTO_CANCEL) != 0);
+        Bitmap picture = picture(n.getLargeIcon());
+        if (picture != null) {
+            pop.putParcelable(POP_PICTURE, picture);
+        }
+        ArrayList<Bundle> actions = new ArrayList<>();
+        if (n.actions != null) {
+            for (Notification.Action action : n.actions) {
+                if (actions.size() >= MAX_ACTIONS) {
+                    break;
+                }
+                if (action == null || action.actionIntent == null || action.title == null
+                        || action.isContextual()) {
+                    continue;
+                }
+                Bundle b = new Bundle();
+                b.putString(ACTION_TITLE, action.title.toString());
+                b.putParcelable(ACTION_INTENT, action.actionIntent);
+                RemoteInput[] inputs = action.getRemoteInputs();
+                if (inputs != null) {
+                    for (RemoteInput input : inputs) {
+                        if (input != null && input.getAllowFreeFormInput()) {
+                            b.putParcelable(ACTION_INPUT, input);
+                            break;
+                        }
+                    }
+                }
+                actions.add(b);
+            }
+        }
+        pop.putParcelableArrayList(POP_ACTIONS, actions);
+        return pop;
+    }
+
+    private Bitmap picture(Icon icon) {
+        Context ctx = getContext();
+        if (icon == null || ctx == null) {
+            return null;
+        }
+        try {
+            Drawable d = icon.loadDrawable(ctx);
+            if (d == null) {
+                return null;
+            }
+            Bitmap bitmap = Bitmap.createBitmap(PICTURE_PX, PICTURE_PX, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            d.setBounds(0, 0, PICTURE_PX, PICTURE_PX);
+            d.draw(canvas);
+            return bitmap;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**
@@ -160,6 +306,9 @@ public final class NotifyProvider extends ContentProvider {
                 Bundle result = new Bundle();
                 result.putString("summary", describe(service.getActiveNotifications()));
                 return result;
+            }
+            if (METHOD_POPS.equals(method)) {
+                return pops(service, extras != null ? extras.getLong(EXTRA_SINCE) : 0L);
             }
             if (key == null) {
                 return null;

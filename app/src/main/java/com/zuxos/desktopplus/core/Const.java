@@ -90,6 +90,8 @@ public final class Const {
     public static final String KEY_KEEP_ALIVE = "keep_alive";
     /** Show notifications in the quick panel, through the module's own listener. */
     public static final String KEY_NOTIFICATIONS = "notifications";
+    /** A new notification pops up on the monitor, above the tray. */
+    public static final String KEY_NOTIFY_POPUPS = "notify_popups";
     /** Allow shell commands as root for the things a launcher may not do itself. */
     public static final String KEY_USE_ROOT = "use_root";
 

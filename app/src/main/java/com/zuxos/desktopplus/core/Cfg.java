@@ -452,6 +452,11 @@ public final class Cfg {
         return getBool(Const.KEY_NOTIFICATIONS, true);
     }
 
+    /** A notification that pops up on the tablet pops up on the monitor too, above the tray. */
+    public static boolean notifyPopups() {
+        return getBool(Const.KEY_NOTIFY_POPUPS, true);
+    }
+
     public static boolean useRoot() {
         // On by default. Every caller tries the ordinary route first, so this only decides whether
         // the fallback is allowed to ask; turning it off costs the toggles and nothing else.

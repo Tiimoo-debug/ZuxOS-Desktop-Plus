@@ -20,6 +20,7 @@ import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.notify.NotifyProvider;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -244,7 +245,7 @@ public final class Notifications {
 
         line.setOnClickListener(v -> {
             NotifyPanel.dismiss();
-            open(ctx, note, displayId);
+            open(ctx, note.key, note.pkg, displayId);
         });
 
         if (note.clearable) {
@@ -256,7 +257,7 @@ public final class Notifications {
             clear.setBackground(Ui.ripple(ctx, 0x00000000, button / 2));
             clear.setContentDescription("Dismiss");
             clear.setOnClickListener(v -> {
-                call(ctx, METHOD_DISMISS, note.key, -1);
+                dismiss(ctx, note.key);
                 // Taken away here and now. Cancelling is a round trip through the system, so a
                 // rebuild at this moment would read the list before it has gone and draw the row
                 // straight back - which reads as a button that does nothing.
@@ -276,50 +277,89 @@ public final class Notifications {
      * the foreground app on this display, so from here it simply works, and it can put the
      * activity on the right display while it is at it.
      */
-    private static void open(Context ctx, Note note, int displayId) {
+    static void open(Context ctx, String key, String pkg, int displayId) {
         try {
-            Bundle result = ctx.getContentResolver().call(URI, METHOD_OPEN, note.key, null);
+            Bundle result = ctx.getContentResolver().call(URI, METHOD_OPEN, key, null);
             PendingIntent intent = result == null ? null
                     : result.getParcelable("pendingIntent");
             if (intent == null) {
-                L.i("notifications: " + note.pkg + " has nothing to open");
+                L.i("notifications: " + pkg + " has nothing to open");
                 return;
             }
-            Bundle options = null;
-            try {
-                ActivityOptions opts = ActivityOptions.makeBasic();
-                if (displayId >= 0) {
-                    opts.setLaunchDisplayId(displayId);
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    // The sender has to say the activity start is wanted, or the system drops it
-                    // on the floor without an error - which is exactly what "it does nothing for
-                    // some apps" looked like. Apps whose own task is already visible were
-                    // unaffected, which is why LSPosed's notification always worked.
-                    opts.setPendingIntentBackgroundActivityStartMode(
-                            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
-                }
-                options = opts.toBundle();
-            } catch (Throwable ignored) {
-                // Without options it still opens, just on the default display.
-            }
-            try {
-                intent.send(ctx, 0, null, null, null, null, options);
-            } catch (PendingIntent.CanceledException dead) {
+            if (!send(ctx, intent, null, displayId)) {
                 // The notification outlived what it pointed at.
-                L.i("notifications: " + note.pkg + "'s intent is dead, opening the app instead");
-                launch(ctx, note.pkg, displayId);
+                L.i("notifications: " + pkg + "'s intent is dead, opening the app instead");
+                launch(ctx, pkg, displayId);
                 return;
             }
-            L.i("notifications: sent " + note.pkg + "'s intent");
+            L.i("notifications: sent " + pkg + "'s intent");
             // Anything that goes wrong from here is tidying up, not opening: the app is already
             // on its way, and a second launch would land on top of what it just opened.
             if (result.getBoolean("autoCancel")) {
-                call(ctx, METHOD_DISMISS, note.key, -1);
+                dismiss(ctx, key);
             }
         } catch (Throwable t) {
-            L.e("notifications: could not open " + note.pkg, t);
+            L.e("notifications: could not open " + pkg, t);
         }
+    }
+
+    /**
+     * Sends one of a notification's intents from here, on {@code displayId}, with {@code fill}
+     * added to it (a typed reply) when not null. False when the app has let it go.
+     */
+    static boolean send(Context ctx, PendingIntent intent, android.content.Intent fill,
+            int displayId) {
+        Bundle options = null;
+        try {
+            ActivityOptions opts = ActivityOptions.makeBasic();
+            if (displayId >= 0) {
+                opts.setLaunchDisplayId(displayId);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // The sender has to say the activity start is wanted, or the system drops it
+                // on the floor without an error - which is exactly what "it does nothing for
+                // some apps" looked like. Apps whose own task is already visible were
+                // unaffected, which is why LSPosed's notification always worked.
+                opts.setPendingIntentBackgroundActivityStartMode(
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+            }
+            options = opts.toBundle();
+        } catch (Throwable ignored) {
+            // Without options it still opens, just on the default display.
+        }
+        try {
+            intent.send(ctx, 0, fill, null, null, null, options);
+            return true;
+        } catch (PendingIntent.CanceledException dead) {
+            return false;
+        }
+    }
+
+    static void dismiss(Context ctx, String key) {
+        call(ctx, METHOD_DISMISS, key, -1);
+    }
+
+    /**
+     * The pop-ups that arrived after {@code since} (a post time), oldest first; empty when
+     * there are none or the module's listener is off. A call into another process: not on the
+     * UI thread.
+     */
+    static List<Bundle> pops(Context ctx, long since) {
+        List<Bundle> out = new ArrayList<>();
+        try {
+            Bundle extras = new Bundle();
+            extras.putLong(NotifyProvider.EXTRA_SINCE, since);
+            Bundle result = ctx.getContentResolver().call(URI, NotifyProvider.METHOD_POPS, null,
+                    extras);
+            List<Bundle> pops = result == null ? null
+                    : result.getParcelableArrayList(NotifyProvider.EXTRA_POPS);
+            if (pops != null) {
+                out.addAll(pops);
+            }
+        } catch (Throwable t) {
+            L.d("notifications: pop-ups unreadable (" + t + ")");
+        }
+        return out;
     }
 
     /** Last resort: the app itself, which is what someone tapping it wanted to reach anyway. */
@@ -352,7 +392,7 @@ public final class Notifications {
         }
     }
 
-    private static Drawable appIcon(PackageManager pm, String pkg) {
+    static Drawable appIcon(PackageManager pm, String pkg) {
         if (pkg == null) {
             return TrayIcons.bell(false, Ui.COLOR_TEXT);
         }
@@ -370,7 +410,7 @@ public final class Notifications {
         return icon;
     }
 
-    private static String appName(PackageManager pm, String pkg) {
+    static String appName(PackageManager pm, String pkg) {
         if (pkg == null) {
             return "Notification";
         }

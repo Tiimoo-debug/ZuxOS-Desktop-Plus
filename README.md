@@ -82,6 +82,8 @@ mode along the way.
 - **Scrolling.** With more apps than room, the row scrolls and its ends fade.
 - **A status tray:** network, battery, temperatures and a clock, with a quick panel behind it for
   toggles, media and notifications.
+- **Notification pop-ups on the monitor** (optional): what would pop up on the tablet shows above
+  the tray for a few seconds, with its buttons and a reply box. Needs notification access.
 - **Glass taskbar** (optional). Under the glyphs it adds the lightest tint that keeps them at a
   3:1 contrast ratio over any app, so white icons don't vanish over a white app.
 
