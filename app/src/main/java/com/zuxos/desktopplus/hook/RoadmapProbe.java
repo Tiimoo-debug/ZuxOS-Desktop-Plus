@@ -53,14 +53,27 @@ public final class RoadmapProbe {
             "ZuiAdjCustomize", "ZuiAppPersistenceRanking", "ZuiExtendReclaim", "ZuiAutorunManager",
             "ZuiPerformancePolicy", "ZuiAutoRefreshRate", "ZuiAutoRefreshRateForVideo",
             "ZuiPcMode", "ZuiOVExtDisplay", "ZuiDpOut"};
+    /** What ZUI's window frames are styled with, by name: SystemUI's, then the system's. */
+    private static final String[] DECOR_DIMENS = {"freeform_decor_caption_height",
+            "ovc_wd_freeform_task_corner_radius_pad", "ov_window_decor_caption_bar_width_pad",
+            "freeform_decor_shadow_focused_thickness", "freeform_decor_shadow_unfocused_thickness",
+            "pcmode_task_corner_radius", "pcmode_dcv_caption_bar_height"};
+    private static final String[] DECOR_SYSTEM_DIMENS = {"ov_pc_mode_task_corner_radius",
+            "ov_freeform_task_corner_radius_pad", "ovc_dcv_caption_bar_height_4_pad"};
+    private static final String[] DECOR_COLORS = {"zuipcmode_apptitle_zui_light_color",
+            "zuipcmode_apptitle_zui_dark_color"};
+    private static final String[] DECOR_LAYOUTS = {"zui_desktop_window_decor",
+            "zui_desktop_window_decor_freeform", "pcmode_window_decor", "desktop_mode_app_header"};
 
     /**
      * Read through root, and only read. Where ZUI's and Lenovo's apps are (#10, #11, #18 - and
      * which files to copy for decompiling), the settings that speak of the taskbar, desktop mode,
      * windows and animation (#10, #11, #14), the window manager's feature flags, work mode's keys
-     * and whether Work Launcher is the home, running or showing a window (#19), the window
-     * manager's shell as SystemUI reports it (#10 window looks, #11 window animations), and the
-     * boot animation and the root solution a boot-animation module would sit on (#9).
+     * and whether Work Launcher is the home, running or showing a window (#19), SystemUI's windows
+     * on each display (#5), the resource overlays on SystemUI (#10, #16), Game Assistant's mode
+     * (#18), the window manager's shell as SystemUI reports it (#10 window looks, #11 window
+     * animations), and the boot animation and the root solution a boot-animation module would sit
+     * on (#9).
      */
     public static final String ROOT_READ = """
             echo
@@ -86,6 +99,13 @@ public final class RoadmapProbe {
             echo "Work Launcher pid: $(pidof com.zui.desktoplauncher)"
             dumpsys activity processes com.zui.desktoplauncher 2>/dev/null | grep -E 'ProcessRecord|oom:|curProcState|lastPss' | head -8
             dumpsys window windows 2>/dev/null | grep -E 'Window[{].*com[.]zui[.]desktoplauncher' | head -10
+            echo "--- SystemUI's windows on each display (#5 notifications on the monitor)"
+            dumpsys window windows 2>/dev/null | awk '/^  Window #/ { w = $0 } /mDisplayId=/ { if (w ~ /StatusBar|Notification|HeadsUp|Shade|systemui/) { match($0, /mDisplayId=[0-9]+/); print substr($0, RSTART, RLENGTH) " " w } }' | head -30
+            echo "--- resource overlays on SystemUI (#10 window looks, #16)"
+            cmd overlay list com.android.systemui 2>/dev/null | head -30
+            echo "fabricated overlays offered: $(cmd overlay help 2>/dev/null | grep -c fabricate)"
+            echo "--- Game Assistant's game mode (#18)"
+            echo "game_helper_game_mode = $(settings get global game_helper_game_mode 2>/dev/null)"
             echo "--- the window manager shell, as SystemUI reports it (#10, #11)"
             dumpsys activity service com.android.systemui/.SystemUIService WMShell 2>/dev/null | head -150
             echo "--- boot animation (#9)"
@@ -111,6 +131,7 @@ public final class RoadmapProbe {
         section(sb, DisplayTimeline::describe);
         section(sb, () -> tiles(ctx));
         section(sb, RoadmapProbe::zuiFeatures);
+        section(sb, () -> windowFrames(ctx));
         section(sb, () -> Notifications.describe(ctx));
         section(sb, RoadmapProbe::taskbars);
         return sb.toString();
@@ -188,6 +209,43 @@ public final class RoadmapProbe {
                 .getMethod("enabled", String.class);
         for (String name : ZUI_FEATURES) {
             sb.append(' ').append(name).append('=').append(enabled.invoke(null, name));
+        }
+        return sb.append('\n').toString();
+    }
+
+    /**
+     * What ZUI's window frames are made of on this firmware (#10, #16): SystemUI draws them from
+     * these layouts, sizes and colours, so a resource overlay could restyle them with no hook in
+     * SystemUI at all. Which layout a frame uses depends on the mode: work mode, the tablet's
+     * desktop mode, or Android's own header elsewhere.
+     */
+    private static String windowFrames(Context ctx) throws Exception {
+        StringBuilder sb = new StringBuilder("\nwindow frames as this firmware styles them"
+                + " (#10, #16)\n");
+        String pkg = "com.android.systemui";
+        android.content.res.Resources ui = ctx.getPackageManager()
+                .getResourcesForApplication(pkg);
+        for (String name : DECOR_DIMENS) {
+            int id = ui.getIdentifier(name, "dimen", pkg);
+            sb.append("  ").append(name).append(": ")
+                    .append(id == 0 ? "absent" : ui.getDimensionPixelSize(id) + " px").append('\n');
+        }
+        android.content.res.Resources system = android.content.res.Resources.getSystem();
+        for (String name : DECOR_SYSTEM_DIMENS) {
+            int id = system.getIdentifier(name, "dimen", "android");
+            sb.append("  android:").append(name).append(": ")
+                    .append(id == 0 ? "absent" : system.getDimensionPixelSize(id) + " px")
+                    .append('\n');
+        }
+        for (String name : DECOR_COLORS) {
+            int id = ui.getIdentifier(name, "color", pkg);
+            sb.append("  ").append(name).append(": ").append(id == 0 ? "absent"
+                    : String.format(Locale.ROOT, "#%08X", ui.getColor(id, null))).append('\n');
+        }
+        sb.append("  layouts:");
+        for (String name : DECOR_LAYOUTS) {
+            sb.append(' ').append(name).append(ui.getIdentifier(name, "layout", pkg) == 0
+                    ? " (absent)" : "");
         }
         return sb.append('\n').toString();
     }

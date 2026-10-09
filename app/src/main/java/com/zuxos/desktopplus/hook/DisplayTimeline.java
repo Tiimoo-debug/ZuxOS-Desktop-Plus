@@ -1,10 +1,14 @@
 package com.zuxos.desktopplus.hook;
 
+import android.content.ContentResolver;
 import android.content.Context;
+import android.database.ContentObserver;
 import android.hardware.display.DisplayManager;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.SparseArray;
 import android.view.Display;
 
@@ -18,12 +22,17 @@ import java.util.Locale;
  *
  * <p>Unplugging and replugging the monitor (roadmap #1) and a start animation as it connects (#8)
  * both depend on the order of events: the display appearing, changing state and mode, the
- * launcher's bars coming up, the desktop attaching. The system's own display events are heard,
- * not polled, and only a change in what is recorded is kept - a few dozen lines at most.
+ * launcher's bars coming up, the desktop attaching - and ZUI's own switches between its modes,
+ * the settings it flips as the monitor comes and goes. The system's own display events and those
+ * settings are heard, not polled, and only a change in what is recorded is kept - a few dozen
+ * lines at most.
  */
 public final class DisplayTimeline {
 
     private static final int MAX_LINES = 40;
+    /** ZUI's mode switches: the monitor's desktop, the tablet's desktop mode, work mode. */
+    private static final String[] MODE_KEYS = {"zui_dp_display_pc_mode", "zui_ov_desktop_mode",
+            "zui_pc_mode"};
     private static final ArrayDeque<String> LINES = new ArrayDeque<>();
     /** What each display looked like when last written down, so repeats are not. */
     private static final SparseArray<String> LAST = new SparseArray<>();
@@ -64,6 +73,28 @@ public final class DisplayTimeline {
         } catch (Throwable t) {
             L.d("display timeline: not listening (" + t + ")");
         }
+        try {
+            ContentResolver settings = ctx.getContentResolver();
+            ContentObserver modes = new ContentObserver(new Handler(Looper.getMainLooper())) {
+                @Override
+                public void onChange(boolean selfChange, Uri uri) {
+                    mode(settings, uri == null ? null : uri.getLastPathSegment());
+                }
+            };
+            for (String key : MODE_KEYS) {
+                mode(settings, key);
+                settings.registerContentObserver(Settings.System.getUriFor(key), false, modes);
+            }
+        } catch (Throwable t) {
+            L.d("display timeline: not listening to ZUI's modes (" + t + ")");
+        }
+    }
+
+    private static void mode(ContentResolver settings, String key) {
+        if (key == null) {
+            return;
+        }
+        add(key + " = " + Settings.System.getInt(settings, key, -1));
     }
 
     /** Something of ours that followed a display event: a bar came up, the desktop attached. */
