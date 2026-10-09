@@ -107,12 +107,12 @@ rows give only the date the owner confirmed.
 | 1.0.122 | Monitor taskbar losing its pins when no app is open |
 | 1.0.127-1.0.128 | ZUI's recent and suggested apps flashing on the taskbar after boot (came back once) |
 | 1.0.134 | Dark pill left on ZUI's home: the dock's background blur switched off |
-| 1.0.134 | Window "…" menu opening on the tablet instead of the monitor (caused by 1.0.133's full screen on the monitor; 1.0.135 keeps full screen off the monitor) |
 
 ### Open
 
 | Since | Bug | Next step |
 |-------|-----|-----------|
+| 2026-10-10 | Window "…" menu opening on the tablet instead of the monitor - first after 1.0.133's full screen on the monitor (1.0.135 kept full screen off it), reported again 2026-10-10 | The log sent was from a build between 1.0.131 and 1.0.143, not the 1.0.151 installed: the update had not loaded. ZUI's menu opens on the display SystemUI's own copy of the window says (`docs/ZUI-NOTES.md`), so SystemUI had the window on the tablet. From 1.0.156 the probe carries SystemUI's own log of each window's display (`OVC`). Next: the owner reboots on 1.0.156, reproduces it, takes a probe from the monitor's bar at once, and says how that window got to the monitor |
 | 2026-10-07 | Maximize on the monitor does not fill the screen like ZUI's own window menu does | ZUI's code now says what its button does there: the window's bounds become the display's stable bounds, aspect kept for apps that cannot resize (`docs/ZUI-NOTES.md`). Still needed: the owner maximises one window from ZUI's own window menu on the monitor and sends the log, so its `system trace:` lines show where the module's bounds differ; Maximize then uses ZUI's rule |
 
 ### Not caused by the module

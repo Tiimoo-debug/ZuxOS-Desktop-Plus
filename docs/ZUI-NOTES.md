@@ -136,6 +136,12 @@ vendor power HAL's, not in these jars.
   An app that cannot resize keeps its aspect ratio, as large as fits, centred.
 - The launcher's desktop interface (`IDesktopMode`) has no maximize call, so the module cannot
   ask the shell to do it; it has to set the same bounds itself.
+- **The window menu ("…")** is `OvHandleMenu`. It opens on the display of the window
+  decoration's own copy of the task (`mTaskInfo.getDisplayId()`), not where the task is now. A
+  menu on the wrong screen means SystemUI's copy had the wrong display.
+- SystemUI logs every decoration relayout with that display, always on: tag `OVC`,
+  "WindowDecoration pre_relayout taskId:… displayId:…" (`android.util.OvcLog.i`). The probe reads
+  those lines.
 
 ## The module's hooks against ZUX Home 18.2.0.0375
 
