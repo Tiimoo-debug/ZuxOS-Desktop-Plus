@@ -54,8 +54,9 @@ public final class PowerProbe {
      * <p>First what is busy - the device's busiest processes and the GPU's load. Then the policy
      * the device runs: each CPU cluster's governor and limits, the GPU's, which thermal limits
      * are holding something back right now, the vendor's thermal and perf configs, ZUI's own
-     * (its performance service's heat, cleaning and refresh-rate lists) and the apps force-stopped
-     * lately, the properties, and Android's own thermal service. Last, whether the kernel offers any control
+     * (its performance service's heat, cleaning and refresh-rate lists, the system's memory
+     * cleaner and its kill whitelists) and the apps force-stopped or cleaned lately, the
+     * properties, and Android's own thermal service. Last, whether the kernel offers any control
      * of voltage at all - the question behind undervolting, answered by looking, never by trying.
      * Missing files print nothing; the script always ends well, so a partial answer still comes.
      */
@@ -96,8 +97,16 @@ public final class PowerProbe {
               echo "== $f"
               grep -v -E '^[[:space:]]*$|^[[:space:]]*<!--' /system/etc/$f.xml 2>/dev/null | head -40
             done
-            echo "--- apps force-stopped lately (#12)"
-            logcat -d -b main,system 2>/dev/null | grep -E 'Force stopping|force stop \\[' | tail -20
+            echo "--- the system's memory cleaner and kill whitelists (#12)"
+            for f in ZuiMemCleanerConfig adj_customize_config zui_app_ranking_config; do
+              echo "== $f"
+              grep -v -E '^[[:space:]]*$|^[[:space:]]*<!--' /system/etc/$f.xml 2>/dev/null | head -60
+            done
+            for f in zui_zmc_whitelist zui_lmkd_whitelist; do
+              echo "== $f: $(tr '\\n' ' ' < /data/system/zui/$f 2>/dev/null)"
+            done
+            echo "--- apps force-stopped or cleaned lately (#12)"
+            logcat -d -b main,system 2>/dev/null | grep -E 'Force stopping|force stop \\[|ZuiMemoryCleaner\\[' | tail -20
             echo "--- properties"
             getprop | grep -i -E 'perf|therm|power|game' | head -40
             echo "--- voltage controls (read only)"

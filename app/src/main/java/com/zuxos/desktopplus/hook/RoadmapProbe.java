@@ -48,6 +48,11 @@ public final class RoadmapProbe {
     private static final int MAX_TILES = 40;
     private static final int MAX_TEXTS = 15;
     private static final int MAX_NAMES = 60;
+    /** ZUI's own system features the roadmap depends on, by the names its code checks. */
+    private static final String[] ZUI_FEATURES = {"ZuiMemoryAcceleration", "ZuiLmkWhiteList",
+            "ZuiAdjCustomize", "ZuiAppPersistenceRanking", "ZuiExtendReclaim", "ZuiAutorunManager",
+            "ZuiPerformancePolicy", "ZuiAutoRefreshRate", "ZuiAutoRefreshRateForVideo",
+            "ZuiPcMode", "ZuiOVExtDisplay", "ZuiDpOut"};
 
     /**
      * Read through root, and only read. Where ZUI's and Lenovo's apps are (#10, #11, #18 - and
@@ -76,7 +81,7 @@ public final class RoadmapProbe {
             for ns in secure system global; do
               settings list $ns 2>/dev/null | grep -i -E 'pc_?mode|work_?mode' | sed "s/^/$ns: /"
             done | head -30
-            getprop | grep -i -E 'pc_?mode' | head -10
+            getprop | grep -i -E 'pc_?mode|ovdesktop' | head -10
             echo "home: $(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -1)"
             echo "Work Launcher pid: $(pidof com.zui.desktoplauncher)"
             dumpsys activity processes com.zui.desktoplauncher 2>/dev/null | grep -E 'ProcessRecord|oom:|curProcState|lastPss' | head -8
@@ -105,6 +110,7 @@ public final class RoadmapProbe {
         section(sb, Health::describe);
         section(sb, DisplayTimeline::describe);
         section(sb, () -> tiles(ctx));
+        section(sb, RoadmapProbe::zuiFeatures);
         section(sb, () -> Notifications.describe(ctx));
         section(sb, RoadmapProbe::taskbars);
         return sb.toString();
@@ -168,6 +174,22 @@ public final class RoadmapProbe {
                     .append(services.get(i).serviceInfo.name).append('\n');
         }
         return sb.toString();
+    }
+
+    /**
+     * Which of ZUI's own system features this firmware has switched on: its memory cleaner and
+     * kill whitelists (#12), its touch boosts named for the refresh rate (#17, #18), PC mode and
+     * the monitor's desktop (#19). The system's code asks the same question before doing any of
+     * it.
+     */
+    private static String zuiFeatures() throws Exception {
+        StringBuilder sb = new StringBuilder("\nZUI system features (#12, #17, #18, #19)\n ");
+        Method enabled = Class.forName("com.lgsi.config.LgsiFeatures")
+                .getMethod("enabled", String.class);
+        for (String name : ZUI_FEATURES) {
+            sb.append(' ').append(name).append('=').append(enabled.invoke(null, name));
+        }
+        return sb.append('\n').toString();
     }
 
     /**
