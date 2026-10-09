@@ -46,8 +46,11 @@ public final class PowerProbe {
     private static final long SAMPLE_MS = 2000L;
     /** Threads listed, busiest first. */
     private static final int TOP_THREADS = 10;
-    /** Longest the probe waits for root before it is written without it. */
-    private static final long ROOT_WAIT_MS = 15_000L;
+    /**
+     * Longest the probe waits for root before it is written without it: longer than the root
+     * shell's own limit, so a slow read on a hot, throttled device still lands in the probe.
+     */
+    private static final long ROOT_WAIT_MS = 25_000L;
     /**
      * Read through root, and only read: nothing here writes, lowers or tests anything.
      *
@@ -56,9 +59,11 @@ public final class PowerProbe {
      * are holding something back right now, the vendor's thermal and perf configs, ZUI's own
      * (its performance service's heat, cleaning and refresh-rate lists, the system's memory
      * cleaner and its kill whitelists) and the apps force-stopped or cleaned lately, the
-     * properties, and Android's own thermal service. Last, whether the kernel offers any control
-     * of voltage at all - the question behind undervolting, answered by looking, never by trying.
-     * Missing files print nothing; the script always ends well, so a partial answer still comes.
+     * properties, whether the kernel offers any control of voltage at all - the question behind
+     * undervolting, answered by looking, never by trying - and Android's own thermal service.
+     * Last, the clusters again, seconds later, and the apps holding a root shell: a minimum still
+     * at the top is held there, and those are who can hold it. Missing files print nothing; the
+     * script always ends well, so a partial answer still comes.
      */
     private static final String ROOT_READ = """
             top -b -n 1 -d 2 -m 12 2>&1
@@ -117,6 +122,15 @@ public final class PowerProbe {
             echo "debugfs mounted: $(grep -c debugfs /proc/mounts); voltage entries in it: $(ls /sys/kernel/debug 2>/dev/null | grep -i -E 'regulator|cpr' | tr '\\n' ' ')"
             echo "--- android thermal service"
             dumpsys thermalservice 2>/dev/null | head -80
+            echo "--- cpu clusters again, seconds later (a minimum that stays at the top is held there)"
+            for p in /sys/devices/system/cpu/cpufreq/policy*; do
+              echo "${p##*/}: now $(cat $p/scaling_cur_freq 2>/dev/null), min $(cat $p/scaling_min_freq 2>/dev/null), max $(cat $p/scaling_max_freq 2>/dev/null)"
+            done
+            echo "--- apps holding a root shell (they can set clocks)"
+            for s in $(pidof su); do
+              pp=$(cut -d' ' -f4 /proc/$s/stat 2>/dev/null)
+              echo "su $s for $(tr '\0' ' ' < /proc/$pp/cmdline 2>/dev/null)"
+            done | sort -u -k4 | head -20
             true
             """;
 

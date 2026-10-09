@@ -115,9 +115,8 @@ public final class TaskbarGlass {
      * Stops the taskbar painting its own bar.
      *
      * <p>Hooked on {@code TaskbarDragLayer} itself rather than on {@code View}, so every hook here
-     * runs only for the taskbar. This firmware does not declare {@code onDraw} at all, so that
-     * hook matches nothing and costs nothing; {@link #installDispatchDraw} is the one that does
-     * the work here.
+     * runs only for the taskbar. This firmware's drag layer has no {@code onDraw} of its own - it
+     * paints through its background renderer - so {@link #installDispatchDraw} does the work.
      */
     static void install(ClassLoader loader) {
         if (sInstalled) {
@@ -134,18 +133,6 @@ public final class TaskbarGlass {
                 L.w("taskbar glass: TaskbarDragLayer not found");
                 return;
             }
-            int hooked = XposedBridge.hookAllMethods(cls, "onDraw", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    // Asked per drag layer, not from a global flag: with a second display there
-                    // are two taskbars, and one of them being glazed must not blank the other.
-                    if (isGlazed(param.thisObject)) {
-                        param.setResult(null);
-                    }
-                }
-            }).size();
-            Health.hooked("taskbar: glass (ZUI's own drawing off)", hooked);
-            L.i("taskbar glass: onDraw suppression installed x" + hooked);
             L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
                     + drawMethodsOf(cls));
             installDispatchDraw(cls, loader);

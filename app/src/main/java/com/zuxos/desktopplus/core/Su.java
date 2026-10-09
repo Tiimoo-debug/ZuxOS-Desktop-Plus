@@ -303,7 +303,7 @@ public final class Su {
             }
             String text = output.get();
             LAST_OUTPUT.set(text);
-            L.i("su: ran '" + command + "' -> exit " + code
+            L.i("su: ran '" + firstLine(command) + "' -> exit " + code
                     + (text.isEmpty() ? "" : " (" + head(text) + ")"));
             return ok ? Step.OK : Step.FAILED;
         } catch (InterruptedException interrupted) {
@@ -312,11 +312,21 @@ public final class Su {
             return Step.FAILED;
         } catch (Throwable t) {
             // This command went wrong, not root itself. Nothing is latched here.
-            L.d("su: '" + command + "' failed (" + t + ")");
+            L.d("su: '" + firstLine(command) + "' failed (" + t + ")");
             return Step.FAILED;
         } finally {
             process.destroy();
         }
+    }
+
+    /** A script's first line and how long it is: the probe's read is pages, the log one line. */
+    private static String firstLine(String command) {
+        int end = command.indexOf('\n');
+        if (end < 0) {
+            return command;
+        }
+        int lines = command.split("\n", -1).length;
+        return command.substring(0, end) + " ... (" + lines + " lines)";
     }
 
     /** As much of the output as belongs in a log line. */
