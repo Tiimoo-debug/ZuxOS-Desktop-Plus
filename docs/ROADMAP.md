@@ -135,6 +135,14 @@ rows give only the date the owner confirmed.
 Risk is about where the code has to run: our launcher views are low risk; the system interface
 (SystemUI) and the system server can take the whole UI down with a bug.
 
+**Every probe already gathers what these rows need** (`hook/RoadmapProbe`, since 1.0.146), each
+section named by its row: versions and which hooks found their targets (#13), a timeline of the
+screens and our bars (#1, #8), the quick-settings tiles (#3), what kinds of notification are up
+(#5, never their text), each taskbar window's place, insets, paint, keys and fonts (#14, #15,
+#16), and through root ZUI's packages and their files, the settings and flags about the taskbar,
+desktop mode and window animation, the window manager shell's own report (#10, #11), and the
+boot animation and root setup (#9). Read the probe before starting a row.
+
 | # | Idea (added 2026-10-04) | How | Risk | Status |
 |---|------|-----|------|--------|
 | 1 | **Seamless unplug and replug** of the external display | In the launcher: taskbar rebuild, the desktop, glass sessions, hooks re-attaching. Start from an LSPosed log of one unplug + replug. | Low-medium | Planned |

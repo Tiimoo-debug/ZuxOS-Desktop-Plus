@@ -3,6 +3,7 @@ package com.zuxos.desktopplus.hook.taskbar;
 import android.view.ViewGroup;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 
@@ -93,6 +94,7 @@ public final class TaskbarRebind {
             }
         }
         sAppsAtSource = hooked > 0;
+        Health.hooked("taskbar: ZUI's row built without apps", hooked);
         L.i("taskbar rebind: ZUI's own apps kept off the bar where it builds them x" + hooked);
         blockRecents(loader);
         listenToTasks(loader);
@@ -245,6 +247,7 @@ public final class TaskbarRebind {
                             }
                         }
                     }).size();
+            Health.hooked("taskbar: ZUI's recent apps held back", hooked);
             L.i("taskbar rebind: holding back the launcher's recent apps x" + hooked);
         } catch (Throwable t) {
             L.d("taskbar rebind: could not hook bindRecentUsedApps (" + t + ")");

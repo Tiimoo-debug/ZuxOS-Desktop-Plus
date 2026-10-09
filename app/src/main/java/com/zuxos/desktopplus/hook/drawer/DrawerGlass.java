@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
@@ -342,6 +343,7 @@ public final class DrawerGlass {
                             }
                         }
                     }).size();
+            Health.hooked("drawer: glass (surface blurs)", hooked);
             L.d("drawer glass: watching surface blurs x" + hooked);
         } catch (Throwable t) {
             L.d("drawer glass: could not watch surface blurs (" + t + ")");

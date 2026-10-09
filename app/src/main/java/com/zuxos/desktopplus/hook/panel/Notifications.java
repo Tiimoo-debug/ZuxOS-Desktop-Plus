@@ -41,6 +41,7 @@ public final class Notifications {
     private static final String METHOD_OPEN = "open";
     private static final String METHOD_DISMISS = "dismiss";
     private static final String METHOD_CLEAR_ALL = "clearAll";
+    private static final String METHOD_DESCRIBE = "describe";
 
     /** The last thing said about the shade, so the same line is not repeated every open. */
     private static String sLastReport;
@@ -385,5 +386,19 @@ public final class Notifications {
         }
         NAMES.put(pkg, name);
         return name;
+    }
+
+    /** What kinds of notification are up, never what they say, for the probe. */
+    public static String describe(Context ctx) {
+        StringBuilder sb = new StringBuilder("\nnotifications (#5 pop-ups and live notifications)\n");
+        try {
+            Bundle result = ctx.getContentResolver().call(URI, METHOD_DESCRIBE, null, null);
+            String summary = result != null ? result.getString("summary") : null;
+            sb.append(summary != null ? summary
+                    : "  no answer: the module's notification access is off or not connected\n");
+        } catch (Throwable t) {
+            sb.append("  unreadable (").append(t).append(")\n");
+        }
+        return sb.toString();
     }
 }

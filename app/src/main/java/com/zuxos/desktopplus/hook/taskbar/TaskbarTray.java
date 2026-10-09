@@ -14,12 +14,14 @@ import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Thermals;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.hook.DisplayTimeline;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.drawer.DrawerAccountBar;
 import com.zuxos.desktopplus.hook.drawer.DrawerGlass;
@@ -105,6 +107,7 @@ public final class TaskbarTray {
                     }
                 }
             }).size();
+            Health.hooked("taskbar: windows seen (tray, row, start button)", hooked);
             L.i("tray: watching for the taskbar window x" + hooked);
         } catch (Throwable t) {
             L.e("tray: could not watch for windows", t);
@@ -119,7 +122,11 @@ public final class TaskbarTray {
             return;
         }
         // The window's children are not laid out yet; the pieces go in once they are.
-        root.post(() -> applyAll(root));
+        root.post(() -> {
+            DisplayTimeline.note("taskbar window up on display " + displayIdOf(root) + " ("
+                    + TaskbarScope.label(root) + ")");
+            applyAll(root);
+        });
     }
 
     /** Puts each piece in or takes it out, following its setting. */

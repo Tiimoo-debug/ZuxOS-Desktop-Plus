@@ -5,6 +5,7 @@ import android.view.ViewGroup;
 import android.widget.ImageButton;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 
 import java.lang.reflect.Method;
@@ -50,6 +51,7 @@ public final class HotseatButton {
                     // One method less; the layout pass alone is enough.
                 }
             }
+            Health.hooked("zux home: dock pill and drawer button", hooked);
             L.i("zux home: watching its dock x" + hooked);
             installDrawSkip(hotseat);
             installArrowOff(loader);
@@ -121,6 +123,7 @@ public final class HotseatButton {
                 int id = res.getIdentifier(name, "drawable", pkg);
                 if (id != 0) {
                     sArrowId = id;
+                    Health.hooked("zux home: swipe-up arrow never loaded", 1);
                     L.i("zux home: the swipe-up arrow's image (" + name + ") is never loaded");
                     return;
                 }
@@ -142,13 +145,16 @@ public final class HotseatButton {
                     }
                     if (name.contains("drag_handle_indicator")) {
                         sArrowId = base | i;
+                        Health.hooked("zux home: swipe-up arrow never loaded", 1);
                         L.i("zux home: the swipe-up arrow's image (" + name + ") is never loaded");
                         return;
                     }
                 }
             }
+            Health.hooked("zux home: swipe-up arrow never loaded", 0);
             L.i("zux home: no swipe-up arrow image found by name - left as ZUI shows it");
         } catch (Throwable t) {
+            Health.hooked("zux home: swipe-up arrow never loaded", 0);
             L.i("zux home: the swipe-up arrow's image not looked up (" + t + ")");
         }
     }
@@ -185,6 +191,7 @@ public final class HotseatButton {
                                 silence(blur);
                                 if (!sBlurSaid) {
                                     sBlurSaid = true;
+                                    Health.hooked("zux home: dock blur off", 1);
                                     L.i("zux home: the dock's background blur switched off");
                                 }
                             }
@@ -204,6 +211,7 @@ public final class HotseatButton {
                 XposedBridge.hookMethod(blur.getDeclaredMethod(name, int.class), clamp);
             }
         } catch (Throwable t) {
+            Health.hooked("zux home: dock blur off", 0);
             L.i("zux home: the dock's background blur left as ZUI shows it (" + t + ")");
         }
     }

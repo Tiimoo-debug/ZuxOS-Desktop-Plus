@@ -7,6 +7,7 @@ import android.os.UserManager;
 
 import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.desktop.DesktopHost;
@@ -49,6 +50,7 @@ public final class PinRequestHooks {
                     onAccepted(param.thisObject);
                 }
             }).size();
+            Health.hooked("home: add-to-home-screen requests", hooks);
             L.i("pinned shortcuts: watching PinItemRequest.accept x" + hooks);
         } catch (Throwable t) {
             L.e("pinned shortcuts: could not watch pin requests", t);

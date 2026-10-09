@@ -13,6 +13,7 @@ import android.view.View;
 import com.zuxos.desktopplus.core.AppCtx;
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
@@ -113,6 +114,8 @@ public final class NativeDrawerHooks {
                 }
             }
         });
+        Health.hooked("drawer: our order and folders (updateAdapterItems)", hooked);
+        Health.hooked("drawer: app list updates (onAppsUpdated)", hookedUpdates);
         L.i("native drawer: " + listCls.getName() + " - updateAdapterItems x" + hooked
                 + ", onAppsUpdated x" + hookedUpdates);
         if (hooked == 0 && hookedUpdates == 0) {
@@ -154,6 +157,7 @@ public final class NativeDrawerHooks {
                             }
                         }
                     }).size();
+            Health.hooked("drawer: taps on folders", clicks);
             L.i("native drawer: click interception installed x" + clicks);
         } catch (Throwable t) {
             L.e("native drawer: could not intercept clicks", t);
@@ -176,6 +180,7 @@ public final class NativeDrawerHooks {
                             }
                         }
                     }).size();
+            Health.hooked("drawer: holds on folders", holds);
             L.i("native drawer: folder long-press interception installed x" + holds);
         } catch (Throwable t) {
             L.e("native drawer: could not intercept long presses", t);

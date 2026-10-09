@@ -15,6 +15,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Tone;
@@ -143,6 +144,7 @@ public final class TaskbarGlass {
                     }
                 }
             }).size();
+            Health.hooked("taskbar: glass (ZUI's own drawing off)", hooked);
             L.i("taskbar glass: onDraw suppression installed x" + hooked);
             L.i("taskbar glass: drawing methods on " + cls.getSimpleName() + ": "
                     + drawMethodsOf(cls));
@@ -220,6 +222,7 @@ public final class TaskbarGlass {
                     }
                 }
             }).size();
+            Health.hooked("taskbar: glass (ZUI's background off)", hooked);
             L.i("taskbar glass: background renderer suppressed x" + hooked
                     + " (" + renderer.getSimpleName() + ")");
             if (hooked == 0) {

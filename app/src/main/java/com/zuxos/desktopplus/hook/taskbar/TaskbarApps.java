@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Su;
@@ -95,6 +96,7 @@ public final class TaskbarApps {
                     remember(param.thisObject);
                 }
             }).size();
+            Health.hooked("taskbar: recent-apps controller held", hooked);
             L.i("taskbar apps: holding the recent-apps controller x" + hooked
                     + " (its switches are left alone - they crash this firmware)");
         } catch (Throwable t) {
@@ -211,6 +213,7 @@ public final class TaskbarApps {
                 // Not on this build; the other name may be.
             }
         }
+        Health.hooked("taskbar: icon menu", hooked);
         L.i("taskbar apps: icon menu installed x" + hooked);
         if (hooked == 0) {
             L.w("taskbar apps: nothing to hook for the icon menu - holding an icon will do "

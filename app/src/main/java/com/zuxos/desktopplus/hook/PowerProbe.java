@@ -141,8 +141,11 @@ public final class PowerProbe {
     /**
      * The part that takes time - this process's threads over two seconds, the temperatures,
      * and the device through root - handed to {@code onDone} on the main thread.
+     *
+     * @param moreRoot further read-only shell lines run in the same root request, after this
+     *                 probe's own: root answers one request at a time
      */
-    public static void sample(Context ctx, Consumer<String> onDone) {
+    public static void sample(Context ctx, String moreRoot, Consumer<String> onDone) {
         StringBuilder sb = new StringBuilder();
         AtomicBoolean done = new AtomicBoolean();
         // Once, whichever way it ends: root answering, root timing out, or something failing.
@@ -200,7 +203,7 @@ public final class PowerProbe {
                         }
                     }
                     finish.run();
-                }, ROOT_READ);
+                }, ROOT_READ + "\n" + moreRoot);
             } catch (Throwable t) {
                 synchronized (sb) {
                     sb.append("\n  (could not sample: ").append(t).append(")\n");

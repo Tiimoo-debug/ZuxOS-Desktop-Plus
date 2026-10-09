@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.view.ViewGroup;
 
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.hook.Windows;
@@ -56,6 +57,7 @@ public final class TaskbarDiag {
                 // Not on this build.
             }
         }
+        Health.hooked("diagnostics: taskbar layout factory", hooked);
         L.i("taskbar diag: layout factory watched x" + hooked);
         installTrace(loader);
     }
@@ -89,6 +91,7 @@ public final class TaskbarDiag {
                     // One method less.
                 }
             }
+            Health.hooked("diagnostics: nav controller", hooked);
             L.i("taskbar diag: nav controller traced x" + hooked);
         } catch (Throwable t) {
             L.i("taskbar diag: no nav controller to trace (" + t + ")");

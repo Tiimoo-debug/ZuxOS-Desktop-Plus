@@ -52,6 +52,8 @@ public final class NotifyProvider extends ContentProvider {
     public static final String METHOD_OPEN = "open";
     public static final String METHOD_DISMISS = "dismiss";
     public static final String METHOD_CLEAR_ALL = "clearAll";
+    /** For the probe: what kinds of notification are up - never what they say. */
+    public static final String METHOD_DESCRIBE = "describe";
 
     @Override
     public boolean onCreate() {
@@ -154,6 +156,11 @@ public final class NotifyProvider extends ContentProvider {
                 service.cancelAllNotifications();
                 return null;
             }
+            if (METHOD_DESCRIBE.equals(method)) {
+                Bundle result = new Bundle();
+                result.putString("summary", describe(service.getActiveNotifications()));
+                return result;
+            }
             if (key == null) {
                 return null;
             }
@@ -182,6 +189,47 @@ public final class NotifyProvider extends ContentProvider {
             L.d("notifications: " + method + " failed (" + t + ")");
         }
         return null;
+    }
+
+    /**
+     * One line per notification up now, for the probe and the live notifications to come
+     * (roadmap #5): its app, category and channel, whether it is ongoing, a foreground service,
+     * promoted to a live update or asking to be, its style and whether it shows progress. Never
+     * its title or text.
+     */
+    private static String describe(StatusBarNotification[] active) {
+        StringBuilder sb = new StringBuilder();
+        if (active == null || active.length == 0) {
+            return "  none up\n";
+        }
+        for (StatusBarNotification sbn : active) {
+            Notification n = sbn.getNotification();
+            if (n == null) {
+                continue;
+            }
+            Bundle extras = n.extras != null ? n.extras : new Bundle();
+            String template = extras.getString(Notification.EXTRA_TEMPLATE);
+            sb.append("  ").append(sbn.getPackageName())
+                    .append(": category ").append(n.category)
+                    .append(", channel ").append(n.getChannelId())
+                    .append((n.flags & Notification.FLAG_ONGOING_EVENT) != 0 ? ", ongoing" : "")
+                    .append((n.flags & Notification.FLAG_FOREGROUND_SERVICE) != 0
+                            ? ", foreground service" : "")
+                    // FLAG_PROMOTED_ONGOING, Android 16's live updates.
+                    .append((n.flags & 0x40000) != 0 ? ", promoted (live update)" : "")
+                    .append(extras.getBoolean("android.requestPromotedOngoing")
+                            ? ", asks to be promoted" : "")
+                    .append(template != null
+                            ? ", style " + template.substring(template.lastIndexOf('$') + 1) : "")
+                    .append(extras.getInt(Notification.EXTRA_PROGRESS_MAX) > 0
+                            || extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE)
+                            ? ", progress" : "")
+                    .append(extras.containsKey("android.shortCriticalText") ? ", chip text" : "")
+                    .append((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0 ? ", group summary"
+                            : "")
+                    .append('\n');
+        }
+        return sb.toString();
     }
 
     /** Only the launcher this module is set to hook, and the module itself. */

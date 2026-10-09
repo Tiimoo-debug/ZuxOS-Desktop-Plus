@@ -24,7 +24,7 @@ import java.util.Set;
  * gesture handle - so ours follow them there ({@link TaskbarFollow}). Each bar's mode is named
  * in the log once, so a log says which of the three it is about.
  */
-final class TaskbarScope {
+public final class TaskbarScope {
 
     private static final Set<String> SAID = new HashSet<>();
 
@@ -45,7 +45,7 @@ final class TaskbarScope {
     }
 
     /** A bar's name for the log: its mode, display and the class it is made from. */
-    static String label(View view) {
+    public static String label(View view) {
         return mode(view) + " (display " + TaskbarTray.displayIdOf(view) + "/"
                 + className(view.getContext()) + ")";
     }

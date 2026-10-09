@@ -63,8 +63,9 @@ public final class Probe {
      * hand there, so it is the bars, the tasks, the windows and what the bar has logged - the
      * part of the probe that is about the taskbar - written to the same file.
      *
-     * <p>With what the screens and the device are spending ({@link PowerProbe}): the file is
-     * written a couple of seconds after the tap, once the CPU has been watched.
+     * <p>With what the screens and the device are spending ({@link PowerProbe}) and what each
+     * planned feature needs ({@link RoadmapProbe}): the file is written a couple of seconds after
+     * the tap, once the CPU has been watched.
      */
     public static void dumpFromBar(android.content.Context ctx, int displayId) {
         try {
@@ -93,10 +94,10 @@ public final class Probe {
             }
             sb.append(describeAllWindows());
             // Into the log as well as the file: it is what a hot device is asked about.
-            String powerNow = PowerProbe.now(ctx);
+            String powerNow = PowerProbe.now(ctx) + RoadmapProbe.now(ctx);
             sb.append(powerNow);
             TaskbarMenu.toast(ctx, "Probe: measuring for a few seconds");
-            PowerProbe.sample(ctx, power -> {
+            PowerProbe.sample(ctx, RoadmapProbe.ROOT_READ, power -> {
                 try {
                     String text = sb.append(power).toString();
                     String out = Storage.export(ctx, Const.FILE_PROBE, text);

@@ -6,6 +6,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 
@@ -121,6 +122,7 @@ final class NavKeysHold {
         } catch (Throwable t) {
             L.d("nav keys hold: no nav controller (" + t + ")");
         }
+        Health.hooked("tablet: nav keys kept at the right", n);
         L.i("nav keys hold: ZUI's home layout of the keys " + (n > 0 ? "held at its call x" + n
                 : "has no call of its own on this build; held before each frame instead"));
     }

@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
+import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.MenuRows;
 import com.zuxos.desktopplus.core.Reflect;
@@ -105,6 +106,7 @@ public final class TaskbarMenu {
             // these two sees all of it; the de-duplication in onDown makes the overlap harmless.
             int hooked = hookUpTo(cls, "onInterceptTouchEvent", watcher)
                     + hookUpTo(cls, "onTouchEvent", watcher);
+            Health.hooked("taskbar: menu on hold", hooked);
             L.i("taskbar menu: watching taskbar touches x" + hooked);
             if (hooked == 0) {
                 L.w("taskbar menu: no touch method on this build - hold and right-click will "
