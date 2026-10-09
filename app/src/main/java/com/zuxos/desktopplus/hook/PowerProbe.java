@@ -129,7 +129,7 @@ public final class PowerProbe {
             echo "--- apps holding a root shell (they can set clocks)"
             for s in $(pidof su); do
               pp=$(cut -d' ' -f4 /proc/$s/stat 2>/dev/null)
-              echo "su $s for $(tr '\0' ' ' < /proc/$pp/cmdline 2>/dev/null)"
+              echo "su $s for $(tr '\\0' ' ' < /proc/$pp/cmdline 2>/dev/null)"
             done | sort -u -k4 | head -20
             true
             """;

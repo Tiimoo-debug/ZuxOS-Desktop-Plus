@@ -133,10 +133,12 @@ public final class Su {
         if (!Cfg.useRoot()) {
             L.i("su: the root setting is off, not asking");
             finish(onDone, Outcome.UNAVAILABLE);
+            finish(onRead, Outcome.UNAVAILABLE, "");
             return;
         }
         if (Boolean.FALSE.equals(sAvailable)) {
             finish(onDone, Outcome.UNAVAILABLE);
+            finish(onRead, Outcome.UNAVAILABLE, "");
             return;
         }
         if (SystemClock.elapsedRealtime() < sQuietUntil) {
@@ -146,6 +148,7 @@ public final class Su {
             // wait rather than throwing the user into a settings screen.
             L.i("su: the last request timed out, not asking again yet");
             finish(onDone, Outcome.BUSY);
+            finish(onRead, Outcome.BUSY, "");
             return;
         }
         if (!BUSY.compareAndSet(false, true)) {
@@ -153,6 +156,7 @@ public final class Su {
             // dialog turns into minutes of held root for every app on the device.
             L.i("su: a request is already in flight, dropping this one");
             finish(onDone, Outcome.BUSY);
+            finish(onRead, Outcome.BUSY, "");
             return;
         }
         try {
@@ -258,6 +262,12 @@ public final class Su {
     }
 
     private static Step runOne(String command) {
+        if (command.indexOf('\0') >= 0) {
+            // A zero byte cannot be passed to a process at all. It is this command's mistake, not
+            // a sign that root is missing - refused here, before it could look like one.
+            L.w("su: a command with a zero byte in it, not run: '" + firstLine(command) + "'");
+            return Step.FAILED;
+        }
         long timeout = timeoutSeconds();
         Process process;
         try {
