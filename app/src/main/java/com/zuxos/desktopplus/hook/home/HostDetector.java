@@ -50,19 +50,32 @@ public final class HostDetector {
         if (Cfg.attachAnyActivity()) {
             return true;
         }
+        if (ZUI_LAUNCHER.equals(activity.getPackageName())) {
+            // ZUI's own screens are known: only one it declares a home is the desktop. Its
+            // settings, "ZuiLauncherSettings", has "launcher" in its name too, and the desktop
+            // covered it when it opened on the monitor.
+            return isHomeActivity(activity);
+        }
         return isHomeActivity(activity) || nameLooksLikeHome(activity);
     }
 
-    /** True when the system itself considers this activity a home screen. */
+    /**
+     * True when the system itself considers this activity a home screen: the tablet's home or a
+     * second screen's ({@code SECONDARY_HOME}, which is what ZUI's monitor desktop declares).
+     */
     public static boolean isHomeActivity(Activity activity) {
         try {
             PackageManager pm = activity.getPackageManager();
-            Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
-            List<ResolveInfo> infos = pm.queryIntentActivities(home, PackageManager.MATCH_ALL);
             String name = activity.getClass().getName();
-            for (ResolveInfo ri : infos) {
-                if (ri.activityInfo != null && name.equals(ri.activityInfo.name)) {
-                    return true;
+            for (String category : new String[]{Intent.CATEGORY_HOME,
+                    Intent.CATEGORY_SECONDARY_HOME}) {
+                Intent home = new Intent(Intent.ACTION_MAIN).addCategory(category);
+                List<ResolveInfo> infos = pm.queryIntentActivities(home,
+                        PackageManager.MATCH_ALL);
+                for (ResolveInfo ri : infos) {
+                    if (ri.activityInfo != null && name.equals(ri.activityInfo.name)) {
+                        return true;
+                    }
                 }
             }
         } catch (Throwable t) {

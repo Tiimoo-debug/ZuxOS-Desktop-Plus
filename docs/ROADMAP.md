@@ -107,6 +107,8 @@ rows give only the date the owner confirmed.
 | 1.0.122 | Monitor taskbar losing its pins when no app is open |
 | 1.0.127-1.0.128 | ZUI's recent and suggested apps flashing on the taskbar after boot (came back once) |
 | 1.0.134 | Dark pill left on ZUI's home: the dock's background blur switched off |
+| 1.0.161 | Probe without its root part, and root switched off in the launcher until it restarted (broken in 1.0.159: a zero byte in the probe's script; root also never answered readers when it was off or busy) |
+| 1.0.161 | The monitor's desktop covering ZUX Home's settings when they opened on the monitor ("ZuiLauncherSettings" has "launcher" in its name; ZUX Home's screens now attach only if declared a home) |
 
 ### Open
 
