@@ -14,7 +14,9 @@ code; the decompiled sources stay outside the repo.
 | Game Assistant | `com.zui.game.service` | 2.3.0.4834 | Game profiles. Not read yet. |
 | SystemUI | `com.android.systemui` | 16 | Window decorations and menus, the WM shell, and work mode's own bar (below). Strings read, code not yet. |
 | HomeSettings | `com.zui.homesettings` | 18.1.0.0054 | Fonts and app badges only - nothing about the desktop. |
-| "Android System" | `android` (framework-res) | 16 | Resources only, no code. The system's code is in `services.jar` and `framework.jar` - **still to get**. |
+| "Android System" | `android` (framework-res) | 16 | Resources only, no code. |
+| System server | `services.jar` | 16 | The system's own code, with ZUI's additions: app killing, window placement, refresh-rate boosts (below). |
+| Framework | `framework.jar` | 16 | The API side: `IActivityManager` with ZUI's whitelist calls, `com.lgsi.config.LgsiFeatures` (ZUI's feature switches), `OvFreeformManager`, `OVDesktopManager`. |
 
 ## Which mode is on: three settings, exact
 
@@ -72,7 +74,7 @@ yet.
   stubborn (high background power), with the same exemptions.
 - **Config**: `system/etc/zuipp_powercfg.xml` (`SystemInterface.SYS_CONFIG_POWER_CFG`) holds
   `startCleanTemp`, `cancelCleanTemp`, `timeInterval`, `bgTime`, `cycle`, `bigPower` and the
-  overheat whitelist. The probe's next version reads it.
+  overheat whitelist. The probe reads it.
 - **For #12 (apps on the monitor are never closed):** an app on the monitor is not the "top"
   package, so overheat and stubborn cleaning can force-stop it. The disable-don't-fight route is
   to put the monitor's apps into what these cleaners already spare - decided once the config is
@@ -83,6 +85,57 @@ yet.
   `pp.refreshrate.db`, alongside `peak_refresh_rate`.
 - **Thermal** (`com.zui.performance.thermalcenter`): policies as code, through the thermal HAL,
   through perf locks and through the vendor thermal engine.
+
+## App killing inside the system (`services.jar`)
+
+Each of these runs only when ZUI's switch for it (`com.lgsi.config.LgsiFeatures`) is on for this
+firmware; the probe lists them.
+
+- **Memory cleaner** (`com.android.server.am.ZuiMemoryCleaner`, switch `ZuiMemoryAcceleration`):
+  on memory pressure reported by lmkd, it force-stops whole packages or kills processes, lowest
+  importance first. A package is skipped if **any** of its processes is more important than the
+  config's minimum adj (`/system/etc/ZuiMemCleanerConfig.xml`, picked by RAM size), so holding a
+  monitor app's adj low - what the module's system keep-alive does - keeps it out. Also skipped:
+  the permanent list (`/data/system/zui/zui_zmc_whitelist` plus the config's), Lenovo's
+  performance center list (`content://com.lenovo.performancecenter.provider.querywhitelist/...`),
+  and the most-used apps (`ZuiAppPersistenceRanking`, `/system/etc/zui_app_ranking_config.xml`).
+  Its kills carry the reason `ZuiMemoryCleaner[...]`.
+- **Kill whitelists, ZUI's own API:** `IActivityManager.addZmcLmkWhiteList(packages, type)`,
+  `removeZmcLmkWhiteList`, `getZmcLmkWhiteList` - type `"1"` is lmkd's list
+  (`/data/system/zui/zui_lmkd_whitelist`, switch `ZuiLmkWhiteList`), `"2"` the memory cleaner's
+  (switch `ZuiMemoryAcceleration`). No permission check in the stub or the service. This is the
+  disable-don't-fight route for #12: ask ZUI itself to spare the monitor's apps, and take them off
+  again when their window closes.
+- **Fixed importance per app** (`ZuiAdjCustomize`, `/system/etc/adj_customize_config.xml`): the
+  oom adjuster gives listed packages a computed adj.
+- `ZuiDesktopKeepLiveUtil` is misnamed: it places new desktop windows so they do not cover each
+  other, nothing to do with keeping apps alive.
+- SystemUI's `ZuiDesktopModeKeepAlived` decides, on entering ZUI's desktop mode, which windows
+  turn into floating ones and which tasks are killed (`ZuiMemoryCleaner_PcMode`).
+
+## Refresh rate inside the system
+
+With `ZuiAutoRefreshRate` on, `DisplayPolicy` asks the power HAL for a boost (ids 106, 107, 201)
+on every touch-down and fling, and on touches of `DrawerLauncher` and a few listed apps.
+`ZuiAutoRefreshRateForVideo` picks other boosts while video plays. What each boost does is the
+vendor power HAL's, not in these jars.
+
+## Maximize: what ZUI's own window button does (SystemUI's WM shell)
+
+- **Tablet desktop mode on** (the system sets it from `zui_ov_desktop_mode`, also
+  `persist.sys.zui.ovdesktop`; SystemUI holds it in one flag for every display): the button turns
+  a floating window into a **full-screen task** (`DesktopTasksController.moveToFullscreen`), or
+  shows a toast when the app does not allow it; on a full-screen task it goes back to floating.
+  The module's Maximize on the tablet does the same.
+- **Otherwise** - the monitor's desktop when the tablet is not in desktop mode: the window stays
+  floating and its bounds become the display's **stable bounds**
+  (`DesktopModeUtils.calculateMaximizeBounds`), animated by the shell's toggle-resize transition,
+  with the old bounds kept for restore. Stable bounds are the display minus the cutout, minus the
+  status bar height at the top when the display has a status bar, and minus
+  max(navigation-bar inset, a fixed bar height) at the bottom when it has a navigation bar.
+  An app that cannot resize keeps its aspect ratio, as large as fits, centred.
+- The launcher's desktop interface (`IDesktopMode`) has no maximize call, so the module cannot
+  ask the shell to do it; it has to set the same bounds itself.
 
 ## The module's hooks against ZUX Home 18.2.0.0375
 
@@ -103,7 +156,5 @@ every build, which is why the module finds those by type and shape, not by name.
 
 ## Still to read
 
-- `services.jar` and `framework.jar` (with their oat/vdex if the jars hold no code): Maximize
-  (#7), the system's refresh-rate decisions, how tasks are killed.
-- SystemUI's code: window decorations and their menus (#10, #11).
+- SystemUI's code beyond the maximize path: window decorations and their menus (#10, #11).
 - Game Assistant (#18).
