@@ -50,7 +50,9 @@ public final class Probe {
             // Every window too, as the exported probe has: the taskbars are windows of their own,
             // and a dump without them could not show a bar at all.
             String text = describe(activity, content) + describeAllWindows();
-            String out = Storage.export(activity, Storage.stamped(Const.FILE_PROBE), text);
+            // One fixed file, replaced each time: this runs on every attach, sometimes three
+            // times in as many seconds, and the probes the owner takes have names of their own.
+            String out = Storage.export(activity, Const.FILE_PROBE, text);
             Storage.write(Storage.file(activity, Const.FILE_PROBE), text);
             L.i("probe dump" + (out != null ? " written to " + out : "") + ":\n" + text);
         } catch (Throwable t) {

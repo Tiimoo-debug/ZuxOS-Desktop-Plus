@@ -70,7 +70,8 @@ public final class RoadmapProbe {
      * which files to copy for decompiling), the settings that speak of the taskbar, desktop mode,
      * windows and animation (#10, #11, #14), the window manager's feature flags, work mode's keys
      * and whether Work Launcher is the home, running or showing a window (#19), SystemUI's windows
-     * on each display (#5), the resource overlays on SystemUI (#10, #16), Game Assistant's mode
+     * on each display (#5), the display SystemUI last gave each window decoration - its window
+     * menu opens there - the resource overlays on SystemUI (#10, #16), Game Assistant's mode
      * (#18), the window manager's shell as SystemUI reports it (#10 window looks, #11 window
      * animations), and the boot animation and the root solution a boot-animation module would sit
      * on (#9).
@@ -101,6 +102,8 @@ public final class RoadmapProbe {
             dumpsys window windows 2>/dev/null | grep -E 'Window[{].*com[.]zui[.]desktoplauncher' | head -10
             echo "--- SystemUI's windows on each display (#5 notifications on the monitor)"
             dumpsys window windows 2>/dev/null | awk '/^  Window #/ { w = $0 } /mDisplayId=/ { if (w ~ /StatusBar|Notification|HeadsUp|Shade|systemui/) { match($0, /mDisplayId=[0-9]+/); print substr($0, RSTART, RLENGTH) " " w } }' | head -30
+            echo "--- SystemUI's window decorations, as it logged them (window menu on the wrong screen)"
+            logcat -d -b main 2>/dev/null | grep -E 'OVC *: *(WindowDecoration|OvHandleMenu)' | tail -40
             echo "--- resource overlays on SystemUI (#10 window looks, #16)"
             cmd overlay list com.android.systemui 2>/dev/null | head -30
             echo "fabricated overlays offered: $(cmd overlay help 2>/dev/null | grep -c fabricate)"
