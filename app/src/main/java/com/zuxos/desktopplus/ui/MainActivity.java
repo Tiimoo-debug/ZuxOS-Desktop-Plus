@@ -152,9 +152,10 @@ public class MainActivity extends Activity {
                         + "screen and in front of every app, on the first press",
                 Const.KEY_RECENTS_ROUTE, true);
         addSwitch("Never kill apps on the monitor",
-                "Apps open on the external screen are only closed when you close them. Root "
-                        + "keeps battery limits off them; for memory, also tick System Framework "
-                        + "for this module in LSPosed and reboot once",
+                "Apps open on the external screen are only closed when you close them. They go "
+                        + "on ZUI's own never-kill lists, and root keeps battery limits off them; "
+                        + "for the rest, also tick System Framework for this module in LSPosed "
+                        + "and reboot once",
                 Const.KEY_KEEP_ALIVE, true);
         addSwitch("Drawer button on the left",
                 "Moves the launcher's own all-apps button to the left of the taskbar, beside the "

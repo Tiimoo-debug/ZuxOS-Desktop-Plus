@@ -105,7 +105,17 @@ firmware; the probe lists them.
   (`/data/system/zui/zui_lmkd_whitelist`, switch `ZuiLmkWhiteList`), `"2"` the memory cleaner's
   (switch `ZuiMemoryAcceleration`). No permission check in the stub or the service. This is the
   disable-don't-fight route for #12: ask ZUI itself to spare the monitor's apps, and take them off
-  again when their window closes.
+  again when their window closes. Read in full on 2026-10-09:
+  - lmkd's add appends to its file and then tells lmkd (`ProcessList.updateLmkWhitelist`, lmkd
+    command 101); remove rewrites the file without them and tells lmkd again. Add **deletes from
+    the list it is given** the names already on file, so a caller passes a copy. Its get returns
+    null, not an empty list, until the file exists.
+  - The memory cleaner's add and remove change its permanent list in memory, which also holds the
+    config's `PermanentPackageName` entries; its get shows only the file. So a caller must read
+    the config too, or it may take one of ZUI's own off.
+  - The module uses both from 1.0.164 (`hook/KeepAlive`): it adds only names on neither list,
+    records what it added in the launcher's own `zux_keep_alive` preferences, and removes only
+    those.
 - **Fixed importance per app** (`ZuiAdjCustomize`, `/system/etc/adj_customize_config.xml`): the
   oom adjuster gives listed packages a computed adj.
 - `ZuiDesktopKeepLiveUtil` is misnamed: it places new desktop windows so they do not cover each
@@ -133,7 +143,14 @@ vendor power HAL's, not in these jars.
   with the old bounds kept for restore. Stable bounds are the display minus the cutout, minus the
   status bar height at the top when the display has a status bar, and minus
   max(navigation-bar inset, a fixed bar height) at the bottom when it has a navigation bar.
-  An app that cannot resize keeps its aspect ratio, as large as fits, centred.
+  An app that cannot resize keeps its aspect ratio, as large as fits, centred, its title bar not
+  counted in the ratio (`maximizeSizeGivenAspectRatio`; jadx's plain output of it is wrong, the
+  raw instructions match Android's source). A window counts as maximised when its bounds are the
+  stable bounds, or for an app that cannot resize, when it has their full width or height
+  (`isTaskMaximized`); the button then restores the size it remembered, or, for a window it never
+  saw before, 3/4 of the display each way, centred (`calculateDefaultDesktopTaskBounds`). The
+  module's Maximize on the monitor follows all of this from 1.0.164 (`logic/WindowMath`), and
+  offers Restore in the same place.
 - The launcher's desktop interface (`IDesktopMode`) has no maximize call, so the module cannot
   ask the shell to do it; it has to set the same bounds itself.
 - **The window menu ("…")** is `OvHandleMenu`. It opens on the display of the window
@@ -183,7 +200,7 @@ Checked 2026-10-09. Every hook below matches by name and parameters, unless mark
 | New window | `ActivityStarter.setInitialState(...)`, fields `mIntent`, `mLaunchMode`, `mLaunchFlags` | found |
 | New window | `ActivityStarter.getReusableTask` | **missing**: it is `resolveReusableTask(boolean)` here. The owner's log says "task reuse x0". The hook is gone; `setInitialState` alone does the job, confirmed on 1.0.91 |
 | Drag | `DragState.isValidDropTarget(WindowState, boolean, boolean)`, fields `mFlags`, `mUid`; `WindowState.getOwningUid()` | found |
-| Trace | `WindowOrganizerController.applyTransaction`, `applySyncTransaction`, `startTransition` | found. `startLegacyTransition` is not, which only drops one traced name |
+| Trace | `WindowOrganizerController.applyTransaction`, `applySyncTransaction`, `startTransition` | found. `startLegacyTransition` is not, which only drops one traced name. From 1.0.164 the overloads taking an `ActionChain` are left out: they are the system's own step inside a call, under its own uid. The shell's `startNewTransition` goes through `startTransition(int, IBinder, …)`, so its type is in the line |
 
 ## The roadmap rows against ZUI's code
 

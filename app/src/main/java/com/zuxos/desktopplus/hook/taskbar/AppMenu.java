@@ -45,7 +45,9 @@ public final class AppMenu {
     /** On the monitor: what the taskbar offers for an open app, and nothing for a closed one. */
     private static void addWindowEntries(List<Menus.Entry> entries, Context ctx, String pkg,
             int displayId, Runnable after) {
-        List<Integer> windows = TaskbarApps.windowIds(ctx, pkg, displayId);
+        List<android.app.ActivityManager.RunningTaskInfo> tasks =
+                TaskbarApps.tasksOn(ctx, displayId);
+        List<Integer> windows = TaskbarApps.windowIds(tasks, pkg);
         if (!windows.isEmpty()) {
             // The window the app's taskbar icon stands for: its first when it has several.
             int window = windows.size() > 1 ? windows.get(0) : -1;
@@ -53,8 +55,8 @@ public final class AppMenu {
                     () -> TaskbarApps.newWindow(ctx, pkg, displayId))));
             entries.add(new Menus.Entry("Minimize", then(after,
                     () -> TaskbarApps.minimize(ctx, pkg, displayId, window))));
-            entries.add(new Menus.Entry("Maximize", then(after,
-                    () -> TaskbarApps.maximize(ctx, pkg, displayId, window))));
+            entries.add(new Menus.Entry(Maximize.label(ctx, tasks, pkg, displayId, window),
+                    then(after, () -> Maximize.toggle(ctx, pkg, displayId, window))));
             if (windows.size() > 1) {
                 entries.add(new Menus.Entry("Close", then(after,
                         () -> TaskbarApps.closeWindow(ctx, pkg, displayId, window))));
