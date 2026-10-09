@@ -298,8 +298,8 @@ final class Maximize {
      * whether its box is upright; else the shape it is drawn in.
      */
     private static boolean portrait(ActivityManager.RunningTaskInfo task) {
-        ActivityInfo info = task.topActivityInfo;
-        int requested = info != null ? info.screenOrientation
+        Object info = Reflect.field(task, "topActivityInfo");
+        int requested = info instanceof ActivityInfo ? ((ActivityInfo) info).screenOrientation
                 : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
         if (requested != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             return WindowMath.fixedPortrait(requested);
