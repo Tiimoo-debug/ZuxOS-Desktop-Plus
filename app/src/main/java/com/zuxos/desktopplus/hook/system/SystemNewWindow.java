@@ -16,8 +16,9 @@ import de.robv.android.xposed.XposedBridge;
  *
  * <p>An app whose main screen is single-task (Termux, most terminals and players) is always
  * brought back to its one task - Android looks for that task before anything else and ignores
- * the launch's request for another. So for a launch the taskbar marked as a new window, and only
- * for one, that search comes back empty and the system makes a new task as it would for any app.
+ * the launch's request for another. So a launch the taskbar marked as a new window, and only that
+ * one, is set up as an app that allows many windows: the search is skipped and the system makes a
+ * new task as it would for any app.
  *
  * <p>Nothing else is touched: every other launch, from anywhere, finds its task as before.
  */
@@ -50,24 +51,20 @@ public final class SystemNewWindow {
             sLaunchMode.setAccessible(true);
             sLaunchFlags = starter.getDeclaredField("mLaunchFlags");
             sLaunchFlags.setAccessible(true);
-            int reuse = 0;
             int initial = 0;
             StringBuilder near = new StringBuilder();
             for (Method m : starter.getDeclaredMethods()) {
                 String name = m.getName();
-                if (name.equals("getReusableTask")) {
-                    XposedBridge.hookMethod(m, REUSE);
-                    reuse++;
-                } else if (name.equals("setInitialState")) {
+                if (name.equals("setInitialState")) {
                     XposedBridge.hookMethod(m, INITIAL);
                     initial++;
-                } else if (name.contains("Reus") || name.contains("Initial")) {
+                } else if (name.contains("Initial")) {
                     near.append(' ').append(name);
                 }
             }
-            L.i("system new window: launch setup x" + initial + ", task reuse x" + reuse
-                    + (initial + reuse == 0 ? " - nearest:" + near : ""));
-            if (initial + reuse > 0) {
+            L.i("system new window: launch setup x" + initial
+                    + (initial == 0 ? " - nearest:" + near : ""));
+            if (initial > 0) {
                 setProperty("on");
             }
         } catch (Throwable t) {
@@ -77,8 +74,9 @@ public final class SystemNewWindow {
 
     /**
      * Where the starter reads the launch: a marked one is set up as an app that allows many
-     * windows - a new task of its own, never the one already open. Android 16 no longer has the
-     * reuse step below as a method of its own, so this is what makes it work there.
+     * windows - a new task of its own, never the one already open. The system's search for an
+     * existing task ({@code resolveReusableTask} on this firmware) passes over a launch flagged
+     * this way.
      */
     private static final XC_MethodHook INITIAL = new XC_MethodHook() {
         @Override
@@ -96,27 +94,6 @@ public final class SystemNewWindow {
                 sLaunchFlags.setInt(param.thisObject, sLaunchFlags.getInt(param.thisObject)
                         | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                 L.i("system new window: a new task for " + ((Intent) intent).getComponent());
-            } catch (Throwable t) {
-                // An intent whose extras will not unparcel here is not one of ours.
-                sErrors++;
-            }
-        }
-    };
-
-    private static final XC_MethodHook REUSE = new XC_MethodHook() {
-        @Override
-        protected void afterHookedMethod(MethodHookParam param) {
-            if (param.getResult() == null || sErrors > 20) {
-                return;
-            }
-            try {
-                Object intent = sIntent.get(param.thisObject);
-                if (intent instanceof Intent
-                        && ((Intent) intent).getBooleanExtra(EXTRA, false)) {
-                    param.setResult(null);
-                    L.i("system new window: a new task for "
-                            + ((Intent) intent).getComponent());
-                }
             } catch (Throwable t) {
                 // An intent whose extras will not unparcel here is not one of ours.
                 sErrors++;

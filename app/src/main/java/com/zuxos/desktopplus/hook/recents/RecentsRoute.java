@@ -397,34 +397,13 @@ public final class RecentsRoute {
             }
             return;
         }
-        int task = activity.getTaskId();
         if (mode != FULLSCREEN && mode != 0) {
-            if (fullScreen(task)) {
-                note("was in a window (mode " + mode + ") - made full screen");
-            }
+            // Written down only: this firmware's task manager has no call to change it after the
+            // fact, so the launch options above are what keeps it full screen.
+            note("is in a window (mode " + mode + ")");
         }
         // No move to the front here: this firmware refuses the launcher REORDER_TASKS, and a
         // recents without focus is only the other screen having it.
-    }
-
-    /** {@code setTaskWindowingMode}, which a recents provider may call. */
-    private static boolean fullScreen(int task) {
-        try {
-            Class<?> atm = Class.forName("android.app.ActivityTaskManager");
-            Object service = atm.getMethod("getService").invoke(null);
-            for (Method m : service.getClass().getMethods()) {
-                Class<?>[] p = m.getParameterTypes();
-                if (m.getName().equals("setTaskWindowingMode") && p.length == 3) {
-                    m.invoke(service, task, FULLSCREEN, true);
-                    return true;
-                }
-            }
-            note("no setTaskWindowingMode on this build");
-        } catch (Throwable t) {
-            Throwable cause = t.getCause() != null ? t.getCause() : t;
-            note("full screen refused (" + cause + ")");
-        }
-        return false;
     }
 
     /**
