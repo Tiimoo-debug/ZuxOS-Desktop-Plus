@@ -33,7 +33,8 @@ import java.util.function.Consumer;
 /**
  * What the screens, the module and the device are spending, for the probe: the refresh rates,
  * the rates our windows ask for, the wallpaper, the glass's captures, the temperatures, the CPU
- * each thread of this process uses, and - through root - each process and the GPU's load.
+ * each thread of this process uses, and - through root - each process, the GPU's load and the
+ * power policy the device itself runs.
  *
  * <p>Read-only: it changes nothing it looks at. What needs time - two readings of the CPU
  * counters a moment apart, and the root shell - runs off the main thread, and only when someone
@@ -47,11 +48,58 @@ public final class PowerProbe {
     private static final int TOP_THREADS = 10;
     /** Longest the probe waits for root before it is written without it. */
     private static final long ROOT_WAIT_MS = 15_000L;
-    private static final String GPU = "/sys/class/kgsl/kgsl-3d0/";
-    /** The busiest processes on the device, then the GPU's load and clock where readable. */
-    private static final String ROOT_READ = "top -b -n 1 -d 2 -m 12 2>&1; echo;"
-            + " for f in gpu_busy_percentage devfreq/cur_freq devfreq/max_freq; do"
-            + " echo \"gpu $f: $(cat " + GPU + "$f 2>/dev/null)\"; done";
+    /**
+     * Read through root, and only read: nothing here writes, lowers or tests anything.
+     *
+     * <p>First what is busy - the device's busiest processes and the GPU's load. Then the policy
+     * the device runs: each CPU cluster's governor and limits, the GPU's, which thermal limits
+     * are holding something back right now, the vendor's thermal and perf configs, their
+     * properties, and Android's own thermal service. Last, whether the kernel offers any control
+     * of voltage at all - the question behind undervolting, answered by looking, never by trying.
+     * Missing files print nothing; the script always ends well, so a partial answer still comes.
+     */
+    private static final String ROOT_READ = """
+            top -b -n 1 -d 2 -m 12 2>&1
+            g=/sys/class/kgsl/kgsl-3d0
+            echo
+            echo "gpu busy $(cat $g/gpu_busy_percentage 2>/dev/null), clock $(cat $g/devfreq/cur_freq 2>/dev/null)"
+            echo
+            echo "--- cpu clusters"
+            uname -r
+            for p in /sys/devices/system/cpu/cpufreq/policy*; do
+              echo "${p##*/} cpus $(cat $p/related_cpus 2>/dev/null): $(cat $p/scaling_governor 2>/dev/null), now $(cat $p/scaling_cur_freq 2>/dev/null), min $(cat $p/scaling_min_freq 2>/dev/null), max $(cat $p/scaling_max_freq 2>/dev/null), hardware max $(cat $p/cpuinfo_max_freq 2>/dev/null)"
+            done
+            echo "--- gpu"
+            echo "governor $(cat $g/devfreq/governor 2>/dev/null), min $(cat $g/devfreq/min_freq 2>/dev/null), max $(cat $g/devfreq/max_freq 2>/dev/null), thermal level $(cat $g/thermal_pwrlevel 2>/dev/null), throttling $(cat $g/throttling 2>/dev/null)"
+            echo "steps $(cat $g/devfreq/available_frequencies 2>/dev/null)"
+            echo "--- held back now (cooling devices not at 0)"
+            for c in /sys/class/thermal/cooling_device*; do
+              s=$(cat $c/cur_state 2>/dev/null)
+              [ -n "$s" ] && [ "$s" != "0" ] && echo "$(cat $c/type 2>/dev/null): $s of $(cat $c/max_state 2>/dev/null)"
+            done | head -30
+            echo "--- gpu thermal trips"
+            for z in /sys/class/thermal/thermal_zone*; do
+              t=$(cat $z/type 2>/dev/null)
+              case "$t" in *gpu*|*GPU*) echo "$t: $(cat $z/trip_point_*_temp 2>/dev/null | tr '\\n' ' ')";; esac
+            done | head -20
+            echo "--- vendor configs"
+            ls /vendor/etc 2>/dev/null | grep -i -E 'therm|perf|power|game'
+            for f in $(ls /vendor/etc 2>/dev/null | grep -i -E '^thermal.*[.](conf|xml|json)$' | head -3); do
+              echo "== $f"
+              head -25 /vendor/etc/$f 2>/dev/null
+            done
+            echo "--- properties"
+            getprop | grep -i -E 'perf|therm|power|game' | head -40
+            echo "--- voltage controls (read only)"
+            for r in /sys/class/regulator/regulator.*; do
+              v=$(cat $r/microvolts 2>/dev/null)
+              [ -n "$v" ] && echo "$(cat $r/name 2>/dev/null): $v uV"
+            done | head -40
+            echo "debugfs mounted: $(grep -c debugfs /proc/mounts); voltage entries in it: $(ls /sys/kernel/debug 2>/dev/null | grep -i -E 'regulator|cpr' | tr '\\n' ' ')"
+            echo "--- android thermal service"
+            dumpsys thermalservice 2>/dev/null | head -80
+            true
+            """;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 

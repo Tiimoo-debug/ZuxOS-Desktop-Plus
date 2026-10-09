@@ -182,6 +182,9 @@ public final class Su {
         }
     }
 
+    /** The most of a command's output kept: the probe's power read is a few pages. */
+    private static final int MAX_OUTPUT = 64_000;
+
     /** What the command printed, written and read on the shell thread. See {@link #read}. */
     private static final java.util.concurrent.atomic.AtomicReference<String> LAST_OUTPUT =
             new java.util.concurrent.atomic.AtomicReference<>("");
@@ -335,9 +338,9 @@ public final class Su {
                     new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    // Kept whole for a caller that asked to read it; the log prints a short head
-                    // of it rather than all of it.
-                    if (sb.length() < 4000) {
+                    // Kept whole for a caller that asked to read it - up to a bound, so a runaway
+                    // command cannot fill memory; the log prints a short head of it.
+                    if (sb.length() < MAX_OUTPUT) {
                         sb.append(sb.length() == 0 ? "" : "\n").append(line.trim());
                     }
                 }
