@@ -137,28 +137,40 @@ vendor power HAL's, not in these jars.
   a floating window into a **full-screen task** (`DesktopTasksController.moveToFullscreen`), or
   shows a toast when the app does not allow it; on a full-screen task it goes back to floating.
   The module's Maximize on the tablet does the same.
-- **Otherwise** - the monitor's desktop when the tablet is not in desktop mode: the window stays
-  floating and its bounds become the display's **stable bounds**
-  (`DesktopModeUtils.calculateMaximizeBounds`), animated by the shell's toggle-resize transition,
-  with the old bounds kept for restore. Stable bounds are the display minus the cutout, minus the
-  status bar height at the top when the display has a status bar, and minus
-  max(navigation-bar inset, a fixed bar height) at the bottom when it has a navigation bar.
+- **On the monitor, as the device does it** (1.0.166's system trace, 2026-10-10; the monitor's
+  desktop on, `zui_dp_display_pc_mode=1`, tablet desktop mode off): the button also makes the
+  window **full screen**. SystemUI starts a transition of type **1106** (Android's "leave desktop
+  mode by the window's button") that sets windowing mode full screen, empty bounds, not always on
+  top, and moves it in front; the window then covers the whole display (0,0-2560,1440). Restore
+  starts type **1101** ("enter desktop mode by the window's button"): windowing mode undefined,
+  which a desktop display makes floating again, at the bounds it had, in front.
+- **What the code also has, but the device did not run:** a toggle that keeps the window
+  floating at the display's **stable bounds** (`DesktopModeUtils.calculateMaximizeBounds`), with
+  the old bounds kept for restore. Stable bounds are the display minus the cutout, minus the
+  status bar at the top, and minus max(navigation-bar inset, a fixed bar height) at the bottom.
   An app that cannot resize keeps its aspect ratio, as large as fits, centred, its title bar not
   counted in the ratio (`maximizeSizeGivenAspectRatio`; jadx's plain output of it is wrong, the
   raw instructions match Android's source). A window counts as maximised when its bounds are the
   stable bounds, or for an app that cannot resize, when it has their full width or height
-  (`isTaskMaximized`); the button then restores the size it remembered, or, for a window it never
-  saw before, 3/4 of the display each way, centred (`calculateDefaultDesktopTaskBounds`). The
-  module's Maximize on the monitor follows all of this from 1.0.165 (`logic/WindowMath`), and
-  offers Restore in the same place.
-- The launcher's desktop interface (`IDesktopMode`) has no maximize call, so the module cannot
-  ask the shell to do it; it has to set the same bounds itself.
+  (`isTaskMaximized`); restore puts back the size it remembered, or, for a window it never saw
+  before, 3/4 of the display each way, centred (`calculateDefaultDesktopTaskBounds`). 1.0.165
+  shipped this (`logic/WindowMath`); from 1.0.167 it is only the fallback when the system refuses
+  the transition.
+- The launcher's desktop interface (`IDesktopMode`) has no maximize or full-screen call (it has
+  `moveTaskToDesktop` and launch and show calls). So from 1.0.167 the module's Maximize on the
+  monitor starts the same two transitions itself (`WindowOrganizer.startNewTransition`). SystemUI
+  follows them like its own: its request handler (`DesktopTasksController.handleRequest`, read
+  from the raw instructions) only steps in for "open" and "to front" transitions and lets others
+  pass as they are. 1.0.133 instead applied the change directly (`applyTransaction`), which
+  SystemUI did not follow, and its window menu then opened on the tablet.
 - **The window menu ("…")** is `OvHandleMenu`. It opens on the display of the window
   decoration's own copy of the task (`mTaskInfo.getDisplayId()`), not where the task is now. A
   menu on the wrong screen means SystemUI's copy had the wrong display.
-- SystemUI logs every decoration relayout with that display, always on: tag `OVC`,
-  "WindowDecoration pre_relayout taskId:… displayId:…" (`android.util.OvcLog.i`). The probe reads
-  those lines.
+- SystemUI logs each decoration relayout with that display - tag `OVC`, "WindowDecoration
+  pre_relayout taskId:… displayId:…" (`android.util.OvcLog.i`) - **only while its debug switch
+  is on**: `OvcLog.isDebuggable()`, which is `Log.isLoggable("OVC", DEBUG)`, so the property
+  `log.tag.OVC`. It is off on this device, which is why the probe's section came back empty on
+  1.0.166. `setprop log.tag.OVC D` (root, until reboot) turns it on.
 
 ## The module's hooks against ZUX Home 18.2.0.0375
 

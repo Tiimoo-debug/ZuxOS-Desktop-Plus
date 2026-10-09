@@ -30,12 +30,16 @@ import java.util.Set;
  * Maximize and Restore, for the taskbar's and the desktop's menus.
  *
  * <p>On the tablet's desktop mode a window goes full screen, app and all, as ZUI's own button
- * does there. On the monitor it stays a floating window and takes ZUI's own maximised bounds, read
- * from its window shell ({@code DesktopModeUtils} in SystemUI, see {@link WindowMath}): the screen
- * less its bars for an app that takes any size, and for one that does not, the largest window of
- * its own shape, centred - stretching it, as before, letterboxed it in a box of black. Once a
- * window is maximised by ZUI's own test, by this menu or by ZUI's button, the menu offers Restore,
- * which puts back the size it had.
+ * does there. On the monitor too, ZUI's button makes the window full screen: its trace on
+ * 1.0.166 showed SystemUI starting a transition of Android's type for "leave desktop mode by the
+ * window's button" (1106) that sets full screen, no bounds, not always on top, and in front - and
+ * for Restore one of type "enter desktop mode by the window's button" (1101) that hands the
+ * window back with the size it had. This starts the same two, so SystemUI follows them as it
+ * follows its own; sending the change around it, as 1.0.133 did, left its window menu opening
+ * on the tablet.
+ *
+ * <p>If the system refuses the transition, the window is grown in place instead, to the area ZUI
+ * leaves a floating window ({@link WindowMath}), and Restore shrinks it back.
  */
 final class Maximize {
 
@@ -46,6 +50,9 @@ final class Maximize {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int RESIZE_MODE_SYSTEM = 0;
+    /** Android's transition types for a window's own button, as ZUI's trace has them. */
+    private static final int TRANSIT_TO_FULL_SCREEN = 1106;
+    private static final int TRANSIT_TO_WINDOW = 1101;
     private static final long CHECK_MS = 700L;
     /** ZUI's own size for a window it restores without having seen it before: 3/4 each way. */
     private static final float RESTORE_SCALE = 0.75f;
@@ -57,9 +64,10 @@ final class Maximize {
     }
 
     /**
-     * The menu's word for {@link #toggle}: Restore for a floating window on the monitor that is
-     * maximised already, Maximize for everything else. {@code tasks} are the display's, already
-     * read for the menu, so this asks the system for nothing more.
+     * The menu's word for {@link #toggle}: Restore for a window on the monitor that is full
+     * screen - by this menu or ZUI's button - or grown in place, Maximize for everything else.
+     * {@code tasks} are the display's, already read for the menu, so this asks the system for
+     * nothing more.
      */
     static String label(Context ctx, List<ActivityManager.RunningTaskInfo> tasks, String pkg,
             int display, int taskId) {
@@ -67,14 +75,21 @@ final class Maximize {
             return MAXIMIZE;
         }
         ActivityManager.RunningTaskInfo task = find(tasks, pkg, taskId);
-        if (task == null || windowingMode(task) != WINDOWING_MODE_FREEFORM) {
-            return MAXIMIZE;
+        int mode = task == null ? -1 : windowingMode(task);
+        if (mode == WINDOWING_MODE_FULLSCREEN) {
+            return RESTORE;
         }
+        return mode == WINDOWING_MODE_FREEFORM && grownInPlace(ctx, task, display)
+                ? RESTORE : MAXIMIZE;
+    }
+
+    /** A floating window already as big as one can be, by ZUI's own test. */
+    private static boolean grownInPlace(Context ctx, ActivityManager.RunningTaskInfo task,
+            int display) {
         Rect area = area(ctx, display);
         Rect bounds = bounds(task);
         return area != null && bounds != null
-                && WindowMath.isMaximized(array(bounds), array(area), resizable(task))
-                ? RESTORE : MAXIMIZE;
+                && WindowMath.isMaximized(array(bounds), array(area), resizable(task));
     }
 
     /**
@@ -90,27 +105,32 @@ final class Maximize {
         }
         int id = task.taskId;
         int mode = windowingMode(task);
-        if (mode != WINDOWING_MODE_FREEFORM) {
-            // Full screen, a split, or unreadable: nothing to grow. Forcing an app into full
-            // screen mode, as an earlier version did, letterboxed one that keeps its own shape.
+        boolean monitor = display != Display.DEFAULT_DISPLAY;
+        if (monitor && mode == WINDOWING_MODE_FULLSCREEN) {
+            toWindow(ctx, task, display);
+        } else if (mode != WINDOWING_MODE_FREEFORM) {
+            // A split, the tablet's full screen, or unreadable: nothing to grow.
             L.i("taskbar apps: " + pkg + " (task " + id + ", mode " + mode
                     + ") is not a floating window - brought to front only");
             TaskOverview.bringToFront(id, display);
             return;
-        }
-        if (display == Display.DEFAULT_DISPLAY && toFullScreen(task)) {
-            // The tablet's desktop mode: full screen, window and app together - tried there on
-            // 1.0.133 with Claude, Gallery, Lawnchair and Termux, each filling the screen as
-            // ZUI's own maximise does.
-            L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen");
+        } else if (monitor && !grownInPlace(ctx, task, display)
+                && toFullScreenAsZui(tasks, task)) {
+            // In front already, by the transition itself. Brought forward again the way recents
+            // does it, SystemUI would take it as a launch into the desktop and float it again.
         } else {
-            // The monitor's desktop is another window system: switching a window there to full
-            // screen from here went round ZUI's own handling of it - its window menu then
-            // opened on the tablet, and apps that keep their shape sat in a box on black. Still
-            // floating there, sized as ZUI's own button sizes it.
-            resize(ctx, tasks, task, display);
+            if (!monitor && toFullScreen(task)) {
+                // The tablet's desktop mode: full screen, window and app together - tried there
+                // on 1.0.133 with Claude, Gallery, Lawnchair and Termux, each filling the screen
+                // as ZUI's own maximise does.
+                L.i("taskbar apps: maximising " + pkg + " (task " + id + ") to full screen");
+            } else {
+                // Full screen refused, or a window grown in place by this same fallback, which
+                // Restore shrinks back.
+                resize(ctx, tasks, task, display);
+            }
+            TaskOverview.bringToFront(id, display);
         }
-        TaskOverview.bringToFront(id, display);
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             for (ActivityManager.RunningTaskInfo t : TaskbarApps.tasksOn(ctx, display)) {
                 if (t.taskId == id) {
@@ -133,8 +153,9 @@ final class Maximize {
     }
 
     /**
-     * ZUI's toggle: a maximised window back to the size it had - or, one this never saw before,
-     * to ZUI's own 3/4 of the screen - and any other to ZUI's maximised bounds.
+     * The fallback, in place: a grown window back to the size it had - or, one this never saw
+     * before, to ZUI's own 3/4 of the screen - and any other to the area ZUI leaves a floating
+     * window.
      */
     private static void resize(Context ctx, List<ActivityManager.RunningTaskInfo> tasks,
             ActivityManager.RunningTaskInfo task, int display) {
@@ -150,6 +171,109 @@ final class Maximize {
         boolean resizable = resizable(task);
         Rect target;
         String what;
+        if (WindowMath.isMaximized(array(bounds), array(area), resizable)) {
+            Rect before;
+            synchronized (BEFORE) {
+                before = BEFORE.remove(id);
+            }
+            Rect screen = metrics.getBounds();
+            target = before != null ? before : rect(WindowMath.restoredDefault(
+                    screen.width(), screen.height(), RESTORE_SCALE));
+            what = before != null ? "restored" : "restored to ZUI's default size";
+        } else {
+            remember(tasks, id, bounds);
+            target = rect(WindowMath.maximized(array(area), resizable, aspect(task),
+                    portrait(task), caption(task)));
+            what = resizable ? "maximised" : "maximised in its own shape";
+        }
+        String how = resizeBySystem(id, target) ? "system resize"
+                : resizeByTransaction(task, target) ? "window transaction" : "nothing";
+        L.i("taskbar apps: task " + id + " " + what + " to " + target + " by " + how);
+    }
+
+    /**
+     * The monitor: ZUI's own change to full screen, as the transition its button starts. The
+     * window's size is kept for Restore. False when refused.
+     */
+    private static boolean toFullScreenAsZui(List<ActivityManager.RunningTaskInfo> tasks,
+            ActivityManager.RunningTaskInfo task) {
+        Rect bounds = bounds(task);
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null) {
+                return false;
+            }
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
+                    .invoke(wct, token, WINDOWING_MODE_FULLSCREEN);
+            wctClass.getMethod("setBounds", tokenClass, Rect.class)
+                    .invoke(wct, token, new Rect());
+            wctClass.getMethod("setAlwaysOnTop", tokenClass, boolean.class)
+                    .invoke(wct, token, false);
+            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
+            startTransition(TRANSIT_TO_FULL_SCREEN, wctClass, wct);
+        } catch (Throwable t) {
+            L.i("taskbar apps: full screen by transition refused (" + cause(t)
+                    + ") - growing the window instead");
+            return false;
+        }
+        if (bounds != null) {
+            remember(tasks, task.taskId, bounds);
+        }
+        L.i("taskbar apps: task " + task.taskId + " to full screen, as ZUI's button does");
+        return true;
+    }
+
+    /**
+     * Back to a window, as ZUI's Restore does: the size it had before this made it full screen,
+     * or, for one ZUI's own button made full screen, ZUI's own 3/4 of the screen.
+     */
+    private static void toWindow(Context ctx, ActivityManager.RunningTaskInfo task, int display) {
+        Rect before;
+        synchronized (BEFORE) {
+            before = BEFORE.remove(task.taskId);
+        }
+        WindowMetrics metrics = before == null ? metrics(ctx, display) : null;
+        Rect target = before;
+        if (target == null && metrics != null) {
+            Rect screen = metrics.getBounds();
+            target = rect(WindowMath.restoredDefault(screen.width(), screen.height(),
+                    RESTORE_SCALE));
+        }
+        try {
+            Object token = Reflect.field(task, "token");
+            if (token == null || target == null) {
+                L.i("taskbar apps: task " + task.taskId + " left full screen (window " + token
+                        + ", size " + target + ")");
+                return;
+            }
+            Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
+            Class<?> wctClass = Class.forName("android.window.WindowContainerTransaction");
+            Object wct = wctClass.getConstructor().newInstance();
+            wctClass.getMethod("setWindowingMode", tokenClass, int.class)
+                    .invoke(wct, token, WINDOWING_MODE_UNDEFINED);
+            wctClass.getMethod("setBounds", tokenClass, Rect.class).invoke(wct, token, target);
+            wctClass.getMethod("reorder", tokenClass, boolean.class).invoke(wct, token, true);
+            startTransition(TRANSIT_TO_WINDOW, wctClass, wct);
+            L.i("taskbar apps: task " + task.taskId + " back to a window at " + target
+                    + (before != null ? "" : " (ZUI's default size)"));
+        } catch (Throwable t) {
+            L.i("taskbar apps: back to a window refused (" + cause(t) + ")");
+        }
+    }
+
+    /** {@code WindowOrganizer.startNewTransition}: played by SystemUI like its own. */
+    private static void startTransition(int type, Class<?> wctClass, Object wct)
+            throws Exception {
+        Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+        organizer.getMethod("startNewTransition", int.class, wctClass)
+                .invoke(organizer.getConstructor().newInstance(), type, wct);
+    }
+
+    private static void remember(List<ActivityManager.RunningTaskInfo> tasks, int id,
+            Rect bounds) {
         synchronized (BEFORE) {
             // Windows that closed since: nothing to restore any more.
             Set<Integer> open = new HashSet<>();
@@ -157,22 +281,8 @@ final class Maximize {
                 open.add(t.taskId);
             }
             BEFORE.keySet().retainAll(open);
-            if (WindowMath.isMaximized(array(bounds), array(area), resizable)) {
-                Rect before = BEFORE.remove(id);
-                Rect screen = metrics.getBounds();
-                target = before != null ? before : rect(WindowMath.restoredDefault(
-                        screen.width(), screen.height(), RESTORE_SCALE));
-                what = before != null ? "restored" : "restored to ZUI's default size";
-            } else {
-                BEFORE.put(id, new Rect(bounds));
-                target = rect(WindowMath.maximized(array(area), resizable, aspect(task),
-                        portrait(task), caption(task)));
-                what = resizable ? "maximised" : "maximised in its own shape";
-            }
+            BEFORE.put(id, new Rect(bounds));
         }
-        String how = resizeBySystem(id, target) ? "system resize"
-                : resizeByTransaction(task, target) ? "window transaction" : "nothing";
-        L.i("taskbar apps: task " + id + " " + what + " to " + target + " by " + how);
     }
 
     /**
