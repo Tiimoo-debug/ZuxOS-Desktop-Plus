@@ -11,8 +11,8 @@ code; the decompiled sources stay outside the repo.
 | ZUX Home | `com.zui.launcher` | 18.2.0.0375 | `NormalLauncher`, `DrawerLauncher` (tablet), `CustomModeLauncher` (tablet desktop mode), `SecondaryDisplayLauncher` + the `...Dp` classes (monitor), `tianjiao.LearningLauncher`, quickstep recents. Every probe so far was taken here. |
 | Work Launcher | `com.zui.desktoplauncher` | 18.0.0.0178 | A second, complete Launcher3 fork in `/system/priv-app/ZuiLauncherPC`: `workmode.WorkLauncher`, its own `DrawerLauncher` / `NormalLauncher` / `SecondaryDisplayLauncher`, `workmode.pcallapps.PcAllAppsActivity`, `WorkSearchService`, its own quickstep (`com.zui.quickstep.*`). Always running. **The module does not load into it.** |
 | ZUX Performance Service | `com.zui.pp` | 3.1.4.4 | Runs as the system uid. ZUI's heat, refresh-rate and app-killing policy (below). |
-| Game Assistant | `com.zui.game.service` | 2.3.0.4834 | Game profiles. Not read yet. |
-| SystemUI | `com.android.systemui` | 16 | Window decorations and menus, the WM shell, and work mode's own bar (below). Strings read, code not yet. |
+| Game Assistant | `com.zui.game.service` | 2.3.0.4834 | Game profiles, its thermal and game-mode switches (below). |
+| SystemUI | `com.android.systemui` | 16 | Window decorations and menus, the WM shell, and work mode's own bar (below). Decompiled in full. |
 | HomeSettings | `com.zui.homesettings` | 18.1.0.0054 | Fonts and app badges only - nothing about the desktop. |
 | "Android System" | `android` (framework-res) | 16 | Resources only, no code. |
 | System server | `services.jar` | 16 | The system's own code, with ZUI's additions: app killing, window placement, refresh-rate boosts (below). |
@@ -154,7 +154,88 @@ Every class and method the module hooks by name is present in this version:
 Class names like these survive ZUI's R8 pass; fields and most private methods are renamed in
 every build, which is why the module finds those by type and shape, not by name.
 
+Checked again on 2026-10-09, against every class and method name in the module's launcher-side
+hooks:
+- All found, except the alternative names some lookups try as fallbacks. Examples are the
+  stock-unlock list's `com.zui.launcher.Launcher` and `com.zui.launcher.Workspace`, and Launcher3's
+  `taskbar.customization.TaskbarBackgroundRenderer`. Those lookups move on to the next name.
+- `IActivityTaskManager.setTaskWindowingMode`, which recents used to make a windowed recents full
+  screen, is not in this firmware. The owner's logs said "no setTaskWindowingMode on this build".
+  That fallback is gone; the launch options keep recents full screen.
+
+## The module's hooks inside the system, against `services.jar` 16
+
+Checked 2026-10-09. Every hook below matches by name and parameters, unless marked missing:
+
+| Feature | Hook | In this firmware |
+|---------|------|------------------|
+| Keep-alive | `ProcessStateRecord.setCurAdj(int)` | found |
+| Keep-alive | `ProcessList.setOomAdj(int, int, int)` (static) | found |
+| Keep-alive | `ProcessRecord.killLocked(String, ...)` | 5 overloads, all found. The owner's log says "kills x5" |
+| Full screen | `LaunchParamsController.calculate(...)`, fields `LaunchParams.mWindowingMode`, `mBounds`, `ActivityRecord.intent` | found. ZUI calls it with phase 10 in its desktop mode, 3 otherwise |
+| Full screen | `setWindowingMode(int)` on `Task` and on `ConfigurationContainer`; field `Task.intent` | found |
+| New window | `ActivityStarter.setInitialState(...)`, fields `mIntent`, `mLaunchMode`, `mLaunchFlags` | found |
+| New window | `ActivityStarter.getReusableTask` | **missing**: it is `resolveReusableTask(boolean)` here. The owner's log says "task reuse x0". The hook is gone; `setInitialState` alone does the job, confirmed on 1.0.91 |
+| Drag | `DragState.isValidDropTarget(WindowState, boolean, boolean)`, fields `mFlags`, `mUid`; `WindowState.getOwningUid()` | found |
+| Trace | `WindowOrganizerController.applyTransaction`, `applySyncTransaction`, `startTransition` | found. `startLegacyTransition` is not, which only drops one traced name |
+
+## The roadmap rows against ZUI's code
+
+Read 2026-10-09 from the decompiled apps and jars. These are facts for planning, not tests on the
+device.
+
+- **#1 Unplug and replug.** ZUX Home learns that the monitor's desktop is on from
+  `Settings.System zui_dp_display_pc_mode` (`DpModeManager`, through `SettingsCache`). On 0, or
+  when that display is removed, it drops its monitor context. The system writes 0 itself
+  (`OVDesktopController`). The module can follow the same switch with an observer instead of
+  inferring from windows. The display timeline now records it, together with
+  `zui_ov_desktop_mode` and `zui_pc_mode`.
+- **#3 Other apps' quick-settings tiles.** Binding a tile needs `BIND_QUICK_SETTINGS_TILE`
+  (signature|recents). ZUX Home holds the recents role (`config_recentsComponentName` is its
+  `RecentsActivity`), but its manifest does not ask for that permission, so it cannot bind them.
+  Possible only from SystemUI, which hosts the tiles, or by a system-side grant. The module's own
+  tiles are unaffected.
+- **#5, #6 Notifications on the monitor.** SystemUI has a status bar on the monitor in DP mode
+  (`dpmode/ExtendStatusBarController`, its own notification icons). Whether heads-up pop-ups appear
+  there is not clear from the code. The probe now lists SystemUI's windows per display. Android 16
+  Live Updates arrive through the module's listener like any notification.
+- **#9 Boot animation.** Chosen by the native boot animation, not in these jars. The probe lists
+  the files present.
+- **#10, #16 Window frames.** SystemUI draws them from resources:
+  - **Work mode:** `pcmode_window_decor`.
+  - **Tablet desktop mode:** `zui_desktop_window_decor` and `..._freeform`.
+  - **Elsewhere:** Android's `desktop_mode_app_header`.
+  - **Styling:** button drawables `zui_desktopmode_*`, corner radius
+    `ovc_wd_freeform_task_corner_radius_pad` and the system's `ov_*_corner_radius`, caption height
+    `freeform_decor_caption_height`, and title colours.
+  - **The disable-don't-fight route:** restyle frames with a resource overlay (fabricated overlays
+    for sizes and colours, an overlay package for layouts and pictures), with no hook in SystemUI.
+    The probe reads the current values and overlays.
+- **#11 Window animations.** Fixed in SystemUI's code, with no resource or setting besides
+  Android's global animation scales:
+  - floating window open and minimise: 400 ms (`FreeformTaskTransitionHandler`);
+  - close: 300 ms, standard-accelerate (`CloseDesktopTaskTransitionHandler`);
+  - maximise and restore: 300 ms (`ToggleResizeDesktopTaskTransitionHandler`).
+
+  Custom animations mean hooking those handlers in SystemUI: high risk, as planned.
+- **#13 Adapting to updates.** The two tables above are the check; the probe's health section
+  shows the same on the device.
+- **#14 Taskbar on another edge.** Launcher3's bar already builds window parameters per rotation,
+  with a side gravity and a width for 90° and 270° (`TaskbarActivityContext`, by shape: a void
+  method taking a rotation and the window's layout params). No setting picks the edge. Moving the
+  monitor's bar means changing those parameters in `TaskbarActivityContextDp` only, plus the space
+  it reserves (its provided insets). Launcher side, medium risk, as planned.
+- **#17, #18 Game Assistant.**
+  - **Thermal policy:** it switches the device's thermal policy through Lenovo's security centre
+    (`content://com.lenovo.safecenter.power.utils`, value `userThermal`: 103 for its high-performance
+    mode, 0 for normal).
+  - **Game mode:** it sets ZUX Performance Service's game mode (`Settings.Global
+    game_helper_game_mode` on Android 16), which `com.zui.pp` treats as a game.
+  - **For #18:** a cooler profile, if the security centre has one, is a switch ZUI already offers.
+    That app (`com.lenovo.safecenter`) is not read yet.
+- **#2, #4, #8, #15** are drawn entirely by the module: nothing of ZUI's to check.
+
 ## Still to read
 
-- SystemUI's code beyond the maximize path: window decorations and their menus (#10, #11).
-- Game Assistant (#18).
+- SystemUI's window menus (#10).
+- Lenovo's security centre (`com.lenovo.safecenter`): its thermal profiles (#18).
