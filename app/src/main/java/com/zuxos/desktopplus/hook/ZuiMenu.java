@@ -5,8 +5,6 @@ import android.content.res.TypedArray;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.L;
 
@@ -18,17 +16,10 @@ import java.util.List;
 /**
  * ZUI's own menus, carrying our actions - on the tablet, where everything looks like ZUI.
  *
- * <p>Two ways in, both ZUI's:
- * <ul>
- * <li>{@link #show}: ZUI's {@code OptionsPopupView}, its home screen's popup, filled with our rows.
- * Its rows are the {@code system_shortcut} rows of ZUI's folder menu ("Enlarge folder",
- * "Rename"). Over the taskbar, the bar's window is made room for as ZUI does for its own popups
- * ({@code onPopupVisibilityChanged}).
- * <li>{@link #addRows}: our rows added to a popup of ZUI's own ({@code PopupContainerWithArrow})
- * just before ZUI shows it - so ZUI's {@code show()} measures them and gives them its own margins
- * and backgrounds, as the rows it made itself.
- * </ul>
- * Icons are tinted in ZUI's text colour, as its own are drawn.
+ * <p>ZUI's {@code OptionsPopupView}, its home screen's popup, filled with our rows: the
+ * {@code system_shortcut} rows of ZUI's folder menu ("Enlarge folder", "Rename"). Over the
+ * taskbar, the bar's window is made room for as ZUI does for its own popups
+ * ({@code onPopupVisibilityChanged}). Icons are tinted in ZUI's text colour, as its own are drawn.
  */
 public final class ZuiMenu {
 
@@ -51,7 +42,6 @@ public final class ZuiMenu {
     private static final String EVENTS = "com.android.launcher3.logging.StatsLogManager";
 
     private static boolean sSaidShow;
-    private static boolean sSaidRows;
 
     private ZuiMenu() {
     }
@@ -104,70 +94,6 @@ public final class ZuiMenu {
         } catch (Throwable t) {
             L.w("zui menu: ZUI's popup not built (" + t + ")");
             return false;
-        }
-    }
-
-    /**
-     * Our rows into a popup of ZUI's that has not been shown yet: a rows container of ZUI's own
-     * ({@code system_shortcut_rows_container}) holding ZUI's {@code system_shortcut} rows.
-     */
-    public static void addRows(ViewGroup popup, List<? extends Row> rows) {
-        if (rows.isEmpty()) {
-            return;
-        }
-        try {
-            Context ctx = popup.getContext();
-            String pkg = ctx.getPackageName();
-            int containerId = ctx.getResources().getIdentifier("system_shortcut_rows_container",
-                    "layout", pkg);
-            int rowId = ctx.getResources().getIdentifier("system_shortcut", "layout", pkg);
-            if (containerId == 0 || rowId == 0) {
-                L.w("zui menu: ZUI's row layouts not found, its popup left as it is");
-                return;
-            }
-            Method inflate = findInflate(popup.getClass());
-            ViewGroup container = (ViewGroup) inflate.invoke(popup, containerId, popup);
-            int tint = textColour(ctx);
-            for (Row row : rows) {
-                View view = (View) inflate.invoke(popup, rowId, container);
-                View icon = (View) view.getClass().getMethod("getIconView").invoke(view);
-                TextView text = (TextView) view.getClass().getMethod("getBubbleText")
-                        .invoke(view);
-                icon.setBackground(iconOf(row, tint));
-                text.setText(row.title());
-                view.setOnClickListener(v -> {
-                    row.run();
-                    closePopup(popup);
-                });
-            }
-            if (!sSaidRows) {
-                sSaidRows = true;
-                L.i("zui menu: our rows in ZUI's own app popup");
-            }
-        } catch (Throwable t) {
-            L.w("zui menu: rows not added to ZUI's popup (" + t + ")");
-        }
-    }
-
-    /** ZUI's {@code inflateAndAdd(int, ViewGroup)}, on the popup's class or a parent of it. */
-    private static Method findInflate(Class<?> cls) throws NoSuchMethodException {
-        for (Class<?> c = cls; c != null; c = c.getSuperclass()) {
-            try {
-                Method m = c.getDeclaredMethod("inflateAndAdd", int.class, ViewGroup.class);
-                m.setAccessible(true);
-                return m;
-            } catch (NoSuchMethodException next) {
-                // Up a level.
-            }
-        }
-        throw new NoSuchMethodException("inflateAndAdd");
-    }
-
-    private static void closePopup(ViewGroup popup) {
-        try {
-            popup.getClass().getMethod("close", boolean.class).invoke(popup, true);
-        } catch (Throwable t) {
-            L.d("zui menu: popup not closed (" + t + ")");
         }
     }
 

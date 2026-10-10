@@ -192,9 +192,16 @@ vendor power HAL's, not in these jars.
   A click we take ourselves has to call it too, or the icon stays small (`FolderStyle.restoreIcon`).
 - ZUI's app popup (`PopupContainerWithArrow`) puts deep shortcuts on top and its system shortcuts
   below, as an icon strip or as `deep_shortcut` rows (`addSystemShortcutsIconsOnly`).
-  `ArrowPopup.show()` measures it and gives every section ZUI's margins and background, so rows
-  added before it (`inflateAndAdd(system_shortcut_rows_container)` + `system_shortcut` rows) look
-  like ZUI's own (`hook/taskbar/ZuiAppRows`). Its `mOriginalIcon` is the icon that was held.
+  Every app popup - drawers, home, taskbar - goes through
+  `ZuiPopupContainerWithArrow.populateAndShowRowsZui(view, deepCount, notifications, shortcuts)`:
+  one shortcut is a row, more are an icon strip (`system_shortcut_icon_only_zui`, label as
+  tooltip), more than five a 2x5 grid. `RemoteActionShortcut(RemoteAction, target, info, view)`
+  is Launcher3's shortcut for outside actions (Wellbeing's); our actions join the list as those
+  (`hook/taskbar/ZuiAppRows`). ZUI's shortcut icons are filled with `ic_system_shortcut_solid`
+  (#666666, night #99fafafa); its own icons for ours: `ic_pin_zui`, `ic_unpin`,
+  `desktop_mode_ic_taskbar_menu_new_window`, `ic_close_option`.
+- ZUI's `Folder` runs outside `Launcher` too: `LauncherDelegate.d(context)` gives the taskbar a
+  delegate (`LauncherDelegate.b`) with no drag (`h()` false) and the model's own writer.
 - The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
   `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
 
