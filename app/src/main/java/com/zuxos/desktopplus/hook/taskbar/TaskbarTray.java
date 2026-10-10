@@ -609,11 +609,17 @@ public final class TaskbarTray {
         }
 
         /**
-         * The battery's menu: bypass charging on or off, and the battery settings. Read when it
-         * opens, so it shows what ZUI has now - Game Assistant switches the same thing.
+         * The battery's menu in the desktop modes: bypass charging on or off, and the battery
+         * settings. Read when it opens, so it shows what ZUI has now - Game Assistant switches the
+         * same thing.
          */
         private boolean batteryMenu(View anchor) {
             try {
+                // The desktop modes' bars only - the monitor's and the tablet's desktop mode -
+                // asked as it is held, since the tablet's bar changes mode under the same tray.
+                if ("tablet".equals(TaskbarScope.mode(this))) {
+                    return false;
+                }
                 Context ctx = getContext();
                 Boolean on = Bypass.on(ctx);
                 java.util.List<TaskbarMenu.Entry> entries = new java.util.ArrayList<>();
