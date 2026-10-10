@@ -348,8 +348,73 @@ public final class TaskbarApps {
         return showMenu(icon, pkg, user, displayId, -1);
     }
 
+    /**
+     * On the tablet's bar, an app of our row gets ZUI's own app popup, as ZUI's icons do
+     * ({@code showPopupMenuForIcon}): ZUI places it and fills it, our actions join it as its
+     * shortcuts ({@link ZuiAppRows}). ZUI reads what the icon is from its tag - its
+     * {@code AppInfo}, from the bar's own list ({@code TaskbarPopupController}) - on its next
+     * step, so the icon carries it until then and has its own tag back right after. False where
+     * ZUI has no entry for the app, which keeps our menu.
+     */
+    static boolean showZuiPopup(View icon, String pkg, int displayId) {
+        if (displayId != android.view.Display.DEFAULT_DISPLAY || !Cfg.taskbarAppMenu()) {
+            return false;
+        }
+        try {
+            Context ctx = icon.getContext();
+            Object activity = Class.forName("com.android.launcher3.views.ActivityContext", false,
+                    ctx.getClassLoader()).getMethod("lookupContext", Context.class)
+                    .invoke(null, ctx);
+            Object app = activity == null ? null : zuiAppInfo(activity, pkg);
+            if (app == null) {
+                return false;
+            }
+            java.lang.reflect.Method show = activity.getClass().getMethod("showPopupMenuForIcon",
+                    View.class);
+            Object own = icon.getTag();
+            icon.setTag(app);
+            show.invoke(activity, icon);
+            icon.post(() -> icon.setTag(own));
+            return true;
+        } catch (Throwable t) {
+            L.d("taskbar apps: ZUI's popup not shown (" + t + ")");
+            return false;
+        }
+    }
+
+    /** ZUI's {@code AppInfo} for a package of this user, from the bar's own list of apps. */
+    private static Object zuiAppInfo(Object activity, String pkg) {
+        Object controllers = Reflect.field(activity, "mControllers");
+        Object popups = Reflect.field(controllers, "taskbarPopupController");
+        if (popups == null) {
+            return null;
+        }
+        UserHandle me = android.os.Process.myUserHandle();
+        for (java.lang.reflect.Field f : com.zuxos.desktopplus.hook.Mirror.fields(
+                popups.getClass())) {
+            if (!f.getType().isArray() || !f.getType().getComponentType().getName()
+                    .endsWith(".AppInfo")) {
+                continue;
+            }
+            Object apps = com.zuxos.desktopplus.hook.Mirror.get(f, popups);
+            if (!(apps instanceof Object[])) {
+                continue;
+            }
+            for (Object app : (Object[]) apps) {
+                if (app != null && pkg.equals(IconInfo.packageOf(app))
+                        && me.equals(IconInfo.userOf(app))) {
+                    return app;
+                }
+            }
+        }
+        return null;
+    }
+
     /** The same, for the icon of one window: {@code taskId} is its task, -1 for the app's. */
     static boolean showMenu(View icon, String pkg, UserHandle user, int displayId, int taskId) {
+        if (showZuiPopup(icon, pkg, displayId)) {
+            return true;
+        }
         try {
             int[] at = new int[2];
             icon.getLocationOnScreen(at);

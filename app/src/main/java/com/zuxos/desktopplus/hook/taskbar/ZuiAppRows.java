@@ -217,22 +217,38 @@ final class ZuiAppRows {
         if (remove != null) {
             rows.add(new Row("Remove from folder", "ic_remove_zui", remove));
         }
-        // A window of it on the tablet: a second one, and closing it.
+        // A window of it on the tablet: a second one, minimised, maximised, closed.
         for (TaskbarMenu.Entry entry : TaskbarApps.entriesFor(ctx, pkg, user,
                 Display.DEFAULT_DISPLAY)) {
             String title = entry.title();
-            if ("New window".equals(title)) {
-                rows.add(new Row(title, "desktop_mode_ic_taskbar_menu_new_window", entry::run));
-            } else if (title.startsWith("Close")) {
-                rows.add(new Row(title, "ic_close_option", entry::run));
+            if (title.equals("Open") || title.equals("App info") || entry.ownIcon()) {
+                // ZUI's own popup opens the app and has its own app info; shortcuts are ZUI's.
+                continue;
             }
+            rows.add(new Row(title, zuiIconFor(title), entry::run));
         }
         return rows;
     }
 
+    /** ZUI's own icon for one of our window actions; none for minimise, which ZUI lacks. */
+    private static String zuiIconFor(String title) {
+        if (title.equals("New window")) {
+            return "desktop_mode_ic_taskbar_menu_new_window";
+        }
+        if (title.startsWith("Close")) {
+            return "ic_close_option";
+        }
+        if (title.equals("Minimize")) {
+            return "";
+        }
+        // Maximise, full screen or back to a window: ZUI's full-screen icon.
+        return "ic_recent_task_menu_fullscreen";
+    }
+
     /** ZUI's own icon for it in ZUI's shortcut colour; our glyph where ZUI has none. */
     private static Icon iconFor(Context ctx, Row row, int colour) {
-        int id = ctx.getResources().getIdentifier(row.zuiIcon, "drawable", ctx.getPackageName());
+        int id = row.zuiIcon.isEmpty() ? 0 : ctx.getResources().getIdentifier(row.zuiIcon,
+                "drawable", ctx.getPackageName());
         Icon icon;
         if (id != 0) {
             icon = Icon.createWithResource(ctx, id);

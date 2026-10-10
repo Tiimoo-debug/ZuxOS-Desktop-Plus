@@ -1565,6 +1565,9 @@ public final class TaskbarRunning {
         }
         final String key = pin.key();
         Runnable menu = () -> {
+            if (pin.pkg != null && TaskbarApps.showZuiPopup(icon, pin.pkg, displayId)) {
+                return;
+            }
             List<TaskbarMenu.Entry> entries = new ArrayList<>();
             if (pin.pkg != null) {
                 entries.addAll(TaskbarApps.entriesFor(ctx, pin.pkg,

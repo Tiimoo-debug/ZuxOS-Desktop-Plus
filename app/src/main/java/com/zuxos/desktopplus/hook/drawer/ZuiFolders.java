@@ -82,6 +82,7 @@ public final class ZuiFolders {
     private static Field sItemInfo;
     private static Field sActivity;
     private static Field sFolderInfo;
+    private static Field sFolderActivity;
     private static Constructor<?> sHolder;
     private static Method sType;
     private static Field sItemView;
@@ -160,11 +161,86 @@ public final class ZuiFolders {
                     }
                 }
             }).size();
+            hooked += XposedBridge.hookAllMethods(folder, "createAddAppButton",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            // ZUI's Add apps moves apps between a folder and its home screen
+                            // (BigFolderIconSelectDialog): not for ours until it is routed to
+                            // our drawer.
+                            if (isOurs(param.thisObject)) {
+                                param.setResult(null);
+                            }
+                        }
+                    }).size();
+            hooked += hookAnimator(loader, folder);
             ZuiFolderWrites.install(loader);
             Health.hooked("drawer: our folders as ZUI's", hooked);
             L.i("zui folders: our drawer folders as ZUI's own on the tablet x" + hooked);
         } catch (Throwable t) {
             off("not installed (" + t + ")");
+        }
+    }
+
+    /**
+     * ZUI picks a folder's motion by where it is: the bar ({@code getZuiTbFolderAnimator}) or
+     * else the home screen ({@code getZuiFolderAnimator}, which needs {@code Launcher}). Our
+     * folders in the taskbar's drawer are in neither, and closing one there crashed ZUX Home
+     * (01:32). ZUI's own {@code getAnimatorZui} asks where the folder is at each step, so it is
+     * the one for them; should it fail, no motion rather than a crash.
+     */
+    private static int hookAnimator(ClassLoader loader, Class<?> folderCls) {
+        Class<?> manager = Reflect.findClass(FOLDER + "AnimationManager", loader);
+        Class<?> bar = Reflect.findClass("com.android.launcher3.taskbar.TaskbarActivityContext",
+                loader);
+        if (manager == null || bar == null) {
+            L.w("zui folders: ZUI's folder motion not found - taskbar drawer folders stay ours");
+            return 0;
+        }
+        Field ofFolder = Mirror.fieldOfType(manager, folderCls);
+        Method generic;
+        try {
+            generic = manager.getMethod("getAnimatorZui");
+            sFolderActivity = folderCls.getDeclaredField("mActivityContext");
+            sFolderActivity.setAccessible(true);
+        } catch (Throwable t) {
+            L.w("zui folders: ZUI's own folder motion not found (" + t + ")");
+            return 0;
+        }
+        if (ofFolder == null) {
+            return 0;
+        }
+        return XposedBridge.hookAllMethods(manager, "getAnimator", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                try {
+                    Object folder = ofFolder.get(param.thisObject);
+                    Object where = folder == null ? null : sFolderActivity.get(folder);
+                    if (!isOurs(folder) || isLauncher(where) || bar.isInstance(where)) {
+                        return;
+                    }
+                    try {
+                        param.setResult(generic.invoke(param.thisObject));
+                    } catch (Throwable t) {
+                        L.w("zui folders: ZUI's folder motion failed here (" + t.getCause()
+                                + ") - opened without it");
+                        param.setResult(new android.animation.AnimatorSet());
+                    }
+                } catch (Throwable t) {
+                    L.d("zui folders: motion not chosen (" + t + ")");
+                }
+            }
+        }).size();
+    }
+
+    /** Whether a folder of ZUI's is one of ours. */
+    private static boolean isOurs(Object folder) {
+        try {
+            Object info = folder == null ? null : sFolderInfo.get(folder);
+            Object id = info == null ? null : Reflect.field(info, "id");
+            return id instanceof Integer && (Integer) id <= ID_BASE;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -296,12 +372,78 @@ public final class ZuiFolders {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                         Gravity.TOP | Gravity.CENTER_HORIZONTAL));
             }
+            align(icon);
             describeOnce(icon);
             return true;
         } catch (Throwable t) {
             L.d("zui folders: cell not filled (" + t + ")");
             return false;
         }
+    }
+
+    /**
+     * ZUI lays its folder icon out with the home screen's sizes; in the drawer its box was a
+     * tenth bigger than the apps beside it and sat higher (01:43). Measured once laid out: the
+     * folder's preview ({@code getPreviewBounds}) is scaled to a drawer icon's size and moved to
+     * where that icon is drawn (its top compound drawable, at its top padding). Its name follows.
+     */
+    private static void align(View icon) {
+        icon.post(() -> {
+            try {
+                ViewGroup list = icon.getParent() != null
+                        && icon.getParent().getParent() instanceof ViewGroup
+                        ? (ViewGroup) icon.getParent().getParent() : null;
+                int[] drawer = drawerIconIn(list);
+                android.graphics.Rect preview = new android.graphics.Rect();
+                icon.getClass().getMethod("getPreviewBounds", android.graphics.Rect.class)
+                        .invoke(icon, preview);
+                if (drawer == null || preview.width() <= 0) {
+                    return;
+                }
+                float scale = drawer[0] / (float) preview.width();
+                icon.setPivotX(preview.exactCenterX());
+                icon.setPivotY(preview.top);
+                icon.setScaleX(scale);
+                icon.setScaleY(scale);
+                icon.setTranslationY(drawer[1] - preview.top - icon.getTop());
+                if (!sSaidAlign) {
+                    sSaidAlign = true;
+                    L.i("zui folders: preview " + preview.width() + "px at " + preview.top
+                            + " to the drawer's " + drawer[0] + "px at " + drawer[1]
+                            + " (x" + scale + ")");
+                }
+            } catch (Throwable t) {
+                L.d("zui folders: not aligned (" + t + ")");
+            }
+        });
+    }
+
+    private static boolean sSaidAlign;
+
+    /** Each drawer list's icon size and top, as measured on one of ZUI's own icons in it. */
+    private static final Map<ViewGroup, int[]> DRAWER_ICON = new WeakHashMap<>();
+
+    /**
+     * The size and top of ZUI's own app icons in a drawer list, measured on one of them (its top
+     * compound drawable, drawn at its top padding) and kept for when none is on screen.
+     */
+    private static int[] drawerIconIn(ViewGroup list) {
+        if (list == null) {
+            return null;
+        }
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View c = list.getChildAt(i);
+            if (c instanceof android.widget.TextView) {
+                android.graphics.drawable.Drawable art =
+                        ((android.widget.TextView) c).getCompoundDrawables()[1];
+                if (art != null && art.getBounds().width() > 0) {
+                    int[] measured = {art.getBounds().width(), c.getPaddingTop()};
+                    DRAWER_ICON.put(list, measured);
+                    return measured;
+                }
+            }
+        }
+        return DRAWER_ICON.get(list);
     }
 
     /** ZUI's folder icon for one of our folders in this context, built once per change. */
@@ -414,22 +556,23 @@ public final class ZuiFolders {
 
     /**
      * An app held inside one of our folders: ZUI's app popup without a drag, as ZUI shows it in
-     * that context ({@code LauncherCustom.skipHotseatDrag}; the taskbar's
-     * {@code showPopupMenuForIcon}). Drag inside our folders comes with the drag build.
+     * that context ({@code LauncherCustom.skipHotseatDrag}; in the taskbar's drawer
+     * {@code onClickIconWithRightMouse}). Drag inside our folders comes with the drag build.
      */
     private static boolean holdInside(Object folder, View view) {
         try {
-            Object info = sFolderInfo.get(folder);
-            if (info == null || ((Integer) Reflect.field(info, "id")) > ID_BASE) {
+            if (!isOurs(folder)) {
                 return false;
             }
             Context ctx = view.getContext();
-            if (isLauncher(lookup(ctx))) {
+            Object activity = lookup(ctx);
+            if (isLauncher(activity)) {
                 Class.forName(POPUP, false, ctx.getClassLoader())
                         .getMethod("showForIcon", View.class).invoke(null, view);
             } else {
-                Object activity = lookup(ctx);
-                activity.getClass().getMethod("showPopupMenuForIcon", View.class)
+                // The taskbar's drawer: as ZUI shows the menu of an icon in it, through the bar
+                // (its own showPopupMenuForIcon does nothing there).
+                activity.getClass().getMethod("onClickIconWithRightMouse", View.class)
                         .invoke(activity, view);
             }
             IconPress.release(view);

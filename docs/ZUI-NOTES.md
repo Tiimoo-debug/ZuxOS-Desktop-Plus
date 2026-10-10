@@ -214,6 +214,20 @@ vendor power HAL's, not in these jars.
   (`FolderInfo.setTitle` -> `updateItemInDatabase`), moves and removals. `Folder.onLongClick` drags
   only when `LauncherDelegate.h()` allows. `FolderIcon` only needs `ShortcutAndWidgetContainer` /
   `CellLayout` parents for drag-over and resize, not to open or close.
+- A folder's motion (`FolderAnimationManager.getAnimator`) is chosen by where it is: the bar
+  (`TaskbarActivityContext` -> `getZuiTbFolderAnimator`) or else the home screen
+  (`getZuiFolderAnimator`, which needs `Launcher` - null in the taskbar's drawer, a crash on
+  close). `getAnimatorZui` checks `isFromLauncher()` and `instanceof TaskbarActivityContext` at
+  each step; it is what our folders in the taskbar drawer use.
+- In the taskbar's drawer (`TaskbarOverlayContext`) `showPopupMenuForIcon` does nothing (the
+  `BaseTaskbarContext` default); ZUI shows a drawer icon's menu with
+  `onClickIconWithRightMouse(view)`, which goes to the bar's `showPopupMenuForIcon`.
+- The bar's `showPopupMenuForIcon(view)` makes the window full screen and posts
+  `TaskbarPopupController.showForIcon(view)`, which reads the view's tag as an `ItemInfo`; the
+  bar's own apps are an `AppInfo[]` on `TaskbarPopupController` (`setApps`).
+- ZUI's folder "Add apps" (`Folder.createAddAppButton` -> `BigFolderIconSelectDialog`) moves apps
+  between the folder and the home screen (`addOrMoveItemInDatabase(item, -100, ...)`,
+  `launcher.removeItem`). Hidden in our folders until it is routed to our drawer.
 - ZUI's drawer list: `AdapterItem.viewType` picks the cell; `isIconViewType` (mask 1538) gives
   the icon span; `onCreateViewHolder`/`onBindViewHolder` switch on exact types and throw for one
   nobody supports. Items are matched across rebuilds by type (`AdapterItem.isSameAs`), so a type
