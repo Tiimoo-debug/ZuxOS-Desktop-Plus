@@ -21,6 +21,8 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Su;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
  * The round toggles in the quick-settings panel, and what they are actually able to do.
@@ -59,11 +61,12 @@ public final class QuickTiles {
     }
 
     /**
-     * One round icon over a caption, the shape DeX uses.
+     * One round icon over a caption, the shape DeX uses. In Retro a square button instead,
+     * sunken while the tile is on, as a toggle button stays pressed in Windows 98.
      *
      * @param onActed called after a tap so the panel can repaint or close
      */
-    public static View view(Context ctx, Tile tile, Runnable onActed) {
+    public static View view(Context ctx, Theme theme, Tile tile, Runnable onActed) {
         LinearLayout cell = new LinearLayout(ctx);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -75,15 +78,21 @@ public final class QuickTiles {
         int diameter = Ui.dp(ctx, 46);
 
         ImageView icon = new ImageView(ctx);
-        icon.setBackground(Ui.roundRect(lit ? ON_FILL : OFF_FILL, diameter / 2));
+        if (theme.retro()) {
+            icon.setBackground(lit ? Bevel.sunken(ctx) : Bevel.button(ctx));
+            // Pressed with its cell, which is what takes the tap.
+            icon.setDuplicateParentStateEnabled(true);
+        } else {
+            icon.setBackground(Ui.roundRect(lit ? ON_FILL : OFF_FILL, diameter / 2));
+        }
         int inset = Ui.dp(ctx, 12);
         icon.setPadding(inset, inset, inset, inset);
-        icon.setImageDrawable(tile.icon(Ui.COLOR_TEXT));
+        icon.setImageDrawable(tile.icon(theme.text()));
         cell.addView(icon, new LinearLayout.LayoutParams(diameter, diameter));
 
         TextView caption = new TextView(ctx);
         caption.setText(tile.label());
-        caption.setTextColor(lit ? Ui.COLOR_TEXT : Ui.COLOR_TEXT_DIM);
+        caption.setTextColor(lit ? theme.text() : theme.dimText());
         caption.setTextSize(11);
         caption.setGravity(Gravity.CENTER_HORIZONTAL);
         caption.setMaxLines(2);
@@ -93,7 +102,8 @@ public final class QuickTiles {
         clp.topMargin = Ui.dp(ctx, 6);
         cell.addView(caption, clp);
 
-        cell.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 14)));
+        // Retro's button is the icon's box; the cell around it stays flat.
+        cell.setBackground(theme.retro() ? null : Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 14)));
         cell.setOnClickListener(v -> {
             boolean close;
             try {

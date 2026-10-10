@@ -25,6 +25,8 @@ import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
 
 import java.util.List;
@@ -86,8 +88,10 @@ final class ShotTargets {
         android.content.pm.PackageManager pm = ctx.getPackageManager();
         int pad = Ui.dp(ctx, 12);
         int tile = Ui.dp(ctx, TILE_DP);
+        Theme theme = Theme.of(card);
 
-        GlassSurface pane = new GlassSurface(ctx, Ui.dp(ctx, 22), 0x401C1C22, LiquidGlass.MENU);
+        GlassSurface pane = new GlassSurface(ctx, Ui.dp(ctx, 22), 0x401C1C22, LiquidGlass.MENU)
+                .theme(theme);
         LinearLayout column = new LinearLayout(ctx);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(pad, pad, pad, pad);
@@ -98,7 +102,7 @@ final class ShotTargets {
         heading.setText(title);
         heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         heading.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        heading.setTextColor(0xB3FFFFFF);
+        heading.setTextColor(theme.retro() ? theme.text() : 0xB3FFFFFF);
         heading.setPadding(Ui.dp(ctx, 6), 0, 0, Ui.dp(ctx, 8));
         column.addView(heading);
 
@@ -112,7 +116,7 @@ final class ShotTargets {
                 grid.addView(row);
             }
             ResolveInfo target = targets.get(i);
-            row.addView(tile(ctx, pm, target, () -> {
+            row.addView(tile(ctx, theme, pm, target, () -> {
                 dismiss();
                 pick.picked(target);
             }), new LinearLayout.LayoutParams(tile, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -145,10 +149,12 @@ final class ShotTargets {
         root.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
 
-        // Above the card, its left edge on the card's; never off the top of the screen.
+        // Above the card, its left edge on the card's; never off the top of the screen. Below it
+        // when the bar is at the top: the card is then in the top corner, under the bar.
         int[] at = new int[2];
         card.getLocationOnScreen(at);
         int gap = Ui.dp(ctx, 10);
+        boolean below = BarEdge.reserved(Ui.displayOf(card)).top > 0;
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -159,7 +165,8 @@ final class ShotTargets {
         lp.gravity = Gravity.TOP | Gravity.START;
         lp.setFitInsetsTypes(0);
         lp.x = at[0];
-        lp.y = Math.max(Ui.dp(ctx, 16), at[1] - root.getMeasuredHeight() - gap);
+        lp.y = below ? at[1] + card.getHeight() + gap
+                : Math.max(Ui.dp(ctx, 16), at[1] - root.getMeasuredHeight() - gap);
         lp.setTitle("ZuxOS Desktop Plus screenshot " + kind);
         FrameRate.forWindow(lp, wm.getDefaultDisplay());
         FrameRate.forView(root);
@@ -173,30 +180,37 @@ final class ShotTargets {
         sWm = wm;
         sKind = kind;
         sOnClosed = closed;
+        sTheme = theme;
+        theme.applyFont(root);
+        if (theme.retro()) {
+            // Retro's sheet is simply there: nothing springs.
+            return;
+        }
 
-        // Springing up out of the button that asked for it.
+        // Springing out of the button that asked for it.
         int[] button = new int[2];
         from.getLocationOnScreen(button);
         pane.setPivotX(button[0] + from.getWidth() / 2f - lp.x);
-        pane.setPivotY(root.getMeasuredHeight());
+        pane.setPivotY(below ? 0f : root.getMeasuredHeight());
         pane.setAlpha(0f);
         pane.setScaleX(0.92f);
         pane.setScaleY(0.92f);
-        pane.setTranslationY(Ui.dp(ctx, 12));
+        pane.setTranslationY(below ? -Ui.dp(ctx, 12) : Ui.dp(ctx, 12));
         pane.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
                 .setDuration(Motion.IOS_MS).setInterpolator(Motion.IOS).withLayer().start();
     }
 
     private static Runnable sOnClosed;
+    private static Theme sTheme = Theme.GLASS;
 
-    private static View tile(Context ctx, android.content.pm.PackageManager pm,
+    private static View tile(Context ctx, Theme theme, android.content.pm.PackageManager pm,
             ResolveInfo target, Runnable onClick) {
         LinearLayout tile = new LinearLayout(ctx);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER_HORIZONTAL);
         int pad = Ui.dp(ctx, 6);
         tile.setPadding(pad, pad, pad, pad);
-        tile.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 14)));
+        tile.setBackground(theme.button(ctx, 0x00000000, Ui.dp(ctx, 14)));
 
         ImageView icon = new ImageView(ctx);
         try {
@@ -216,7 +230,7 @@ final class ShotTargets {
         }
         label.setText(name);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        label.setTextColor(0xF2FFFFFF);
+        label.setTextColor(theme.retro() ? theme.text() : 0xF2FFFFFF);
         label.setGravity(Gravity.CENTER_HORIZONTAL);
         label.setMaxLines(2);
         label.setEllipsize(TextUtils.TruncateAt.END);
@@ -230,7 +244,7 @@ final class ShotTargets {
         tile.setOnTouchListener(new TaskbarRunning.Press());
         tile.setOnHoverListener((v, e) -> {
             int action = e.getActionMasked();
-            if (action == MotionEvent.ACTION_HOVER_ENTER) {
+            if (action == MotionEvent.ACTION_HOVER_ENTER && !theme.retro()) {
                 Hover.enter(icon);
             } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
                 Hover.exit(icon);
@@ -254,7 +268,7 @@ final class ShotTargets {
         if (root == null || wm == null) {
             return;
         }
-        MenuRows.close(root, () -> {
+        MenuRows.close(root, sTheme, () -> {
             try {
                 wm.removeViewImmediate(root);
             } catch (Throwable ignored) {

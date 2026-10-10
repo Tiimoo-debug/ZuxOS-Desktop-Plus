@@ -28,6 +28,14 @@ public final class Const {
     public static final int TAKEOVER_GRID = 1;
     public static final int TAKEOVER_ALL = 2;
 
+    /** How our UI paints itself on the monitor: {@code Theme.GLASS_ID} or {@code RETRO_ID}. */
+    public static final String KEY_THEME = "theme";
+
+    /** Which edge of the monitor its taskbar sits on: see {@link #EDGE_BOTTOM} etc. */
+    public static final String KEY_TASKBAR_EDGE = "taskbar_edge";
+    public static final int EDGE_BOTTOM = 0;
+    public static final int EDGE_TOP = 1;
+
     /** Attach to every activity of the target package, not just detected home activities. */
     public static final String KEY_ATTACH_ANY = "attach_any_activity";
 

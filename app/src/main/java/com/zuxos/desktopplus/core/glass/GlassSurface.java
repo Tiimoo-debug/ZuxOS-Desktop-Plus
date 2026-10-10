@@ -11,6 +11,8 @@ import android.widget.FrameLayout;
 
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
  * A pane of glass: what is behind it, blurred, with the light caught at its edge.
@@ -24,6 +26,9 @@ import com.zuxos.desktopplus.core.Ui;
  *
  * <p>There is no colour in it worth the name. A tint is how you hide a blur that is not really
  * there; with a real one the glass should be the scene behind it, softened.
+ *
+ * <p>Told it is in the Retro theme ({@link #theme}), it is no glass at all: a raised Windows 98
+ * box, square, with nothing captured or blurred behind it.
  */
 public class GlassSurface extends FrameLayout {
 
@@ -34,13 +39,14 @@ public class GlassSurface extends FrameLayout {
     private final Paint mSheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mWarm = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mCool = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final float mRadius;
+    private float mRadius;
     private final int mTint;
     private final LiquidGlass.Material mMaterial;
     private boolean mBlurred;
     /** Drawing real liquid glass from the live screen, rather than the system blur. */
     private boolean mLive;
     private GlassBackdrop mGlass;
+    private Theme mTheme = Theme.GLASS;
 
     public GlassSurface(Context ctx, float radiusPx, int tint) {
         this(ctx, radiusPx, tint, LiquidGlass.MENU);
@@ -78,6 +84,19 @@ public class GlassSurface extends FrameLayout {
         mCool.setColor(0x2ACFE4FF);
     }
 
+    /**
+     * The theme to paint in; Glass unless a surface that follows the theme says otherwise. Set
+     * before the pane is shown.
+     */
+    public GlassSurface theme(Theme theme) {
+        mTheme = theme;
+        if (theme.retro()) {
+            mRadius = 0f;
+            invalidateOutline();
+        }
+        return this;
+    }
+
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
@@ -92,6 +111,10 @@ public class GlassSurface extends FrameLayout {
      */
     private void applyBackdrop() {
         if (mBlurred || mLive) {
+            return;
+        }
+        if (mTheme.retro()) {
+            setBackground(Bevel.raised(getContext()));
             return;
         }
         if (GlassBackdrop.possible()) {
@@ -194,8 +217,9 @@ public class GlassSurface extends FrameLayout {
         super.onDrawForeground(canvas);
         float w = getWidth();
         float h = getHeight();
-        if (w <= 0 || h <= 0 || mLive) {
-            // Live glass lights its own rim; a painted one on top would double it.
+        if (w <= 0 || h <= 0 || mLive || mTheme.retro()) {
+            // Live glass lights its own rim; a painted one on top would double it. A Windows 98
+            // box has its bevel and no rim at all.
             return;
         }
         float inset = mEdge.getStrokeWidth() / 2f;

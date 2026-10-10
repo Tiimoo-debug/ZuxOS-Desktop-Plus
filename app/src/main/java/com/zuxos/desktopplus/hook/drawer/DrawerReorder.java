@@ -7,6 +7,7 @@ import android.view.ViewGroup;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import java.util.ArrayList;
@@ -77,7 +78,7 @@ final class DrawerReorder {
      */
     boolean over(float x, float y) {
         Rect panel = onScreen(mSheet);
-        int barTop = TaskbarTray.barTopOnScreen(mDisplay);
+        int barTop = BarEdge.bottomBarTop(mDisplay);
         if (barTop > 0) {
             panel.bottom = Math.min(panel.bottom, barTop);
         }

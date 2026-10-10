@@ -51,7 +51,8 @@ public class GlassBackdrop extends FrameLayout {
 
     /**
      * @param radiusPx   the pane's corner radius
-     * @param extendPx   how far the shape runs past the bottom (a pane on the screen edge)
+     * @param extendPx   how far the shape runs past the bottom (a pane on the screen edge), or
+     *                   past the top when negative (a bar at the top of the screen)
      * @param tintRgb    the glass's colour; {@link LiquidGlass#tintFor}
      * @param base       shown where neither picture has anything, ARGB; 0 for nothing
      * @param intervalMs fastest refresh of the live part; see {@link ScreenBackdrop.Session}

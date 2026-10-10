@@ -3,6 +3,7 @@ package com.zuxos.desktopplus.hook.taskbar;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -32,6 +33,7 @@ import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Tasks;
@@ -103,7 +105,7 @@ public final class TaskbarPreview {
                     sIcon = null;
                 }
                 dismiss();
-                Hover.enter(v);
+                lift(v);
             } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
                 Hover.exit(v);
             }
@@ -180,6 +182,13 @@ public final class TaskbarPreview {
         }
     }
 
+    /** The lift and jiggle under the pointer - not on a Retro bar, where nothing moves. */
+    private static void lift(View icon) {
+        if (!Theme.of(icon).retro()) {
+            Hover.enter(icon);
+        }
+    }
+
     /** A press on the icon: no preview over what is being opened, and the icon at rest. */
     static void pressed(View icon) {
         cancel(sOpen);
@@ -200,7 +209,7 @@ public final class TaskbarPreview {
             Hover.exit(sIcon);
         }
         sIcon = icon;
-        Hover.enter(icon);
+        lift(icon);
         String pkg = (String) icon.getTag(TAG_PKG);
         cancel(sOpen);
         if (sRoot != null) {
@@ -263,6 +272,18 @@ public final class TaskbarPreview {
         int fed;
     }
 
+    /**
+     * The window an icon stands for: its own, or its app's first when the app has several; -1
+     * when the app has one or none here.
+     */
+    static int windowOf(View icon, int display) {
+        Object tag = icon.getTag(TAG_TASK);
+        int taskId = tag instanceof Integer ? (Integer) tag : -1;
+        Object pkg = icon.getTag(TAG_PKG);
+        return taskId < 0 && pkg instanceof String
+                ? TaskbarRunning.firstWindow((String) pkg, display) : taskId;
+    }
+
     private static void show(View icon) {
         String pkg = (String) icon.getTag(TAG_PKG);
         Object d = icon.getTag(TAG_DISPLAY);
@@ -271,11 +292,7 @@ public final class TaskbarPreview {
             return;
         }
         Context ctx = Overlays.windowContext(icon.getContext());
-        Object tag = icon.getTag(TAG_TASK);
-        int taskId = tag instanceof Integer ? (Integer) tag : -1;
-        if (taskId < 0) {
-            taskId = TaskbarRunning.firstWindow(pkg, display);
-        }
+        int taskId = windowOf(icon, display);
         List<ActivityManager.RunningTaskInfo> windows = new ArrayList<>();
         for (ActivityManager.RunningTaskInfo task : TaskbarApps.tasksOn(ctx, display)) {
             if (!pkg.equals(Tasks.packageOf(task))) {
@@ -389,7 +406,8 @@ public final class TaskbarPreview {
         if (screenH <= 0) {
             screenH = dm.heightPixels;
         }
-        int barTop = screenH - TaskbarTray.barInset(icon);
+        Insets bar = BarEdge.reserved(icon);
+        boolean below = bar.top > 0;
         lp.gravity = Gravity.TOP | Gravity.START;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             lp.setFitInsetsTypes(0);
@@ -397,7 +415,9 @@ public final class TaskbarPreview {
         lp.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         lp.x = x;
-        lp.y = Math.max(edge, barTop - root.getMeasuredHeight() - Ui.dp(ctx, 8));
+        // Off the icon, away from the bar: up from one at the bottom, down from one at the top.
+        lp.y = below ? bar.top + Ui.dp(ctx, 8)
+                : Math.max(edge, screenH - bar.bottom - root.getMeasuredHeight() - Ui.dp(ctx, 8));
         lp.setTitle("ZuxOS Desktop Plus window preview");
         // The monitor's fastest refresh rate while this is up: its motion at what the
         // screen can show.
@@ -409,13 +429,13 @@ public final class TaskbarPreview {
         sShown = icon;
         sOverPane = false;
 
-        // Up from the icon on iOS's spring: a little small and low, then in place.
+        // Out of the icon on iOS's spring: a little small and nearer the bar, then in place.
         pane.setPivotX(w / 2f);
-        pane.setPivotY(root.getMeasuredHeight());
+        pane.setPivotY(below ? 0f : root.getMeasuredHeight());
         pane.setAlpha(0f);
         pane.setScaleX(0.9f);
         pane.setScaleY(0.9f);
-        pane.setTranslationY(Ui.dp(ctx, 8));
+        pane.setTranslationY(below ? -Ui.dp(ctx, 8) : Ui.dp(ctx, 8));
         pane.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
                 .setDuration(Motion.IOS_MS).setInterpolator(Motion.IOS).withLayer().start();
         FrameRate.measure(root, "window preview");

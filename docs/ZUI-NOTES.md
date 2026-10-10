@@ -180,7 +180,11 @@ Every class and method the module hooks by name is present in this version:
 - `com.android.launcher3.taskbar.TaskbarView` - `updateItems`, `updateHotseatItems`
 - `com.android.launcher3.taskbar.TaskbarModelCallbacks` - `bindRecentUsedApps`
 - `com.android.launcher3.taskbar.NavbarButtonsViewController` - `setNavButtonContainerGravity`
-- `com.android.launcher3.taskbar.TaskbarBackgroundRenderer` - `draw`
+- `com.android.launcher3.taskbar.TaskbarBackgroundRenderer` - `draw`, `getBackgroundHeight`
+- `com.android.launcher3.taskbar.TaskbarActivityContext` - `createDefaultWindowLayoutParams`
+  (the monitor's bar is the window titled `Taskbar_dp`); `TaskbarActivityContextDp` -
+  `getDefaultTaskbarWindowSize`; `TaskbarInsetsController` - its two `Insets` answers for a side,
+  found by shape (`e(int, int)`, `f(int, int, int)` here). Only with the bar set to the top.
 - `com.android.launcher3.views.ScrimView` and the drawable `drag_handle_indicator`
 - `com.zui.launcher.uiextend.ZuiHotseat` - `dispatchDraw`, `onLayout`
 - `com.zui.launcher.taskbar.ZuiTaskbarSearchContainer`, `com.zui.launcher.taskbar.TaskbarActivityContextDp`
@@ -256,7 +260,25 @@ device.
   Custom animations mean hooking those handlers in SystemUI: high risk, as planned.
 - **#13 Adapting to updates.** The two tables above are the check; the probe's health section
   shows the same on the device.
-- **#14 Taskbar on another edge.** Launcher3's bar already builds window parameters per rotation,
+- **#14 Taskbar on another edge.** Read in full for the top (2026-10-10, 1.0.170):
+  - The window's parameters come from `createDefaultWindowLayoutParams(type, title)`, gravity
+    BOTTOM, for the bar and each of its four rotations (`o0()` here), titled `Taskbar_dp` on the
+    monitor only. The same method makes "Taskbar Nav Buttons" and a voice-interaction window, so
+    the title is what tells the bar apart.
+  - Its height is `getDefaultTaskbarWindowSize()`: on the monitor the bar (`taskbarHeight`, 80 px)
+    plus a corner radius and tooltip room above it - the 162 px the probe shows.
+    `setTaskbarWindowFullscreen` stretches it to the screen's height during drags, folders and
+    menus.
+  - The space kept clear for apps: `TaskbarInsetsController`'s two `Insets` answers handle a
+    gravity of bottom, start and end; any other lands on the right.
+  - The background renderer paints at the canvas's foot (`b(Canvas)` translates by the canvas's
+    height less the bar's). The rows in `taskbar.xml` (`taskbar_view`, `navbuttons_view`) are
+    `layout_gravity="bottom"`, and no code sets their gravity again (only `end_nav_buttons`'
+    horizontal gravity).
+  - The renderer's fields are renamed in this build (`context` is `a`, the heights `f` and `n`),
+    so its bar is found by type.
+
+  Earlier note: Launcher3's bar already builds window parameters per rotation,
   with a side gravity and a width for 90° and 270° (`TaskbarActivityContext`, by shape: a void
   method taking a rotation and the window's layout params). No setting picks the edge. Moving the
   monitor's bar means changing those parameters in `TaskbarActivityContextDp` only, plus the space

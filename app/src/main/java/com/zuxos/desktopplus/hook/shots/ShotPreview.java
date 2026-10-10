@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
+import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
@@ -35,10 +36,13 @@ import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Probe;
 import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.system.SystemFullscreen;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
@@ -64,6 +68,8 @@ final class ShotPreview {
     private static View sRoot;
     private static WindowManager sWm;
     private static Bitmap sThumb;
+    /** The look of the card up now, for its swipe and its going. */
+    private static Theme sTheme = Theme.GLASS;
     /** The flying copy while it is up. */
     private static View sFly;
     private static final Runnable HIDE = ShotPreview::dismiss;
@@ -129,8 +135,11 @@ final class ShotPreview {
         int thumbW = Ui.dp(ctx, THUMB_DP);
         int thumbH = Math.round(thumbW * thumb.getHeight() / (float) Math.max(1,
                 thumb.getWidth()));
+        Theme theme = Theme.of(display);
+        sTheme = theme;
 
-        GlassSurface pane = new GlassSurface(ctx, Ui.dp(ctx, 16), 0x401C1C22, LiquidGlass.MENU);
+        GlassSurface pane = new GlassSurface(ctx, Ui.dp(ctx, 16), 0x401C1C22, LiquidGlass.MENU)
+                .theme(theme);
         LinearLayout column = new LinearLayout(ctx);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(pad, pad, pad, pad);
@@ -141,18 +150,25 @@ final class ShotPreview {
         picture.setImageBitmap(thumb);
         picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
         float corner = Ui.dp(ctx, 10);
-        picture.setOutlineProvider(new ViewOutlineProvider() {
-            @Override
-            public void getOutline(View view, Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), corner);
-            }
-        });
-        picture.setClipToOutline(true);
-        // The thin white edge iOS gives a screenshot, so it reads as a picture on the glass.
-        GradientDrawable edge = new GradientDrawable();
-        edge.setCornerRadius(corner);
-        edge.setStroke(Math.max(1, Ui.dp(ctx, 1.5f)), 0xD9FFFFFF);
-        picture.setForeground(edge);
+        if (theme.retro()) {
+            // Retro's picture is square, sunk into the box like a field.
+            int frame = Ui.dp(ctx, 2);
+            picture.setBackground(Bevel.sunken(ctx));
+            picture.setPadding(frame, frame, frame, frame);
+        } else {
+            picture.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), corner);
+                }
+            });
+            picture.setClipToOutline(true);
+            // The thin white edge iOS gives a screenshot, so it reads as a picture on the glass.
+            GradientDrawable edge = new GradientDrawable();
+            edge.setCornerRadius(corner);
+            edge.setStroke(Math.max(1, Ui.dp(ctx, 1.5f)), 0xD9FFFFFF);
+            picture.setForeground(edge);
+        }
         picture.setContentDescription("Open the screenshot");
         picture.setOnClickListener(v -> whenSaved(shot, uri -> {
             dismiss();
@@ -169,14 +185,14 @@ final class ShotPreview {
         alp.topMargin = Ui.dp(ctx, 6);
         column.addView(actions, alp);
         View[] card = new View[1];
-        View shareButton = button(ctx, Glyphs.SHARE, "Share", null);
+        View shareButton = button(ctx, theme, Glyphs.SHARE, "Share", null);
         shareButton.setOnClickListener(v -> sheet(ctx, display, shot, card[0], v, false));
-        View editButton = button(ctx, Glyphs.RENAME, "Edit", null);
+        View editButton = button(ctx, theme, Glyphs.RENAME, "Edit", null);
         editButton.setOnClickListener(v -> sheet(ctx, display, shot, card[0], v, true));
         actions.addView(shareButton);
         actions.addView(editButton);
-        actions.addView(button(ctx, Glyphs.REMOVE, "Delete", () -> delete(ctx, shot)));
-        actions.addView(button(ctx, Glyphs.CLOSE, "Close", ShotPreview::dismiss));
+        actions.addView(button(ctx, theme, Glyphs.REMOVE, "Delete", () -> delete(ctx, shot)));
+        actions.addView(button(ctx, theme, Glyphs.CLOSE, "Close", ShotPreview::dismiss));
 
         FrameLayout root = new Root(ctx, pane);
         card[0] = pane;
@@ -184,10 +200,10 @@ final class ShotPreview {
         root.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int margin = Ui.dp(ctx, 16);
-        int barTop = TaskbarTray.barTopOnScreen(display);
-        if (barTop <= 0) {
-            barTop = TaskbarTray.displayHeight(ctx) - Ui.dp(ctx, 56);
-        }
+        // In the corner beside the bar: bottom left, or top left under a bar moved to the top.
+        Insets bar = BarEdge.reserved(display);
+        int barTop = TaskbarTray.displayHeight(ctx)
+                - (bar.bottom > 0 ? bar.bottom : Ui.dp(ctx, 56));
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -200,7 +216,8 @@ final class ShotPreview {
             lp.setFitInsetsTypes(0);
         }
         lp.x = margin;
-        lp.y = Math.max(margin, barTop - root.getMeasuredHeight() - margin);
+        lp.y = bar.top > 0 ? bar.top + margin
+                : Math.max(margin, barTop - root.getMeasuredHeight() - margin);
         lp.setTitle("ZuxOS Desktop Plus screenshot");
         FrameRate.forWindow(lp, wm.getDefaultDisplay());
         FrameRate.forView(root);
@@ -215,6 +232,11 @@ final class ShotPreview {
         sWm = wm;
         sThumb = thumb;
 
+        if (theme.retro()) {
+            // Retro's card is simply there: no flash, nothing flies or slides.
+            MAIN.postDelayed(HIDE, SHOWN_MS);
+            return;
+        }
         // The iOS way: a flash, then the whole screen shrinks into the corner on a spring and
         // the glass card forms around it. Without the flying copy, in from the left edge.
         if (!fly(ctx, wm, thumb, lp.x + pad, lp.y + pad, thumbW, thumbH, corner, pane)) {
@@ -417,8 +439,12 @@ final class ShotPreview {
                     if (mDragging && (dx < -getWidth() / 3f || vx < -mFling)) {
                         dismiss();
                     } else if (mDragging) {
-                        mPane.animate().translationX(0f).setDuration(Motion.IOS_MS)
-                                .setInterpolator(Motion.IOS).start();
+                        if (sTheme.retro()) {
+                            mPane.setTranslationX(0f);
+                        } else {
+                            mPane.animate().translationX(0f).setDuration(Motion.IOS_MS)
+                                    .setInterpolator(Motion.IOS).start();
+                        }
                         MAIN.postDelayed(HIDE, SHOWN_MS);
                     }
                     mDragging = false;
@@ -440,19 +466,24 @@ final class ShotPreview {
         }
     }
 
-    private static View button(Context ctx, int glyph, String description, Runnable action) {
+    private static View button(Context ctx, Theme theme, int glyph, String description,
+            Runnable action) {
         ImageView b = new ImageView(ctx);
         Drawable icon = Glyphs.of(glyph);
         if (icon != null) {
-            icon.setTint(0xF2FFFFFF);
+            icon.setTint(theme.retro() ? theme.text() : 0xF2FFFFFF);
         }
         b.setImageDrawable(icon);
         int inset = Ui.dp(ctx, 8);
         b.setPadding(inset, inset, inset, inset);
-        GradientDrawable round = new GradientDrawable();
-        round.setShape(GradientDrawable.OVAL);
-        round.setColor(0x1FFFFFFF);
-        b.setBackground(round);
+        if (theme.retro()) {
+            b.setBackground(Bevel.button(ctx));
+        } else {
+            GradientDrawable round = new GradientDrawable();
+            round.setShape(GradientDrawable.OVAL);
+            round.setColor(0x1FFFFFFF);
+            b.setBackground(round);
+        }
         b.setContentDescription(description);
         if (action != null) {
             b.setOnClickListener(v -> {
@@ -466,7 +497,7 @@ final class ShotPreview {
         b.setOnTouchListener(new TaskbarRunning.Press());
         b.setOnHoverListener((v, e) -> {
             int a = e.getActionMasked();
-            if (a == MotionEvent.ACTION_HOVER_ENTER) {
+            if (a == MotionEvent.ACTION_HOVER_ENTER && !theme.retro()) {
                 Hover.lift(v);
             } else if (a == MotionEvent.ACTION_HOVER_EXIT) {
                 Hover.drop(v);
@@ -641,6 +672,10 @@ final class ShotPreview {
         }
         clear();
         if (root == null || wm == null) {
+            return;
+        }
+        if (sTheme.retro()) {
+            remove(wm, root, thumb);
             return;
         }
         View pane = root instanceof ViewGroup && ((ViewGroup) root).getChildCount() > 0

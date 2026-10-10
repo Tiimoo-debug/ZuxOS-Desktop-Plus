@@ -16,7 +16,6 @@ import android.view.WindowMetrics;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.hook.Tasks;
-import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.recents.TaskOverview;
 import com.zuxos.desktopplus.logic.WindowMath;
 
@@ -465,8 +464,12 @@ final class Maximize {
                     WindowInsets.Type.displayCutout() | WindowInsets.Type.statusBars());
             Insets bars = metrics.getWindowInsets().getInsetsIgnoringVisibility(
                     WindowInsets.Type.navigationBars());
-            int bottom = Math.max(bars.bottom, Windows.taskbarHeight(display));
-            area.set(area.left + top.left, area.top + top.top, area.right - top.right,
+            // The bar on whichever edge it is: a bar moved to the top is navigation bar insets
+            // there, and covers the status bar's strip.
+            Insets bar = BarEdge.reserved(display);
+            int above = Math.max(top.top, Math.max(bars.top, bar.top));
+            int bottom = Math.max(bars.bottom, bar.bottom);
+            area.set(area.left + top.left, area.top + above, area.right - top.right,
                     area.bottom - bottom);
             return area.isEmpty() ? null : area;
         } catch (Throwable t) {

@@ -42,6 +42,22 @@ public final class Ui {
         return new RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), roundRect(color, radiusPx), null);
     }
 
+    /**
+     * The display a view is on: its window's, or before it has one, the display its context is
+     * for - rather than assuming the tablet. 0 when neither can be read.
+     */
+    public static int displayOf(android.view.View view) {
+        try {
+            if (view.getDisplay() != null) {
+                return view.getDisplay().getDisplayId();
+            }
+            android.view.Display d = view.getContext().getDisplay();
+            return d != null ? d.getDisplayId() : 0;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     public static void styleLabel(TextView tv, float spSize, boolean shadow) {
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, spSize);
         tv.setTextColor(COLOR_TEXT);

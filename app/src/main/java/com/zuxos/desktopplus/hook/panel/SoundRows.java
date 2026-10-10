@@ -2,6 +2,7 @@ package com.zuxos.desktopplus.hook.panel;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -25,6 +26,9 @@ import android.widget.TextView;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.logic.BevelMath;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,13 +58,14 @@ public final class SoundRows {
      *
      * @return the sessions these rows were built from, so the caller can follow them
      */
-    public static List<MediaController> addTo(Context ctx, LinearLayout body, int displayId,
-            Runnable onChanged) {
+    public static List<MediaController> addTo(Context ctx, Theme theme, LinearLayout body,
+            int displayId, Runnable onChanged) {
         sDisplayId = displayId;
+        sTheme = theme;
         AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
         if (am != null) {
             body.addView(stream(ctx, am, AudioManager.STREAM_MUSIC, "Media",
-                    TrayIcons.volume(Ui.COLOR_TEXT)));
+                    TrayIcons.volume(sTheme.text())));
             body.addView(stream(ctx, am, AudioManager.STREAM_RING, "Ringtone", null));
             body.addView(stream(ctx, am, AudioManager.STREAM_ALARM, "Alarm", null));
         }
@@ -109,7 +114,7 @@ public final class SoundRows {
             // the card reads this without checking, which would take the launcher down with it.
             return;
         }
-        body.addView(QuickPanel.sectionLabel(ctx, live.size() > 1
+        body.addView(QuickPanel.sectionLabel(ctx, sTheme, live.size() > 1
                 ? "Media (" + (index + 1) + " of " + live.size() + ")" : "Media"));
         body.addView(mediaCard(ctx, controller, pm, meta, playback, live, index, onChanged));
     }
@@ -157,17 +162,20 @@ public final class SoundRows {
      * <p>The artwork is the background rather than a thumbnail beside the text, which is what
      * makes it read as the same object you see in the shade. Where a track has no artwork the card
      * falls back to the panel's own translucency and keeps its shape.
+     *
+     * <p>Retro's card is a sunken field with no artwork: black text needs the plain face.
      */
     private static View mediaCard(Context ctx, MediaController controller, PackageManager pm,
             MediaMetadata meta, PlaybackState playback, List<MediaController> live, int index,
             Runnable onChanged) {
         int radius = Ui.dp(ctx, 16);
         FrameLayout card = new FrameLayout(ctx);
-        card.setBackground(Ui.roundRect(0x1AFFFFFF, radius));
+        boolean retro = sTheme.retro();
+        card.setBackground(retro ? Bevel.sunken(ctx) : Ui.roundRect(0x1AFFFFFF, radius));
         // The outline comes from that background, so the artwork is clipped to the same corners.
         card.setClipToOutline(true);
 
-        Bitmap art = artBitmap(meta);
+        Bitmap art = retro ? null : artBitmap(meta);
         if (art != null) {
             ImageView cover = new ImageView(ctx);
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -206,10 +214,10 @@ public final class SoundRows {
         transport.setOrientation(LinearLayout.HORIZONTAL);
         transport.setGravity(Gravity.CENTER_VERTICAL);
         boolean playing = playback.getState() == PlaybackState.STATE_PLAYING;
-        transport.addView(transport(ctx, TrayIcons.mediaPrevious(Ui.COLOR_TEXT), 32, false,
+        transport.addView(transport(ctx, TrayIcons.mediaPrevious(sTheme.text()), 32, false,
                 () -> controller.getTransportControls().skipToPrevious()));
-        transport.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
-                        : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 42, true,
+        transport.addView(transport(ctx, playing ? TrayIcons.mediaPause(sTheme.text())
+                        : TrayIcons.mediaPlay(sTheme.text()), 42, true,
                 () -> {
                     // Read now, not when this card was drawn: after the first press the card is
                     // out of date, and a captured flag would pause a second time instead of
@@ -223,7 +231,7 @@ public final class SoundRows {
                         controller.getTransportControls().play();
                     }
                 }));
-        transport.addView(transport(ctx, TrayIcons.mediaNext(Ui.COLOR_TEXT), 32, false,
+        transport.addView(transport(ctx, TrayIcons.mediaNext(sTheme.text()), 32, false,
                 () -> controller.getTransportControls().skipToNext()));
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -239,7 +247,7 @@ public final class SoundRows {
         TextView line = new TextView(ctx);
         line.setText(title != null && !title.isEmpty() ? title
                 : appName(pm, controller.getPackageName()));
-        line.setTextColor(Ui.COLOR_TEXT);
+        line.setTextColor(sTheme.text());
         line.setTextSize(15);
         line.setSingleLine(true);
         line.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -250,7 +258,7 @@ public final class SoundRows {
         if (artist != null && !artist.isEmpty()) {
             TextView sub = new TextView(ctx);
             sub.setText(artist);
-            sub.setTextColor(Ui.COLOR_TEXT_DIM);
+            sub.setTextColor(sTheme.dimText());
             sub.setTextSize(12);
             sub.setSingleLine(true);
             sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -281,9 +289,9 @@ public final class SoundRows {
             LinearLayout steps = new LinearLayout(ctx);
             steps.setOrientation(LinearLayout.HORIZONTAL);
             steps.setGravity(Gravity.CENTER_VERTICAL);
-            steps.addView(transport(ctx, TrayIcons.chevronLeft(Ui.COLOR_TEXT), 26, false,
+            steps.addView(transport(ctx, TrayIcons.chevronLeft(sTheme.text()), 26, false,
                     () -> step(live, index, -1, onChanged)));
-            steps.addView(transport(ctx, TrayIcons.chevronRight(Ui.COLOR_TEXT), 26, false,
+            steps.addView(transport(ctx, TrayIcons.chevronRight(sTheme.text()), 26, false,
                     () -> step(live, index, 1, onChanged)));
             FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -364,6 +372,8 @@ public final class SoundRows {
 
     /** The display the panel is on, so what opens from it lands there. */
     private static int sDisplayId = -1;
+    /** The panel's look, for that display. */
+    private static Theme sTheme = Theme.GLASS;
 
     /** Which app this is, small, in the corner - the card's own label. */
     private static View appPill(Context ctx, PackageManager pm, MediaController controller) {
@@ -373,20 +383,20 @@ public final class SoundRows {
         int padH = Ui.dp(ctx, 8);
         int padV = Ui.dp(ctx, 3);
         pill.setPadding(padH, padV, padH, padV);
-        pill.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 12)));
+        pill.setBackground(sTheme.retro() ? null : Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 12)));
 
         ImageView icon = new ImageView(ctx);
         try {
             icon.setImageDrawable(pm.getApplicationIcon(controller.getPackageName()));
         } catch (Throwable ignored) {
-            icon.setImageDrawable(TrayIcons.volume(Ui.COLOR_TEXT));
+            icon.setImageDrawable(TrayIcons.volume(sTheme.text()));
         }
         int size = Ui.dp(ctx, 14);
         pill.addView(icon, new LinearLayout.LayoutParams(size, size));
 
         TextView label = new TextView(ctx);
         label.setText(appName(pm, controller.getPackageName()));
-        label.setTextColor(Ui.COLOR_TEXT);
+        label.setTextColor(sTheme.text());
         label.setTextSize(10);
         label.setSingleLine(true);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
@@ -417,8 +427,8 @@ public final class SoundRows {
         int inset = Ui.dp(ctx, filled ? 11 : 6);
         button.setPadding(inset, inset, inset, inset);
         button.setBackground(filled
-                ? Ui.ripple(ctx, 0x40FFFFFF, size / 2)
-                : Ui.ripple(ctx, 0x00000000, size / 2));
+                ? sTheme.button(ctx, 0x40FFFFFF, size / 2)
+                : sTheme.button(ctx, 0x00000000, size / 2));
         button.setOnClickListener(v -> {
             try {
                 action.run();
@@ -445,6 +455,7 @@ public final class SoundRows {
         private final long mDuration;
         private final Paint mTrack = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean mRetro;
         private final Runnable mTick = new Runnable() {
             @Override
             public void run() {
@@ -457,8 +468,10 @@ public final class SoundRows {
             super(ctx);
             mController = controller;
             mDuration = duration;
-            mTrack.setColor(0x40FFFFFF);
-            mFill.setColor(0xCCFFFFFF);
+            // Retro's is Windows 98's progress bar: navy on the box's shadow, square.
+            mRetro = sTheme.retro();
+            mTrack.setColor(mRetro ? BevelMath.shadow(BevelMath.FACE) : 0x40FFFFFF);
+            mFill.setColor(mRetro ? Theme.NAVY : 0xCCFFFFFF);
         }
 
         @Override
@@ -480,7 +493,7 @@ public final class SoundRows {
             if (w <= 0 || h <= 0) {
                 return;
             }
-            float r = h / 2f;
+            float r = mRetro ? 0f : h / 2f;
             canvas.drawRoundRect(new RectF(0, 0, w, h), r, r, mTrack);
             float fraction = fraction();
             if (fraction > 0) {
@@ -565,7 +578,7 @@ public final class SoundRows {
             return;
         }
         PackageManager pm = ctx.getPackageManager();
-        body.addView(QuickPanel.sectionLabel(ctx, "Apps using audio"));
+        body.addView(QuickPanel.sectionLabel(ctx, sTheme, "Apps using audio"));
         for (String pkg : playing) {
             MediaController controller = controllerFor(controllers, pkg);
             MediaController.PlaybackInfo info = null;
@@ -599,7 +612,7 @@ public final class SoundRows {
         row.setGravity(Gravity.CENTER_VERTICAL);
         int pad = Ui.dp(ctx, 8);
         row.setPadding(pad, pad, pad, pad);
-        row.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 12)));
+        row.setBackground(sTheme.button(ctx, 0x00000000, Ui.dp(ctx, 12)));
         row.setOnClickListener(v -> {
             QuickPanel.dismiss();
             openApp(ctx, pkg);
@@ -612,7 +625,7 @@ public final class SoundRows {
 
         TextView label = new TextView(ctx);
         label.setText(appName(pm, pkg));
-        label.setTextColor(Ui.COLOR_TEXT);
+        label.setTextColor(sTheme.text());
         label.setTextSize(13);
         label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -630,8 +643,8 @@ public final class SoundRows {
             }
             boolean playing = state != null && state.getState() == PlaybackState.STATE_PLAYING;
             final MediaController target = controller;
-            row.addView(transport(ctx, playing ? TrayIcons.mediaPause(Ui.COLOR_TEXT)
-                            : TrayIcons.mediaPlay(Ui.COLOR_TEXT), 30, false,
+            row.addView(transport(ctx, playing ? TrayIcons.mediaPause(sTheme.text())
+                            : TrayIcons.mediaPlay(sTheme.text()), 30, false,
                     () -> {
                         PlaybackState now = target.getPlaybackState();
                         if (now != null && now.getState() == PlaybackState.STATE_PLAYING) {
@@ -645,7 +658,7 @@ public final class SoundRows {
             // offering anyone a way to stop it, and pretending otherwise would be a dead button.
             TextView note = new TextView(ctx);
             note.setText("playing");
-            note.setTextColor(Ui.COLOR_TEXT_DIM);
+            note.setTextColor(sTheme.dimText());
             note.setTextSize(11);
             row.addView(note);
         }
@@ -724,7 +737,7 @@ public final class SoundRows {
         try {
             return pm.getApplicationIcon(pkg);
         } catch (Throwable t) {
-            return TrayIcons.volume(Ui.COLOR_TEXT);
+            return TrayIcons.volume(sTheme.text());
         }
     }
 
@@ -788,11 +801,14 @@ public final class SoundRows {
 
         TextView caption = new TextView(ctx);
         caption.setText(label);
-        caption.setTextColor(Ui.COLOR_TEXT_DIM);
+        caption.setTextColor(sTheme.dimText());
         caption.setTextSize(11);
         column.addView(caption);
 
         SeekBar bar = new SeekBar(ctx);
+        if (sTheme.retro()) {
+            retroSlider(ctx, bar);
+        }
         bar.setMax(max);
         bar.setProgress(Math.max(0, Math.min(max, value)));
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -818,6 +834,17 @@ public final class SoundRows {
         column.addView(bar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return row;
+    }
+
+    /**
+     * Windows 98's slider: a raised grey thumb on a navy-filled groove, with no ripple round it.
+     */
+    private static void retroSlider(Context ctx, SeekBar bar) {
+        bar.setThumb(Bevel.raised(ctx).size(Ui.dp(ctx, 11), Ui.dp(ctx, 21)));
+        bar.setProgressTintList(ColorStateList.valueOf(Theme.NAVY));
+        bar.setProgressBackgroundTintList(
+                ColorStateList.valueOf(BevelMath.shadow(BevelMath.FACE)));
+        bar.setBackground(null);
     }
 
     /** The icon slot, kept even when empty so every row's text starts on the same line. */

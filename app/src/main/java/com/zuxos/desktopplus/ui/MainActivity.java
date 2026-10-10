@@ -26,6 +26,7 @@ import com.zuxos.desktopplus.core.ModuleStatus;
 import com.zuxos.desktopplus.core.Prefs;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.notify.TestNotifications;
 
 /** Settings for the module, plus a short explanation of what to expect on the device. */
@@ -101,6 +102,22 @@ public class MainActivity extends Activity {
                 Const.KEY_ANIMATIONS, true);
         addSlider("Grid cell size", "dp", Const.KEY_CELL_SIZE, 104, 72, 180);
         addSlider("Icon size", "dp", Const.KEY_ICON_SIZE, 52, 32, 96);
+
+        addHeader("Customize");
+        addSpinner("Theme", new String[]{
+                        "Glass",
+                        "Retro (monitor)"},
+                Const.KEY_THEME, Theme.GLASS_ID);
+        addSummary("Retro is Windows 98 on the external screen: grey bevelled boxes, a pixel font, "
+                + "no blur and no live glass, which also saves the GPU there. The tablet keeps "
+                + "glass. Menus and panels take it when they next open, the taskbar when the "
+                + "monitor's home comes back.");
+        addSpinner("Taskbar position (monitor)", new String[]{
+                        "Bottom",
+                        "Top"},
+                Const.KEY_TASKBAR_EDGE, Const.EDGE_BOTTOM);
+        addSummary("Top covers the monitor's own status bar strip. Takes effect when the "
+                + "launcher restarts. The tablet's taskbar never moves.");
 
         addHeader("App drawer");
         addSwitch("Use the stock taskbar drawer too",

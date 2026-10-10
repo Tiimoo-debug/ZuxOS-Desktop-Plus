@@ -2,6 +2,7 @@ package com.zuxos.desktopplus.hook.panel;
 
 import android.content.Context;
 import android.database.ContentObserver;
+import android.graphics.Insets;
 import android.graphics.PixelFormat;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -19,8 +20,9 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.motion.FrameRate;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.Overlays;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 
 import java.util.List;
 
@@ -109,20 +111,21 @@ public final class NotifyPanel {
         dismiss();
         final Context ctx = Overlays.windowContext(taskbarCtx);
         try {
-            final int inset = TaskbarTray.barInset(anchor);
+            final Insets bar = BarEdge.reserved(anchor);
             FrameLayout root = new FrameLayout(ctx);
+            Theme theme = Theme.of(displayId);
             GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx),
-                    LiquidGlass.THICK);
+                    LiquidGlass.THICK).theme(theme);
 
             LinearLayout body = new LinearLayout(ctx);
             body.setOrientation(LinearLayout.VERTICAL);
             int pad = Ui.dp(ctx, 14);
             body.setPadding(pad, pad, pad, pad);
 
-            fill(ctx, body, displayId);
+            fill(ctx, body, displayId, theme);
             // The shade moves while you are looking at it, and a dismissal is not finished when
             // the tap is: the provider says when it is actually gone.
-            watchShade(ctx, () -> fill(ctx, body, displayId));
+            watchShade(ctx, () -> fill(ctx, body, displayId, theme));
 
             ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);
@@ -135,9 +138,10 @@ public final class NotifyPanel {
 
             FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
                     Ui.dp(ctx, WIDTH_DP), FrameLayout.LayoutParams.WRAP_CONTENT);
-            glp.gravity = Gravity.BOTTOM | Gravity.END;
+            glp.gravity = (bar.top > 0 ? Gravity.TOP : Gravity.BOTTOM) | Gravity.END;
             glp.rightMargin = Ui.dp(ctx, EDGE_MARGIN_DP);
-            glp.bottomMargin = inset;
+            glp.topMargin = bar.top;
+            glp.bottomMargin = bar.bottom;
             root.addView(glass, glp);
 
             root.setFocusableInTouchMode(true);
@@ -192,7 +196,7 @@ public final class NotifyPanel {
         }
     }
 
-    private static void fill(Context ctx, LinearLayout body, int displayId) {
+    private static void fill(Context ctx, LinearLayout body, int displayId, Theme theme) {
         body.removeAllViews();
         boolean granted = Notifications.available(ctx);
         // Asked first: querying would start the module's process from cold only to be handed an
@@ -205,7 +209,7 @@ public final class NotifyPanel {
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(ctx);
         title.setText("Notifications");
-        title.setTextColor(Ui.COLOR_TEXT);
+        title.setTextColor(theme.text());
         title.setTextSize(16);
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -214,11 +218,11 @@ public final class NotifyPanel {
         if (!notes.isEmpty()) {
             TextView clear = new TextView(ctx);
             clear.setText("Clear all");
-            clear.setTextColor(0xFF7FB0FF);
+            clear.setTextColor(theme.retro() ? theme.text() : 0xFF7FB0FF);
             clear.setTextSize(13);
             int cpad = Ui.dp(ctx, 8);
             clear.setPadding(cpad, cpad, cpad, cpad);
-            clear.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            clear.setBackground(theme.button(ctx, 0x00000000, Ui.dp(ctx, 10)));
             clear.setOnClickListener(v -> {
                 Notifications.clearAll(ctx);
                 dismiss();
@@ -232,14 +236,16 @@ public final class NotifyPanel {
             empty.setText(granted
                     ? "Nothing new"
                     : "Switch on notification access in Desktop Plus settings");
-            empty.setTextColor(Ui.COLOR_TEXT_DIM);
+            empty.setTextColor(theme.dimText());
             empty.setTextSize(13);
             int epad = Ui.dp(ctx, 10);
             empty.setPadding(0, epad, 0, epad);
             body.addView(empty);
+            theme.applyFont(body);
             return;
         }
-        Notifications.addRows(ctx, body, notes, displayId);
+        Notifications.addRows(ctx, theme, body, notes, displayId);
+        theme.applyFont(body);
     }
 
     /** Follows the shade while the panel is open, and lets go when it closes. */

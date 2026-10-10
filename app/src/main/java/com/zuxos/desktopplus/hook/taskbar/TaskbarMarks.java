@@ -13,6 +13,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.IconInfo;
 import com.zuxos.desktopplus.logic.RunningOrder;
 
@@ -45,7 +46,8 @@ final class TaskbarMarks {
     static void apply(ViewGroup dragLayer, ViewGroup icons, Set<String> running) {
         try {
             MarkView marks = markIn(dragLayer);
-            if (!Cfg.runningMarks()) {
+            // A Retro bar shows what is open by its buttons, raised or sunken, not by marks.
+            if (!Cfg.runningMarks() || Theme.of(dragLayer).retro()) {
                 remove(dragLayer);
                 return;
             }

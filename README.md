@@ -86,6 +86,12 @@ mode along the way.
   the tray for a few seconds, with its buttons and a reply box. Needs notification access.
 - **Glass taskbar** (optional). Under the glyphs it adds the lightest tint that keeps them at a
   3:1 contrast ratio over any app, so white icons don't vanish over a white app.
+- **Retro theme** (optional, monitor only): the bar, Start, the tray, the bar's menus and panels,
+  pop-ups and the screenshot card as Windows 98 drew them - grey bevels, navy selection, a pixel
+  font and pixel keys. Open apps are raised buttons, the one in front pressed in. Nothing moves
+  and no glass is captured, so it is also the lightest look. The tablet keeps glass.
+- **Taskbar at the top** (optional, monitor only), over the monitor's status bar strip. Menus,
+  panels, pop-ups and previews open below it, and maximised windows start under it.
 
 ### Liquid glass
 
@@ -186,6 +192,8 @@ survives restarts and reboots.
 | **Mark the apps that are open** | On | A line under each running app, folders included |
 | **Menu on a taskbar icon** | On | Hold an icon for Open, Close, App info and shortcuts |
 | **Glass taskbar** | Off | Experimental: a translucent bar with a contrast floor |
+| **Theme** | Glass | Retro: Windows 98 on the monitor's bar and panels |
+| **Taskbar position (monitor)** | Bottom | Top; read when the launcher restarts |
 | **Status tray / Show temperatures** | On | The tray at the right of the bar |
 | **Drag apps out of the stock drawer** | On | Hold and move in ZUI's drawer to drag to the desktop or bar |
 | **Use the stock taskbar drawer too** | On | Your folders and order in ZUI's own drawer |

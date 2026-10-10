@@ -1,6 +1,7 @@
 package com.zuxos.desktopplus.desktop;
 
 import android.content.Context;
+import android.graphics.Insets;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -12,7 +13,8 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.MenuRows;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
-import com.zuxos.desktopplus.hook.Windows;
+import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -104,12 +106,12 @@ public final class Menus {
         final FrameLayout shade = new FrameLayout(ctx);
         // Catches the tap that dismisses the menu, and stops it reaching whatever is underneath.
         shade.setClickable(true);
-        shade.setOnClickListener(v -> MenuRows.close(shade, () -> root.removeView(shade)));
+        shade.setOnClickListener(v -> MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade)));
         shade.setFocusableInTouchMode(true);
         shade.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() == KeyEvent.ACTION_UP && (keyCode == KeyEvent.KEYCODE_BACK
                     || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
-                MenuRows.close(shade, () -> root.removeView(shade));
+                MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade));
                 return true;
             }
             return false;
@@ -133,9 +135,10 @@ public final class Menus {
         }
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
-            body.addView(MenuRows.row(ctx, entry.title, icons.get(i), anyIcon, entry.enabled,
+            body.addView(MenuRows.row(ctx, Theme.GLASS, entry.title, icons.get(i), anyIcon,
+                    entry.enabled,
                     v -> {
-                        MenuRows.close(shade, () -> root.removeView(shade));
+                        MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade));
                         if (entry.action != null) {
                             try {
                                 entry.action.run();
@@ -162,31 +165,32 @@ public final class Menus {
             pane.measure(fitIn(root.getWidth()), fitIn(root.getHeight()));
             int width = pane.getMeasuredWidth();
             int height = pane.getMeasuredHeight();
-            // The usable height stops at the taskbar: the activity runs on under it.
-            int usable = root.getHeight() - taskbarOver(root);
+            // The usable height stops at the taskbar, at either edge: the activity runs on
+            // under it.
+            Insets bar = taskbarOver(root);
+            int usable = root.getHeight() - bar.bottom;
             int top = (int) y;
             if (top + height > usable) {
                 top -= height;
             }
             mlp.gravity = Gravity.TOP | Gravity.START;
             mlp.leftMargin = clamp((int) x, root.getWidth() - width);
-            mlp.topMargin = clamp(top, usable - height);
+            mlp.topMargin = Math.max(bar.top, clamp(top, usable - height));
         }
         shade.addView(pane, mlp);
         root.addView(shade, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         shade.requestFocus();
-        MenuRows.popIn(pane, above, pane::refresh);
+        MenuRows.popIn(pane, Theme.GLASS, above, pane::refresh);
     }
 
-    /** How much of the bottom of this view the taskbar covers. */
-    private static int taskbarOver(View view) {
+    /** How much of the top and of the bottom of this view the taskbar covers. */
+    private static Insets taskbarOver(View view) {
         try {
             if (view.getDisplay() == null) {
-                return 0;
+                return Insets.NONE;
             }
-            int bar = Windows.taskbarHeight(
-                    view.getDisplay().getDisplayId());
+            Insets bar = BarEdge.reserved(view.getDisplay().getDisplayId());
             int[] at = new int[2];
             view.getLocationOnScreen(at);
             int screen = view.getResources().getDisplayMetrics().heightPixels;
@@ -195,9 +199,11 @@ public final class Menus {
             screen = Math.max(screen, size.y);
             // Only the part of the bar that actually overlaps this view.
             int viewBottom = at[1] + view.getHeight();
-            return Math.max(0, Math.min(bar, viewBottom - (screen - bar)));
+            int bottom = Math.max(0, Math.min(bar.bottom, viewBottom - (screen - bar.bottom)));
+            int top = Math.max(0, bar.top - at[1]);
+            return Insets.of(0, top, 0, bottom);
         } catch (Throwable t) {
-            return 0;
+            return Insets.NONE;
         }
     }
 

@@ -3,6 +3,7 @@ package com.zuxos.desktopplus.hook.taskbar;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Insets;
 import android.graphics.PixelFormat;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -26,6 +27,7 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.motion.FrameRate;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Probe;
 import com.zuxos.desktopplus.hook.panel.NotifyPanel;
@@ -56,6 +58,8 @@ public final class TaskbarMenu {
         return sCurrent;
     }
     private static WindowManager sWm;
+    /** The open menu's theme, for its way out. */
+    private static Theme sTheme = Theme.GLASS;
 
     private static boolean sInstalled;
     private static Runnable sPending;
@@ -305,7 +309,7 @@ public final class TaskbarMenu {
         sCurrent = null;
         sWm = null;
         // Faded out first, the iOS way; the next menu can open meanwhile.
-        MenuRows.close(current, () -> removeMenu(current, wm));
+        MenuRows.close(current, sTheme, () -> removeMenu(current, wm));
     }
 
     private static void removeMenu(View current, WindowManager wm) {
@@ -375,36 +379,42 @@ public final class TaskbarMenu {
         // The taskbar's own context is bound to the taskbar's window type, and the window manager
         // refuses a window of any other type from it.
         final Context ctx = Overlays.windowContext(source.getContext());
+        final Theme theme = Theme.of(displayId);
         try {
             FrameLayout root = new FrameLayout(ctx);
-            GlassSurface glass = MenuRows.pane(ctx);
+            GlassSurface glass = MenuRows.pane(ctx, theme);
             LinearLayout body = MenuRows.body(glass);
             boolean anyIcon = false;
             for (Entry entry : entries) {
                 anyIcon |= entry.icon() != null;
             }
             for (Entry entry : entries) {
-                body.addView(rowFor(ctx, entry, anyIcon), new LinearLayout.LayoutParams(
+                body.addView(rowFor(ctx, theme, entry, anyIcon), new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT));
             }
 
             final boolean onTheBar = rawY < 0;
+            final Insets bar = BarEdge.reserved(source);
             FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT);
             glp.leftMargin = (int) Math.max(0, rawX - Ui.dp(ctx, 90));
-            if (onTheBar) {
+            if (onTheBar && bar.top > 0) {
+                // A bar at the top: the menu hangs from it.
+                glp.gravity = Gravity.TOP | Gravity.START;
+                glp.topMargin = bar.top;
+            } else if (onTheBar) {
                 glp.gravity = Gravity.BOTTOM | Gravity.START;
                 // Measured off the bar on screen, and the window reaches the screen's edge, so the
                 // menu sits on the taskbar rather than a bar's height above it.
-                glp.bottomMargin = TaskbarTray.barInset(source);
+                glp.bottomMargin = bar.bottom;
             } else {
                 glp.gravity = Gravity.TOP | Gravity.START;
                 glp.topMargin = (int) Math.max(0, rawY);
             }
             root.addView(glass, glp);
-            MenuRows.popIn(glass, onTheBar);
+            MenuRows.popIn(glass, theme, onTheBar && bar.top == 0);
             glass.post(() -> {
                 // Held near the right-hand edge - where the tray is - the menu would run off the
                 // display. Its size is only known once it has been measured.
@@ -414,9 +424,10 @@ public final class TaskbarMenu {
                 int left = Math.max(0, Math.min(lp.leftMargin, Math.max(0, maxLeft)));
                 int top = lp.topMargin;
                 if (!onTheBar) {
-                    int maxTop = root.getHeight() - glass.getHeight() - TaskbarTray
-                            .barInset(source);
-                    top = Math.max(edge, Math.min(lp.topMargin, Math.max(edge, maxTop)));
+                    // Clear of the bar, whichever edge it is on.
+                    int minTop = edge + bar.top;
+                    int maxTop = root.getHeight() - glass.getHeight() - bar.bottom;
+                    top = Math.max(minTop, Math.min(lp.topMargin, Math.max(minTop, maxTop)));
                 }
                 if (left != lp.leftMargin || top != lp.topMargin) {
                     lp.leftMargin = left;
@@ -471,6 +482,7 @@ public final class TaskbarMenu {
             wm.addView(root, lp);
             sCurrent = root;
             sWm = wm;
+            sTheme = theme;
             root.requestFocus();
             return true;
         } catch (Throwable t) {
@@ -479,8 +491,8 @@ public final class TaskbarMenu {
         }
     }
 
-    private static View rowFor(Context ctx, Entry entry, boolean indent) {
-        return MenuRows.row(ctx, entry.title, entry.icon(), indent, true, v -> {
+    private static View rowFor(Context ctx, Theme theme, Entry entry, boolean indent) {
+        return MenuRows.row(ctx, theme, entry.title, entry.icon(), indent, true, v -> {
             dismiss();
             try {
                 entry.action.run();

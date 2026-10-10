@@ -3,7 +3,6 @@ package com.zuxos.desktopplus.hook;
 import android.view.View;
 
 import com.zuxos.desktopplus.core.L;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -89,33 +88,5 @@ public final class Windows {
             }
         }
         return null;
-    }
-
-    /**
-     * How much of the bottom of a display the taskbar covers, in pixels; 0 when there is none.
-     *
-     * <p>Measured off the taskbar itself: its window is taller than the bar (it reserves room
-     * above for the stashed handle and popups), so the window's height would overstate it. On this
-     * firmware it is 80 of the window's 162.
-     */
-    public static int taskbarHeight(int displayId) {
-        for (View root : roots()) {
-            // The drag layer, not the window's root: the tablet's bars wrap it in another view,
-            // and matching only bare drag layers left menus there running on under the bar.
-            android.view.ViewGroup bar = TaskbarTray.dragLayerOf(root);
-            if (bar == null || TaskbarTray.displayIdOf(bar) != displayId || !bar.isShown()) {
-                continue;
-            }
-            View row = TaskbarTray.rowReference(bar);
-            if (row != null && row.getHeight() > 0) {
-                // From the top of the visible bar to the bottom of the window, on screen.
-                int[] rowAt = new int[2];
-                int[] rootAt = new int[2];
-                row.getLocationOnScreen(rowAt);
-                root.getLocationOnScreen(rootAt);
-                return Math.max(0, rootAt[1] + root.getHeight() - rowAt[1]);
-            }
-        }
-        return 0;
     }
 }

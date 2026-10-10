@@ -1,6 +1,8 @@
 package com.zuxos.desktopplus.hook.taskbar;
 
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.view.Gravity;
@@ -15,7 +17,10 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.AndroidRobot;
+import com.zuxos.desktopplus.core.icons.PixelIcons;
 import com.zuxos.desktopplus.core.motion.Hover;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -77,7 +82,7 @@ final class TaskbarStart {
                     return;
                 }
             }
-            ours.bind(zui);
+            ours.bind(zui, Theme.of(dragLayer));
             place(dragLayer, ours, zui);
             placeSearch(dragLayer, icons, ours);
         } catch (Throwable t) {
@@ -171,25 +176,30 @@ final class TaskbarStart {
         return button;
     }
 
-    /** Beside the navigation keys, centred on the bar's row, at ZUI's own icon size. */
+    /**
+     * Beside the navigation keys, centred on the bar's row, at ZUI's own icon size. Retro's
+     * button is a box a little shorter than that, as wide as the robot and its label need.
+     */
     private static void place(ViewGroup dragLayer, StartButton button, View zui) {
         View reference = TaskbarTray.rowReference(dragLayer);
         if (reference == null || reference.getHeight() <= 0) {
             return;
         }
         int size = size(zui, dragLayer.getContext());
+        int height = button.retro() ? size * 4 / 5 : size;
+        int width = button.retro() ? button.retroWidth(height) : size;
         int left = navEnd(dragLayer);
-        int top = reference.getTop() + (reference.getHeight() - size) / 2;
+        int top = reference.getTop() + (reference.getHeight() - height) / 2;
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) button.getLayoutParams();
         int gravity = Gravity.TOP | Gravity.START;
-        if (lp.gravity == gravity && lp.width == size && lp.height == size
+        if (lp.gravity == gravity && lp.width == width && lp.height == height
                 && lp.leftMargin == left && lp.topMargin == top) {
             // Placed from layout listeners: unchanged params must not ask for another pass.
             return;
         }
         lp.gravity = gravity;
-        lp.width = size;
-        lp.height = size;
+        lp.width = width;
+        lp.height = height;
         lp.leftMargin = left;
         lp.topMargin = top;
         button.setLayoutParams(lp);
@@ -333,12 +343,23 @@ final class TaskbarStart {
     /**
      * The button itself: the Android robot (or ZUI's own icon, with the robot off), a toggle for
      * ZUI's drawer, and the robot's eyes wide while the drawer is open.
+     *
+     * <p>On a Retro bar it is Windows 98's: a raised box with the pixel robot and "Start" in
+     * bold, sunken while pressed and while the drawer it opened is up, and nothing that moves.
      */
     static final class StartButton extends ImageView {
+        private static final String LABEL = "Start";
+        /** The label's size, as a share of the box's height. */
+        private static final float LABEL_SCALE = 0.42f;
+
         private View mZui;
         private final AndroidRobot mRobot = new AndroidRobot();
         private boolean mRobotShown;
         private int mZuiIconWidth = -1;
+        private Theme mTheme = Theme.GLASS;
+        /** Retro's robot and label, made the first time the bar is Retro. */
+        private Drawable mPixelRobot;
+        private Paint mLabel;
 
         private final Runnable mWatchDrawer = new Runnable() {
             @Override
@@ -350,7 +371,7 @@ final class TaskbarStart {
                 if (drawerOpen(TaskbarTray.displayIdOf(StartButton.this))) {
                     postDelayed(this, 300L);
                 } else {
-                    mRobot.setWide(false);
+                    drawerShown(false);
                 }
             }
         };
@@ -373,7 +394,7 @@ final class TaskbarStart {
             });
             setOnHoverListener((v, e) -> {
                 int action = e.getActionMasked();
-                if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                if (action == MotionEvent.ACTION_HOVER_ENTER && !mTheme.retro()) {
                     Hover.enter(v);
                 } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
                     Hover.exit(v);
@@ -382,22 +403,115 @@ final class TaskbarStart {
             });
         }
 
+        boolean retro() {
+            return mTheme.retro();
+        }
+
         /** Takes ZUI's button: what a press presses, and the icon size to match. */
-        void bind(View zui) {
+        void bind(View zui, Theme theme) {
             mZui = zui;
             boolean robot = Cfg.startButtonRobot();
             int iconWidth = zuiIconWidth(zui);
-            if (robot == mRobotShown && iconWidth == mZuiIconWidth && getDrawable() != null) {
+            if (robot == mRobotShown && iconWidth == mZuiIconWidth && theme == mTheme
+                    && getDrawable() != null) {
                 return;
             }
             mRobotShown = robot;
             mZuiIconWidth = iconWidth;
+            mTheme = theme;
+            if (theme.retro()) {
+                bindRetro(zui, robot);
+                return;
+            }
+            setBackground(null);
             Drawable icon = robot ? mRobot : copyOfZuiIcon(zui);
             setImageDrawable(icon != null ? icon : mRobot);
             // The same margin round the icon as ZUI's button keeps round its own.
             int inset = iconWidth > 0 && zui.getWidth() > iconWidth
                     ? (zui.getWidth() - iconWidth) / 2 : 0;
             setPadding(inset, inset, inset, inset);
+        }
+
+        private void bindRetro(View zui, boolean robot) {
+            Context ctx = getContext();
+            if (mPixelRobot == null) {
+                mPixelRobot = PixelIcons.robot();
+                mLabel = new Paint(Paint.ANTI_ALIAS_FLAG);
+                mLabel.setColor(Theme.RETRO.text());
+                mLabel.setTypeface(Theme.RETRO.font(ctx));
+                // Windows 98's label is bold: the font's own bold where it has one.
+                if (!mLabel.setFontVariationSettings("'wght' 700")) {
+                    mLabel.setFakeBoldText(true);
+                }
+            }
+            Drawable icon = robot ? mPixelRobot : copyOfZuiIcon(zui);
+            setImageDrawable(icon != null ? icon : mPixelRobot);
+            setBackground(Bevel.button(ctx));
+            setScaleX(1f);
+            setScaleY(1f);
+            setRotation(0f);
+            retroPadding(getWidth(), getHeight());
+        }
+
+        /** Retro's box at {@code height}: the robot's square, the label, and a margin. */
+        int retroWidth(int height) {
+            if (mLabel == null) {
+                return height;
+            }
+            mLabel.setTextSize(height * LABEL_SCALE);
+            return height + Math.round(mLabel.measureText(LABEL)) + 2 * retroInset(height);
+        }
+
+        private static int retroInset(int height) {
+            return Math.max(1, height / 8);
+        }
+
+        /** The robot in a square at the left; the label is drawn in the room to its right. */
+        private void retroPadding(int width, int height) {
+            if (width <= 0 || height <= 0) {
+                return;
+            }
+            int inset = retroInset(height);
+            setPadding(inset, inset, Math.max(inset, width - height + inset), inset);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (mTheme.retro()) {
+                retroPadding(w, h);
+            }
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            if (!mTheme.retro() || mLabel == null) {
+                super.onDraw(canvas);
+                return;
+            }
+            int height = getHeight();
+            // Pressed in, the face moves a pixel down and right, as Windows 98's buttons do.
+            boolean down = isPressed() || isActivated();
+            int shift = down ? Math.max(1, Ui.dp(getContext(), 1)) : 0;
+            canvas.save();
+            canvas.translate(shift, shift);
+            super.onDraw(canvas);
+            mLabel.setTextSize(height * LABEL_SCALE);
+            Paint.FontMetrics m = mLabel.getFontMetrics();
+            float baseline = (height - m.ascent - m.descent) / 2f;
+            canvas.drawText(LABEL, height, baseline, mLabel);
+            canvas.restore();
+        }
+
+        /**
+         * The drawer this button opened is up, or gone: the robot's eyes, and on a Retro bar the
+         * box held in.
+         */
+        private void drawerShown(boolean open) {
+            if (!mTheme.retro()) {
+                mRobot.setWide(open);
+            }
+            setActivated(open);
         }
 
         private void press() {
@@ -413,7 +527,7 @@ final class TaskbarStart {
                 // A second press closes it, as a start button does.
                 PRESSED.delete(display);
                 if (TaskbarBridge.closeStockDrawer(display)) {
-                    mRobot.setWide(false);
+                    drawerShown(false);
                     L.i("start button: closed the drawer on display " + display);
                     return;
                 }
@@ -422,7 +536,7 @@ final class TaskbarStart {
                 return;
             }
             PRESSED.put(display, SystemClock.uptimeMillis());
-            mRobot.setWide(true);
+            drawerShown(true);
             removeCallbacks(mWatchDrawer);
             postDelayed(mWatchDrawer, 600L);
             View zui = mZui;

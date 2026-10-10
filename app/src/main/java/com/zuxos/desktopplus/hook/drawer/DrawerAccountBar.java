@@ -47,6 +47,7 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.desktop.Menus;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarBridge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarRunning;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
@@ -322,7 +323,7 @@ public final class DrawerAccountBar {
             }
             int[] onScreen = new int[2];
             container.getLocationOnScreen(onScreen);
-            int barTop = TaskbarTray.barTopOnScreen(mDisplay);
+            int barTop = BarEdge.bottomBarTop(mDisplay);
             if (barTop > 0) {
                 bottom = Math.min(bottom, barTop - onScreen[1]);
             }

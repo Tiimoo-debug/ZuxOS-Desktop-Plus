@@ -1,6 +1,7 @@
 package com.zuxos.desktopplus.hook.taskbar;
 
 import android.content.Context;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.view.Gravity;
@@ -21,6 +22,8 @@ import com.zuxos.desktopplus.core.Thermals;
 import com.zuxos.desktopplus.core.Tone;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.DisplayTimeline;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.drawer.DrawerAccountBar;
@@ -89,6 +92,7 @@ public final class TaskbarTray {
         // First, and outside the block below: neither of these depends on spotting the window,
         // and an early return from that search used to take them both down with it.
         TaskbarGlass.install(loader);
+        TaskbarEdge.install(loader);
         TaskbarMenu.install(loader);
         TaskbarApps.install(loader);
         NavKeysHold.install(loader);
@@ -137,6 +141,7 @@ public final class TaskbarTray {
         }
         View window = windowRoot.getRootView();
         clearWrapper(window, root);
+        TaskbarEdge.apply(root);
         // The tray and the glass are for bars whose window is the drag layer itself - the
         // monitor's. The tablet's bars are wrapped, were never given either, and still are not:
         // recognising those bars here is for our row and start button, not a new look for them.
@@ -357,54 +362,8 @@ public final class TaskbarTray {
         return width + Ui.dp(dragLayer.getContext(), EDGE_MARGIN_DP);
     }
 
-    /**
-     * The top of the visible taskbar on this display, in screen pixels, or -1 when no bar is up
-     * there - for anything that must stop above it.
-     */
-    public static int barTopOnScreen(int display) {
-        // Asked on every frame of a drawer slide or a drag: the bar's row is remembered per
-        // display, and the windows are only searched again once it is gone.
-        WeakReference<View> known = BAR_ROWS.get(display);
-        View reference = known != null ? known.get() : null;
-        if (reference == null || !reference.isAttachedToWindow()) {
-            reference = null;
-            // Every bar's window, not only the ones holding our tray: with the tray switched off
-            // there were none, and nothing knew where the bar began.
-            for (View root : Windows.roots()) {
-                ViewGroup dragLayer = root.isAttachedToWindow() ? dragLayerOf(root) : null;
-                if (dragLayer != null && displayIdOf(dragLayer) == display) {
-                    reference = rowReference(dragLayer);
-                    if (reference != null) {
-                        BAR_ROWS.put(display, new WeakReference<>(reference));
-                        break;
-                    }
-                }
-            }
-        }
-        if (reference != null && reference.getHeight() > 0 && reference.isShown()) {
-            int[] at = new int[2];
-            reference.getLocationOnScreen(at);
-            return at[1];
-        }
-        return -1;
-    }
-
-    /** Per display, the row {@link #barTopOnScreen} measures. */
-    private static final Map<Integer, WeakReference<View>> BAR_ROWS =
-            new java.util.concurrent.ConcurrentHashMap<>();
-
     public static int displayIdOf(View view) {
-        try {
-            if (view.getDisplay() != null) {
-                return view.getDisplay().getDisplayId();
-            }
-            // Not in a window yet: the display its window context is for, rather than
-            // assuming the tablet.
-            android.view.Display d = view.getContext().getDisplay();
-            return d != null ? d.getDisplayId() : 0;
-        } catch (Throwable t) {
-            return 0;
-        }
+        return Ui.displayOf(view);
     }
 
     /**
@@ -485,41 +444,6 @@ public final class TaskbarTray {
         }
     }
 
-    /**
-     * How far the visible bar reaches up from the bottom of the display, in pixels.
-     *
-     * <p>What a popup anchored to the taskbar needs, and the one measurement that cannot be got
-     * wrong by asking the drag layer. The drag layer is taller than the bar - it reserves room for
-     * the stashed handle - and its own height is the whole window, which grows to fill the display
-     * while the app drawer is open. Reading the row's position on screen sidesteps both: it is
-     * where the bar actually is.
-     *
-     * @return the gap to leave under a popup, or a sane guess when the bar cannot be measured
-     */
-    public static int barInset(View source) {
-        if (source == null) {
-            return 0;
-        }
-        View root = source;
-        while (root.getParent() instanceof View) {
-            root = (View) root.getParent();
-        }
-        View reference = root instanceof ViewGroup ? rowReference((ViewGroup) root) : null;
-        if (reference != null && reference.getHeight() > 0) {
-            int display = displayHeight(reference.getContext());
-            int[] at = new int[2];
-            reference.getLocationOnScreen(at);
-            int fromBottom = display - at[1];
-            if (display > 0 && fromBottom > 0 && fromBottom <= display) {
-                return fromBottom;
-            }
-            // Not on screen yet, or on a display we could not measure; the row's own height is
-            // still closer to the truth than the window's.
-            return reference.getHeight();
-        }
-        return source.getHeight() > 0 ? source.getHeight() : Ui.dp(source.getContext(), 56);
-    }
-
     public static int displayHeight(Context ctx) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -547,10 +471,17 @@ public final class TaskbarTray {
         return Tone.dimText(AppCtx.get());
     }
 
-    /** The row of indicators, which repaints itself whenever the state behind it moves. */
+    /**
+     * The row of indicators, which repaints itself whenever the state behind it moves. In the
+     * Retro theme it is Windows 98's tray: a shallow sunken box, black icons, the pixel font.
+     */
     private static final class TrayView extends LinearLayout {
 
         private final int mDisplayId;
+        /** Which theme it was last dressed in, once it has been. */
+        private Boolean mRetro;
+        /** The labels' own faces, kept while the pixel font stands in for them. */
+        private Typeface[] mOwnFaces;
         private final ImageView mNetIcon;
         private final ImageView mBatteryIcon;
         private final TextView mBatteryText;
@@ -750,19 +681,53 @@ public final class TaskbarTray {
             });
         }
 
+        /**
+         * Retro's tray, or glass's, following the theme for this display. Asked on every repaint
+         * - once a minute or on a state change - and done only when the theme has changed.
+         */
+        private void dress() {
+            boolean retro = Theme.of(mDisplayId).retro();
+            // Built as glass: only a change of theme has anything to do.
+            boolean unchanged = mRetro == null ? !retro : mRetro == retro;
+            mRetro = retro;
+            if (unchanged) {
+                return;
+            }
+            Context ctx = getContext();
+            setBackground(retro ? Bevel.shallow(ctx) : null);
+            TextView[] labels = {mBatteryText, mTemps, mClock, mDate};
+            if (mOwnFaces == null) {
+                mOwnFaces = new Typeface[labels.length];
+                for (int i = 0; i < labels.length; i++) {
+                    mOwnFaces[i] = labels[i].getTypeface();
+                }
+            }
+            for (int i = 0; i < labels.length; i++) {
+                labels[i].setTypeface(retro ? Theme.RETRO.font(ctx) : mOwnFaces[i]);
+            }
+            // Windows 98's tray has no round light under what is pressed.
+            mDate.setBackground(retro ? null : Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            mClock.setBackground(retro ? null : Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 10)));
+            for (ImageView button : new ImageView[]{mScreenshot, mBell, mPanelButton}) {
+                button.setBackground(retro ? null : Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 14)));
+            }
+            mShownColor = 0;
+        }
+
         private void render() {
             SysState state = mState;
             if (state == null) {
                 return;
             }
-            int color = textColor();
+            dress();
+            int color = mRetro ? Theme.RETRO.text() : textColor();
             boolean recolour = color != mShownColor;
             if (recolour) {
                 mShownColor = color;
                 mBatteryText.setTextColor(color);
                 mClock.setTextColor(color);
                 mDate.setTextColor(color);
-                mTemps.setTextColor(dimTextColor());
+                mTemps.setTextColor(mRetro ? Theme.RETRO.dimText() : dimTextColor());
                 mScreenshot.setImageDrawable(TrayIcons.screenshot(color));
                 mPanelButton.setImageDrawable(TrayIcons.panelChevron(color));
             }

@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Region;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -14,13 +15,16 @@ import android.service.quicksettings.TileService;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.Reflect;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.panel.Notifications;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarScope;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
@@ -282,6 +286,7 @@ public final class RoadmapProbe {
                     }
                 }
             }
+            edge(sb, layer);
             sb.append("  painted with: window ").append(paint(root.getBackground()))
                     .append(", bar ").append(paint(layer.getBackground())).append('\n');
             for (View keys : Reflect.findByIdNames(layer, "end_nav_buttons",
@@ -305,6 +310,46 @@ public final class RoadmapProbe {
             positionNames(sb, layer.getContext());
         }
         return sb.toString();
+    }
+
+    /**
+     * Where the bar is and what it takes (#14): its edge and the room it keeps, where ZUI lays
+     * out its two rows, the strip ZUI lets touches through, and the theme it is painted in.
+     */
+    private static void edge(StringBuilder sb, ViewGroup layer) {
+        sb.append("  edge: reserves ").append(BarEdge.reserved(layer))
+                .append(", theme ").append(Theme.of(layer).retro() ? "Retro" : "Glass")
+                .append('\n');
+        for (View row : Reflect.findByIdNames(layer, "taskbar_view", "navbuttons_view")) {
+            ViewGroup.LayoutParams lp = row.getLayoutParams();
+            sb.append("    #").append(Reflect.idName(row)).append(": gravity ")
+                    .append(lp instanceof FrameLayout.LayoutParams ? "0x" + Integer.toHexString(
+                            ((FrameLayout.LayoutParams) lp).gravity) : "not a frame's")
+                    .append(", top ").append(row.getTop()).append(", ")
+                    .append(row.getHeight()).append(" tall\n");
+        }
+        Object controllers = Reflect.field(layer.getContext(), "mControllers");
+        Object insets = controllers == null ? null
+                : Reflect.field(controllers, "taskbarInsetsController");
+        sb.append("    touchable: ").append(insets == null ? "controller not found"
+                : regionsOf(insets)).append('\n');
+    }
+
+    /** The regions an object holds, read by their type: the build renames its fields. */
+    private static String regionsOf(Object target) {
+        StringBuilder out = new StringBuilder();
+        for (Field f : target.getClass().getDeclaredFields()) {
+            if (f.getType() != Region.class) {
+                continue;
+            }
+            try {
+                f.setAccessible(true);
+                out.append(out.length() == 0 ? "" : ", ").append(f.get(target));
+            } catch (Throwable ignored) {
+                // The next one.
+            }
+        }
+        return out.length() == 0 ? "no region field" : out.toString();
     }
 
     private static String paint(Drawable d) {

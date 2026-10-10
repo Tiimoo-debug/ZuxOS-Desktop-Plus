@@ -97,11 +97,13 @@ public final class LiquidGlass {
             uniform float smoothN;
 
             // Continuous-corner rounded box. The shape may run past the bottom of the view by
-            // extendB, which squares off the bottom corners of a pane sitting on a screen edge,
-            // and past both sides by extendX, for a bar that spans the screen end to end.
+            // extendB, which squares off the bottom corners of a pane sitting on a screen edge -
+            // past the top instead when it is negative, for a bar at the top of the screen - and
+            // past both sides by extendX, for a bar that spans the screen end to end.
             float sdShape(float2 p) {
-                float2 halfS = float2(size.x + 2.0 * extendX, size.y + extendB) * 0.5;
-                float2 centre = float2(size.x * 0.5, halfS.y);
+                float2 halfS = float2(size.x + 2.0 * extendX, size.y + abs(extendB)) * 0.5;
+                float2 centre = float2(size.x * 0.5,
+                        extendB >= 0.0 ? halfS.y : size.y - halfS.y);
                 float2 q = abs(p - centre) - halfS + radius;
                 float2 m = max(q, float2(0.0)) / max(radius, 0.001);
                 float corner = radius * pow(pow(m.x, smoothN) + pow(m.y, smoothN) + 1e-9,
@@ -247,7 +249,8 @@ public final class LiquidGlass {
      * at half size and looks the same once scaled.
      *
      * @param extendBottomPx how far the shape runs past the view's bottom edge (0 for a free
-     *                       pane; the corner radius for one sitting on the screen edge)
+     *                       pane; the corner radius for one sitting on the screen edge), or
+     *                       past its top when negative (a bar at the top of the screen)
      * @param extendSidesPx  how far it runs past both sides: a bar from one end of the screen to
      *                       the other, whose rim would otherwise curve back in at both ends
      * @param tintRgb        the material's colour; its alpha comes from the material
@@ -308,7 +311,7 @@ public final class LiquidGlass {
         shader.setFloatUniform("extendB", extend);
         shader.setFloatUniform("extendX", sides);
         shader.setFloatUniform("radius", Math.max(0f, Math.min(radius,
-                Math.min(width + 2f * sides, height + extend) / 2f)));
+                Math.min(width + 2f * sides, height + Math.abs(extend)) / 2f)));
         shader.setFloatUniform("smoothN", SMOOTH);
     }
 

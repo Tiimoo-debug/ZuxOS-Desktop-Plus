@@ -14,6 +14,8 @@ import android.widget.TextView;
 import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.logic.BevelMath;
 
 /**
  * One look for every menu: a pane of glass with a row per entry, icon on the left.
@@ -21,6 +23,9 @@ import com.zuxos.desktopplus.core.motion.Motion;
  * <p>The desktop's menus and the taskbar's used to be two different things - the system's popup
  * on one, glass on the other - so the same app's menu looked different depending on where you
  * held it. Both now build their rows here.
+ *
+ * <p>In the given {@link Theme}: Glass, or Retro's grey box with a navy bar under the row the
+ * pointer is on, black text in the pixel font, and nothing that moves.
  */
 public final class MenuRows {
 
@@ -31,8 +36,9 @@ public final class MenuRows {
     }
 
     /** The pane, holding a vertical list the rows go into - see {@link #body}. */
-    public static GlassSurface pane(Context ctx) {
-        GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, RADIUS_DP), Tone.panelTint(ctx));
+    public static GlassSurface pane(Context ctx, Theme theme) {
+        GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, RADIUS_DP), Tone.panelTint(ctx))
+                .theme(theme);
         LinearLayout body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
         int padV = Ui.dp(ctx, 6);
@@ -60,7 +66,7 @@ public final class MenuRows {
      * @param indent whether to leave the icon's room when there is no icon, so that a menu where
      *               some rows have one keeps every title lined up
      */
-    public static View row(Context ctx, String title, Drawable icon, boolean indent,
+    public static View row(Context ctx, Theme theme, String title, Drawable icon, boolean indent,
             boolean enabled, View.OnClickListener onClick) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -69,7 +75,7 @@ public final class MenuRows {
         int padV = Ui.dp(ctx, 9);
         row.setPadding(padH, padV, Ui.dp(ctx, 20), padV);
         row.setMinimumWidth(Ui.dp(ctx, 200));
-        int color = enabled ? Ui.COLOR_TEXT : Ui.COLOR_TEXT_DIM;
+        int color = enabled ? theme.text() : theme.dimText();
 
         int iconSize = Ui.dp(ctx, 20);
         if (icon != null || indent) {
@@ -96,10 +102,16 @@ public final class MenuRows {
         // nothing left to work with.
         text.setEllipsize(TextUtils.TruncateAt.END);
         text.setMaxWidth(Ui.dp(ctx, 300));
+        if (theme.retro()) {
+            text.setTypeface(theme.font(ctx));
+        }
         row.addView(text, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        if (enabled) {
+        if (enabled && theme.retro()) {
+            selectable(row, text, icon, color, theme);
+            row.setOnClickListener(onClick);
+        } else if (enabled) {
             // The iOS menu row: a soft rounded light under the row the pointer is on, deeper and
             // a touch smaller while pressed, springing back on release.
             android.graphics.drawable.GradientDrawable light =
@@ -149,6 +161,36 @@ public final class MenuRows {
         return row;
     }
 
+    /**
+     * Windows 98's row: the navy bar under it, and its text and glyph white, the moment the
+     * pointer is on it or a finger is down - and gone as soon as they leave. Nothing eases.
+     */
+    private static void selectable(LinearLayout row, TextView text, Drawable icon, int color,
+            Theme theme) {
+        Drawable bar = theme.selection();
+        bar.setAlpha(0);
+        row.setBackground(bar);
+        boolean glyph = icon != null && Glyphs.isGlyph(icon);
+        View.OnHoverListener lit = (v, e) -> {
+            int action = e.getActionMasked();
+            boolean on = action == MotionEvent.ACTION_HOVER_ENTER
+                    || action == MotionEvent.ACTION_HOVER_MOVE
+                    || action == MotionEvent.ACTION_DOWN
+                    || action == MotionEvent.ACTION_MOVE;
+            bar.setAlpha(on ? 255 : 0);
+            text.setTextColor(on ? ON_SELECTION : color);
+            if (glyph) {
+                icon.setTint(on ? ON_SELECTION : color);
+            }
+            return false;
+        };
+        row.setOnHoverListener(lit);
+        row.setOnTouchListener((v, e) -> lit.onHover(v, e));
+    }
+
+    /** White, on Retro's navy selection. */
+    private static final int ON_SELECTION = BevelMath.textOn(Theme.NAVY);
+
     private static void fade(android.graphics.drawable.Drawable d, int to) {
         android.animation.ValueAnimator a = android.animation.ValueAnimator.ofInt(d.getAlpha(), to);
         a.setDuration(Motion.SHORT + 60);
@@ -161,12 +203,12 @@ public final class MenuRows {
      * A menu going away: a quick fade as it settles back a touch, then {@code done}. Called
      * twice - a second tap while it fades - it still ends once.
      */
-    public static void close(View menu, Runnable done) {
+    public static void close(View menu, Theme theme, Runnable done) {
         if (Boolean.TRUE.equals(menu.getTag(TAG_CLOSING))) {
             return;
         }
         menu.setTag(TAG_CLOSING, Boolean.TRUE);
-        if (!Cfg.animations()) {
+        if (!theme.animates()) {
             done.run();
             return;
         }
@@ -208,16 +250,16 @@ public final class MenuRows {
     }
 
     /** The menu coming up: a short grow and fade from where it was asked for. */
-    public static void popIn(View pane, boolean fromBelow) {
-        popIn(pane, fromBelow, null);
+    public static void popIn(View pane, Theme theme, boolean fromBelow) {
+        popIn(pane, theme, fromBelow, null);
     }
 
     /**
      * The same, then {@code settled} once the pane is at rest - which is when a pane of liquid
      * glass can capture what is behind it.
      */
-    public static void popIn(View pane, boolean fromBelow, Runnable settled) {
-        if (!Cfg.animations()) {
+    public static void popIn(View pane, Theme theme, boolean fromBelow, Runnable settled) {
+        if (!theme.animates()) {
             if (settled != null) {
                 pane.post(settled);
             }

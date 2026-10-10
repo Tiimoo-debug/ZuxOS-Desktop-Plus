@@ -20,6 +20,8 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.hook.IconInfo;
@@ -154,7 +156,7 @@ public final class TaskbarRunning {
         TaskbarMarks.apply(dragLayer, icons, running);
         RunningRow ours = rowIn(dragLayer);
         if (ours != null) {
-            ours.setOpen(running);
+            ours.setOpen(running, TaskbarTray.displayIdOf(dragLayer));
         }
         describe(dragLayer, icons, running);
     }
@@ -462,11 +464,13 @@ public final class TaskbarRunning {
         for (Item pin : pins) {
             pinKeys.add(pin.key());
         }
-        if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins) && row.mSize == size) {
+        Theme theme = Theme.of(displayId);
+        boolean sameLook = row.mSize == size && row.mTheme == theme;
+        if (wanted.equals(row.mRunning) && pinKeys.equals(row.mPins) && sameLook) {
             return;
         }
         Context ctx = dragLayer.getContext();
-        if (pinKeys.equals(row.mPins) && row.mSize == size
+        if (pinKeys.equals(row.mPins) && sameLook
                 && reconcile(row, wanted, ctx, size, gap, displayId)) {
             return;
         }
@@ -497,6 +501,7 @@ public final class TaskbarRunning {
         row.mRunning = shown;
         row.mPins = shownPins;
         row.mSize = size;
+        row.mTheme = theme;
         row.setLayoutTransition(transition);
     }
 
@@ -1127,6 +1132,8 @@ public final class TaskbarRunning {
         List<String> mRunning = new ArrayList<>();
         /** The icon size the row was built at: built again when the bar's size is known better. */
         int mSize;
+        /** The look the row was built in: built again when the setting changes. */
+        Theme mTheme = Theme.GLASS;
         /** What is open right now, for the marks under the icons. */
         private Set<String> mOpen = Collections.emptySet();
         private final android.graphics.Paint mMarkPaint =
@@ -1144,10 +1151,32 @@ public final class TaskbarRunning {
             return true;
         }
 
-        void setOpen(Set<String> open) {
+        void setOpen(Set<String> open, int display) {
             if (!open.equals(mOpen)) {
                 mOpen = new LinkedHashSet<>(open);
                 invalidate();
+            }
+            if (mTheme.retro()) {
+                pressIn(display);
+            }
+        }
+
+        /**
+         * Retro's buttons in place of the marks, as Windows 98's taskbar has them: raised while
+         * the app is open, sunken for the window in front. Each icon's state only; a button whose
+         * state is unchanged is not redrawn.
+         */
+        private void pressIn(int display) {
+            String front = frontPackage(display);
+            Integer frontTask = FRONT_TASK.get(display);
+            for (int i = 0; i < getChildCount(); i++) {
+                View icon = getChildAt(i);
+                boolean open = RunningOrder.anyRunning(IconInfo.packagesOfView(icon), mOpen);
+                int window = TaskbarPreview.windowOf(icon, display);
+                boolean inFront = open && front != null && front.equals(icon.getTag())
+                        && (window < 0 || frontTask == null || window == frontTask);
+                icon.setSelected(open);
+                icon.setActivated(inFront);
             }
         }
 
@@ -1176,7 +1205,7 @@ public final class TaskbarRunning {
         @Override
         protected void dispatchDraw(android.graphics.Canvas canvas) {
             super.dispatchDraw(canvas);
-            if (mOpen.isEmpty() || !Cfg.runningMarks()) {
+            if (mOpen.isEmpty() || !Cfg.runningMarks() || mTheme.retro()) {
                 return;
             }
             mMarkPaint.setColor(TaskbarMarks.markColor(getContext()));
@@ -1282,6 +1311,7 @@ public final class TaskbarRunning {
                     // minimised app's record ahead of it is not.
                     front = false;
                     String before = FRONT.put(displayId, pkg);
+                    FRONT_TASK.put(displayId, task.taskId);
                     if (displayId == 0 && before != null && !before.equals(pkg)) {
                         TaskbarDiag.onFrontChanged(before, pkg);
                     }
@@ -1307,6 +1337,7 @@ public final class TaskbarRunning {
             if (front) {
                 // Nothing on screen here: the monitor's desktop with every app closed.
                 FRONT.remove(displayId);
+                FRONT_TASK.remove(displayId);
             }
             if (everything.size() <= 1) {
                 // Nothing but the home screen on this display - or a list this launcher is not
@@ -1334,6 +1365,10 @@ public final class TaskbarRunning {
 
     /** Per display: the package of the task in front, as of the last read of the task list. */
     private static final Map<Integer, String> FRONT =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Per display: the task in front, read with {@link #FRONT}. */
+    private static final Map<Integer, Integer> FRONT_TASK =
             new java.util.concurrent.ConcurrentHashMap<>();
 
     /** The package in front on this display, or null before the task list was first read. */
@@ -1574,7 +1609,7 @@ public final class TaskbarRunning {
             ImageView view = new ImageView(ctx);
             view.setImageDrawable(new FolderIconDrawable(previews, size));
             view.setContentDescription(folder.label != null ? folder.label : "Folder");
-            view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
+            view.setBackground(iconBackground(ctx, size, displayId));
             view.setOnClickListener(v -> openFolder(ctx, v, folder, displayId));
             // A folder lifts and jiggles under the pointer like the apps beside it; it has no
             // windows, so no preview.
@@ -1640,8 +1675,10 @@ public final class TaskbarRunning {
                             v.getParent().requestDisallowInterceptTouchEvent(true);
                         }
                         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-                        v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(Motion.SPRING_MS)
-                                .setInterpolator(Motion.SPRING).start();
+                        if (!Theme.of(v).retro()) {
+                            v.animate().scaleX(1.12f).scaleY(1.12f).setDuration(Motion.SPRING_MS)
+                                    .setInterpolator(Motion.SPRING).start();
+                        }
                     };
                     v.postDelayed(mArm, android.view.ViewConfiguration.getLongPressTimeout());
                     return false;
@@ -1720,6 +1757,10 @@ public final class TaskbarRunning {
 
         static void down(View v) {
             TaskbarPreview.pressed(v);
+            if (Theme.of(v).retro()) {
+                // Retro's buttons sink into the bar instead, by their own pressed state.
+                return;
+            }
             v.animate().cancel();
             v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT - 40)
                     .setInterpolator(Motion.EASE).start();
@@ -1789,6 +1830,12 @@ public final class TaskbarRunning {
         }
     }
 
+    /** Glass's ripple, or on a Retro bar a Windows 98 button that shows whether the app is open. */
+    private static Drawable iconBackground(Context ctx, int size, int displayId) {
+        return Theme.of(displayId).retro() ? Bevel.taskButton(ctx)
+                : Ui.ripple(ctx, 0x00000000, size / 2);
+    }
+
     private static View iconFor(Context ctx, String key, int size, int displayId) {
         int mark = key.indexOf(WINDOW_MARK);
         String pkg = mark < 0 ? key : key.substring(0, mark);
@@ -1813,7 +1860,7 @@ public final class TaskbarRunning {
             // What this icon stands for, read back by the marks and by anything else that asks an
             // icon what it is. The launcher's own icons carry an item info here; ours carry this.
             view.setTag(pkg);
-            view.setBackground(Ui.ripple(ctx, 0x00000000, size / 2));
+            view.setBackground(iconBackground(ctx, size, displayId));
             view.setOnClickListener(v -> {
                 // A window icon is that window; the app's own icon, when it has several, is its
                 // first - always the same one, whichever is in front.

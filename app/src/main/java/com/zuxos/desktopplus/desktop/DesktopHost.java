@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
+import android.graphics.Insets;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -32,12 +33,12 @@ import com.zuxos.desktopplus.hook.KeepAlive;
 import com.zuxos.desktopplus.hook.PowerProbe;
 import com.zuxos.desktopplus.hook.Probe;
 import com.zuxos.desktopplus.hook.RoadmapProbe;
-import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.home.OemBridge;
 import com.zuxos.desktopplus.hook.home.StockUnlockHooks;
 import com.zuxos.desktopplus.hook.home.SurfaceAttacher;
 import com.zuxos.desktopplus.hook.panel.NotifyPopup;
 import com.zuxos.desktopplus.hook.taskbar.AppMenu;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DesktopStore;
 import com.zuxos.desktopplus.model.DrawerStore;
@@ -593,10 +594,18 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     /**
      * Keeps what sits at the bottom of the desktop above the taskbar: the page dots and the Apps
      * pill. Anchored to the screen's bottom they sat under the bar - the dots blurred by its
-     * glass, the pill right on top of the back key.
+     * glass, the pill right on top of the back key. And the Remove target, at the top, under a
+     * bar moved there.
      */
     private void clearTaskbar() {
-        int bar = Windows.taskbarHeight(mDisplayId);
+        Insets reserved = BarEdge.reserved(mDisplayId);
+        FrameLayout.LayoutParams tlp = (FrameLayout.LayoutParams) mTrash.getLayoutParams();
+        int trashTop = reserved.top + Ui.dp(mActivity, 16);
+        if (tlp.topMargin != trashTop) {
+            tlp.topMargin = trashTop;
+            mTrash.setLayoutParams(tlp);
+        }
+        int bar = reserved.bottom;
         FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) mDots.getLayoutParams();
         int bottom = bar + Ui.dp(mActivity, 10);
         if (dlp.bottomMargin != bottom) {
@@ -1611,7 +1620,8 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        lp.topMargin = Ui.dp(mActivity, 16);
+        // Under the taskbar when it is at the top.
+        lp.topMargin = BarEdge.reserved(mDisplayId).top + Ui.dp(mActivity, 16);
         bar.setLayoutParams(lp);
         return bar;
     }

@@ -20,6 +20,7 @@ import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.notify.NotifyProvider;
 
 import java.util.ArrayList;
@@ -194,10 +195,11 @@ public final class Notifications {
         sCountedAt = 0;
     }
 
-    static void addRows(Context ctx, LinearLayout body, List<Note> notes, int displayId) {
+    static void addRows(Context ctx, Theme theme, LinearLayout body, List<Note> notes,
+            int displayId) {
         PackageManager pm = ctx.getPackageManager();
         for (Note note : notes) {
-            body.addView(row(ctx, pm, note, displayId));
+            body.addView(row(ctx, theme, pm, note, displayId));
         }
     }
 
@@ -205,13 +207,14 @@ public final class Notifications {
         call(ctx, METHOD_CLEAR_ALL, "", -1);
     }
 
-    private static View row(Context ctx, PackageManager pm, Note note, int displayId) {
+    private static View row(Context ctx, Theme theme, PackageManager pm, Note note,
+            int displayId) {
         LinearLayout line = new LinearLayout(ctx);
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);
         int pad = Ui.dp(ctx, 8);
         line.setPadding(pad, pad, pad, pad);
-        line.setBackground(Ui.ripple(ctx, 0x0FFFFFFF, Ui.dp(ctx, 12)));
+        line.setBackground(theme.button(ctx, 0x0FFFFFFF, Ui.dp(ctx, 12)));
 
         ImageView icon = new ImageView(ctx);
         icon.setImageDrawable(appIcon(pm, note.pkg));
@@ -227,7 +230,7 @@ public final class Notifications {
 
         TextView title = new TextView(ctx);
         title.setText(note.title.isEmpty() ? appName(pm, note.pkg) : note.title);
-        title.setTextColor(Ui.COLOR_TEXT);
+        title.setTextColor(theme.text());
         title.setTextSize(13);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -236,7 +239,7 @@ public final class Notifications {
         if (!note.text.isEmpty()) {
             TextView sub = new TextView(ctx);
             sub.setText(note.text);
-            sub.setTextColor(Ui.COLOR_TEXT_DIM);
+            sub.setTextColor(theme.dimText());
             sub.setTextSize(11);
             sub.setMaxLines(2);
             sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -250,11 +253,11 @@ public final class Notifications {
 
         if (note.clearable) {
             ImageView clear = new ImageView(ctx);
-            clear.setImageDrawable(TrayIcons.close(Ui.COLOR_TEXT_DIM));
+            clear.setImageDrawable(TrayIcons.close(theme.dimText()));
             int button = Ui.dp(ctx, 26);
             int inset = Ui.dp(ctx, 6);
             clear.setPadding(inset, inset, inset, inset);
-            clear.setBackground(Ui.ripple(ctx, 0x00000000, button / 2));
+            clear.setBackground(theme.button(ctx, 0x00000000, button / 2));
             clear.setContentDescription("Dismiss");
             clear.setOnClickListener(v -> {
                 dismiss(ctx, note.key);

@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.ColorSpace;
+import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
@@ -42,8 +43,8 @@ import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.KeyShell;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Tasks;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarMenu;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
@@ -171,7 +172,8 @@ public final class TaskOverview {
             DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
             int screenW = dm.widthPixels;
             int screenH = dm.heightPixels;
-            int inset = TaskbarTray.barInset(anchor);
+            Insets bar = BarEdge.reserved(anchor);
+            int inset = bar.top + bar.bottom;
 
             LinearLayout column = new LinearLayout(ctx);
             column.setOrientation(LinearLayout.VERTICAL);
@@ -273,8 +275,9 @@ public final class TaskOverview {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                             | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
-            // Above the taskbar, never over it: its recents button is how this is closed.
-            lp.gravity = Gravity.TOP;
+            // Beside the taskbar, never over it: its recents button is how this is closed. From
+            // the far edge of the screen, so up to a bar at the bottom or down to one at the top.
+            lp.gravity = bar.top > 0 ? Gravity.BOTTOM : Gravity.TOP;
             lp.setTitle("ZuxOS Desktop Plus recents");
             Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP * 2);
             root.setAlpha(0f);

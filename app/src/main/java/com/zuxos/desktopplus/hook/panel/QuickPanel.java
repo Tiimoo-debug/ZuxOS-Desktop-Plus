@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Insets;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.media.MediaMetadata;
@@ -36,8 +37,10 @@ import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.icons.TrayIcons;
 import com.zuxos.desktopplus.core.motion.FrameRate;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.Overlays;
-import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -218,10 +221,11 @@ public final class QuickPanel {
         // refuses a window of any other type from it.
         final Context ctx = Overlays.windowContext(taskbarCtx);
         try {
-            final int inset = TaskbarTray.barInset(anchor);
+            final Insets bar = BarEdge.reserved(anchor);
             FrameLayout root = new FrameLayout(ctx);
+            Theme theme = Theme.of(displayId);
             GlassSurface glass = new GlassSurface(ctx, Ui.dp(ctx, 22), Tone.panelTint(ctx),
-                    LiquidGlass.THICK);
+                    LiquidGlass.THICK).theme(theme);
 
             ScrollView scroller = new ScrollView(ctx);
             scroller.setVerticalScrollBarEnabled(false);
@@ -236,15 +240,17 @@ public final class QuickPanel {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT));
 
-            fill(ctx, body, displayId);
+            fill(ctx, body, displayId, theme);
 
             // The root is the whole display, so the panel's own margins place it: clear of the
-            // right edge, and exactly the bar's height up from the bottom of the screen.
+            // right edge, and against the bar - up from the bottom of the screen by its depth, or
+            // down from the top for a bar moved there.
             FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
                     panelWidth(ctx), FrameLayout.LayoutParams.WRAP_CONTENT);
-            glp.gravity = Gravity.BOTTOM | Gravity.END;
+            glp.gravity = (bar.top > 0 ? Gravity.TOP : Gravity.BOTTOM) | Gravity.END;
             glp.rightMargin = Ui.dp(ctx, EDGE_MARGIN_DP);
-            glp.bottomMargin = inset;
+            glp.topMargin = bar.top;
+            glp.bottomMargin = bar.bottom;
             root.addView(glass, glp);
 
             root.setFocusableInTouchMode(true);
@@ -304,7 +310,7 @@ public final class QuickPanel {
             // Set before the receiver goes on, and after fill() has registered its sessions -
             // an earlier version set it first and let the receiver's own tear-down pass
             // clear it again, which left the panel with no live refresh at all.
-            sRebuild = () -> fill(ctx, body, displayId);
+            sRebuild = () -> fill(ctx, body, displayId, theme);
             startReceiver(ctx);
             root.requestFocus();
         } catch (Throwable t) {
@@ -539,26 +545,28 @@ public final class QuickPanel {
     }
 
     /** Rebuilds the contents in place, so a toggle repaints without the panel blinking. */
-    private static void fill(Context ctx, LinearLayout body, int displayId) {
+    private static void fill(Context ctx, LinearLayout body, int displayId, Theme theme) {
         body.removeAllViews();
         // The cards these belonged to are gone; the new ones register their own.
         unwatchSessions();
         SysState state = SysState.get(ctx);
-        Runnable rebuild = () -> fill(ctx, body, displayId);
+        Runnable rebuild = () -> fill(ctx, body, displayId, theme);
 
-        body.addView(networkHeader(ctx, state));
-        body.addView(tiles(ctx, state, displayId, rebuild));
-        body.addView(divider(ctx));
-        watchSessions(SoundRows.addTo(ctx, body, displayId, rebuild));
-        body.addView(divider(ctx));
-        body.addView(batteryRow(ctx, state));
-        body.addView(action(ctx, "Network & internet",
+        body.addView(networkHeader(ctx, theme, state));
+        body.addView(tiles(ctx, theme, state, displayId, rebuild));
+        body.addView(divider(ctx, theme));
+        watchSessions(SoundRows.addTo(ctx, theme, body, displayId, rebuild));
+        body.addView(divider(ctx, theme));
+        body.addView(batteryRow(ctx, theme, state));
+        body.addView(action(ctx, theme, "Network & internet",
                 () -> QuickTiles.open(ctx, Settings.ACTION_WIFI_SETTINGS, displayId)));
-        body.addView(action(ctx, "All settings",
+        body.addView(action(ctx, theme, "All settings",
                 () -> QuickTiles.open(ctx, Settings.ACTION_SETTINGS, displayId)));
+        theme.applyFont(body);
     }
 
-    private static View tiles(Context ctx, SysState state, int displayId, Runnable onActed) {
+    private static View tiles(Context ctx, Theme theme, SysState state, int displayId,
+            Runnable onActed) {
         List<QuickTiles.Tile> tiles = new ArrayList<>();
         tiles.add(QuickTiles.wifi(ctx, state, displayId));
         tiles.add(QuickTiles.bluetooth(ctx, displayId, onActed));
@@ -575,7 +583,7 @@ public final class QuickPanel {
             // the width rather than size each cell to its own caption.
             lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
             lp.width = 0;
-            grid.addView(QuickTiles.view(ctx, tile, onActed), lp);
+            grid.addView(QuickTiles.view(ctx, theme, tile, onActed), lp);
         }
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -586,13 +594,13 @@ public final class QuickPanel {
 
     // --- rows ------------------------------------------------------------
 
-    private static View networkHeader(Context ctx, SysState state) {
+    private static View networkHeader(Context ctx, Theme theme, SysState state) {
         LinearLayout line = new LinearLayout(ctx);
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);
 
         ImageView icon = new ImageView(ctx);
-        icon.setImageDrawable(headerIcon(state));
+        icon.setImageDrawable(headerIcon(state, theme.text()));
         int size = Ui.dp(ctx, 26);
         line.addView(icon, new LinearLayout.LayoutParams(size, size));
 
@@ -605,7 +613,7 @@ public final class QuickPanel {
 
         TextView title = new TextView(ctx);
         title.setText(state.netLabel());
-        title.setTextColor(Ui.COLOR_TEXT);
+        title.setTextColor(theme.text());
         title.setTextSize(16);
         text.addView(title);
 
@@ -613,23 +621,23 @@ public final class QuickPanel {
         if (!detail.isEmpty()) {
             TextView sub = new TextView(ctx);
             sub.setText(detail);
-            sub.setTextColor(Ui.COLOR_TEXT_DIM);
+            sub.setTextColor(theme.dimText());
             sub.setTextSize(12);
             text.addView(sub);
         }
         return line;
     }
 
-    private static Drawable headerIcon(SysState state) {
+    private static Drawable headerIcon(SysState state, int color) {
         switch (state.netType()) {
             case SysState.NET_ETHERNET:
-                return TrayIcons.ethernet(Ui.COLOR_TEXT);
+                return TrayIcons.ethernet(color);
             case SysState.NET_WIFI:
-                return TrayIcons.wifi(state.netLevel(), Ui.COLOR_TEXT);
+                return TrayIcons.wifi(state.netLevel(), color);
             case SysState.NET_CELLULAR:
-                return TrayIcons.cellular(state.netLevel(), Ui.COLOR_TEXT);
+                return TrayIcons.cellular(state.netLevel(), color);
             default:
-                return TrayIcons.wifiOff(Ui.COLOR_TEXT);
+                return TrayIcons.wifiOff(color);
         }
     }
 
@@ -639,7 +647,7 @@ public final class QuickPanel {
      * <p>Temperatures are deliberately not here. They belong in the tray, where they are glanced
      * at; a panel you opened to change something should not be a sensor readout.
      */
-    private static View batteryRow(Context ctx, SysState state) {
+    private static View batteryRow(Context ctx, Theme theme, SysState state) {
         int percent = state.batteryPercent();
         String value = percent < 0 ? "Unknown"
                 : percent + "%" + (state.charging() ? " - charging" : "");
@@ -651,13 +659,13 @@ public final class QuickPanel {
 
         ImageView iv = new ImageView(ctx);
         iv.setImageDrawable(TrayIcons.battery(percent < 0 ? 0 : percent, state.charging(),
-                Ui.COLOR_TEXT));
+                theme.text()));
         int size = Ui.dp(ctx, 20);
         line.addView(iv, new LinearLayout.LayoutParams(size, size));
 
         TextView label = new TextView(ctx);
         label.setText("Battery");
-        label.setTextColor(Ui.COLOR_TEXT);
+        label.setTextColor(theme.text());
         label.setTextSize(14);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -666,20 +674,20 @@ public final class QuickPanel {
 
         TextView valueView = new TextView(ctx);
         valueView.setText(value);
-        valueView.setTextColor(Ui.COLOR_TEXT_DIM);
+        valueView.setTextColor(theme.dimText());
         valueView.setTextSize(13);
         line.addView(valueView);
         return line;
     }
 
-    private static View action(Context ctx, String title, Runnable action) {
+    private static View action(Context ctx, Theme theme, String title, Runnable action) {
         TextView tv = new TextView(ctx);
         tv.setText(title);
-        tv.setTextColor(Ui.COLOR_TEXT);
+        tv.setTextColor(theme.text());
         tv.setTextSize(14);
         int pad = Ui.dp(ctx, 10);
         tv.setPadding(pad, pad, pad, pad);
-        tv.setBackground(Ui.ripple(ctx, 0x00000000, Ui.dp(ctx, 12)));
+        tv.setBackground(theme.button(ctx, 0x00000000, Ui.dp(ctx, 12)));
         tv.setOnClickListener(v -> {
             dismiss();
             try {
@@ -692,10 +700,10 @@ public final class QuickPanel {
     }
 
     /** A small caption above a group of rows. */
-    static View sectionLabel(Context ctx, String text) {
+    static View sectionLabel(Context ctx, Theme theme, String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
-        tv.setTextColor(Ui.COLOR_TEXT_DIM);
+        tv.setTextColor(theme.dimText());
         tv.setTextSize(11);
         tv.setAllCaps(true);
         tv.setLetterSpacing(0.08f);
@@ -708,11 +716,19 @@ public final class QuickPanel {
         return tv;
     }
 
-    private static View divider(Context ctx) {
+    /** A hairline; in Retro, Windows 98's etched line - shadow over light. */
+    private static View divider(Context ctx, Theme theme) {
         View v = new View(ctx);
-        v.setBackgroundColor(0x1AFFFFFF);
+        int height;
+        if (theme.retro()) {
+            v.setBackground(Bevel.shallow(ctx));
+            height = 2 * Math.max(1, Ui.dp(ctx, 1));
+        } else {
+            v.setBackgroundColor(0x1AFFFFFF);
+            height = Math.max(1, Ui.dp(ctx, 0.5f));
+        }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, Ui.dp(ctx, 0.5f)));
+                LinearLayout.LayoutParams.MATCH_PARENT, height);
         lp.topMargin = Ui.dp(ctx, 10);
         lp.bottomMargin = Ui.dp(ctx, 6);
         v.setLayoutParams(lp);

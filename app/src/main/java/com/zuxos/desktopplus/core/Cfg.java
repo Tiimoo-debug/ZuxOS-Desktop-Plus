@@ -1,5 +1,7 @@
 package com.zuxos.desktopplus.core;
 
+import com.zuxos.desktopplus.core.theme.Theme;
+
 import de.robv.android.xposed.XSharedPreferences;
 
 /**
@@ -301,6 +303,16 @@ public final class Cfg {
 
     public static boolean animations() {
         return getBool(Const.KEY_ANIMATIONS, true);
+    }
+
+    /** Glass everywhere until asked: Retro is the monitor's, and only by choice. */
+    public static int theme() {
+        return getInt(Const.KEY_THEME, Theme.GLASS_ID);
+    }
+
+    /** The monitor's taskbar at the bottom, where ZUI puts it, until asked. */
+    public static int taskbarEdge() {
+        return getInt(Const.KEY_TASKBAR_EDGE, Const.EDGE_BOTTOM);
     }
 
     public static boolean nativeDrawer() {

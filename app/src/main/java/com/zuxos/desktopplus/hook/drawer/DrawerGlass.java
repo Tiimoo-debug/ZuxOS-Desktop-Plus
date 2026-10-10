@@ -18,7 +18,7 @@ import com.zuxos.desktopplus.core.glass.Blur;
 import com.zuxos.desktopplus.core.glass.Glass;
 import com.zuxos.desktopplus.core.glass.GlassBackdrop;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
-import com.zuxos.desktopplus.hook.Windows;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.logic.GlassPick;
 import com.zuxos.desktopplus.logic.ToneMath;
 
@@ -457,7 +457,8 @@ public final class DrawerGlass {
             if (display == null || window.getHeight() <= 0) {
                 return;
             }
-            int bar = Windows.taskbarHeight(display.getDisplayId());
+            // Only a bar at the bottom: one moved to the top is nowhere near the drawer's end.
+            int bar = BarEdge.reserved(display.getDisplayId()).bottom;
             if (bar <= 0) {
                 return;
             }

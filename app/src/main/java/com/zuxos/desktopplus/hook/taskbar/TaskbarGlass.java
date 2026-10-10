@@ -23,6 +23,9 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.Blur;
 import com.zuxos.desktopplus.core.glass.GlassBackdrop;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.core.icons.PixelIcons;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.logic.ToneMath;
 
 import java.lang.ref.WeakReference;
@@ -50,6 +53,10 @@ import de.robv.android.xposed.XposedBridge;
  * into a window the launcher owns is the likeliest cause of the input that stopped responding
  * along with it. Nothing here touches the launcher's window any more. It swaps a drawable on a
  * view and adds a child, and both are undone exactly.
+ *
+ * <p>In the Retro theme the same pane is Windows 98's taskbar instead - a raised grey face, on
+ * whatever the glass switch says - and the navigation keys are pixel-drawn, black. Their own
+ * drawables are kept and put back when the theme goes back to Glass.
  */
 public final class TaskbarGlass {
 
@@ -87,6 +94,10 @@ public final class TaskbarGlass {
      * a null value could not be told apart from "not ours to restore".
      */
     private static final Map<View, ColorStateList[]> ORIGINAL_NAV_TINTS = new WeakHashMap<>();
+    /** Each navigation button's own drawable, while Retro's pixel key stands in for it. */
+    private static final Map<View, Drawable> ORIGINAL_NAV_DRAWABLES = new WeakHashMap<>();
+    /** The pixel key we put on each button, so a relayout does not draw a new one every time. */
+    private static final Map<View, Drawable> APPLIED_PIXEL = new WeakHashMap<>();
     /** The layout listener each glazed taskbar owns, so it can be taken off again. */
     private static final Map<View, Watcher> WATCHERS = new WeakHashMap<>();
 
@@ -269,19 +280,29 @@ public final class TaskbarGlass {
         });
     }
 
-    /** Applies or removes the glass on one taskbar, following the setting. */
+    /**
+     * Applies or removes the pane on one taskbar, following the settings: Retro's bar when the
+     * theme is Retro on this bar's display, the glass when the glass switches are on, else none.
+     */
     static void apply(View root) {
         if (!(root instanceof ViewGroup)) {
             return;
         }
         ViewGroup dragLayer = (ViewGroup) root;
         try {
-            if (!(Cfg.taskbarGlass() && Cfg.glass())) {
+            boolean retro = Theme.of(dragLayer).retro();
+            if (!retro && !(Cfg.taskbarGlass() && Cfg.glass())) {
                 remove(dragLayer);
                 return;
             }
-            if (paneIn(dragLayer) != null) {
+            View existing = paneIn(dragLayer);
+            if (existing instanceof BarView && ((BarView) existing).mRetro == retro) {
                 return;
+            }
+            if (existing != null) {
+                // The theme changed: the other kind of bar, and the keys it painted, come off
+                // first.
+                remove(dragLayer);
             }
             View reference = TaskbarTray.rowReference(dragLayer);
             if (reference == null || reference.getHeight() <= 0) {
@@ -298,7 +319,8 @@ public final class TaskbarGlass {
                         + "leaving its background alone");
                 return;
             }
-            BarView pane = new BarView(dragLayer.getContext());
+            BarView pane = new BarView(dragLayer.getContext(), retro,
+                    BarEdge.onTop(dragLayer));
             pane.setTag(TAG_GLASS);
             // Index 0 so it is behind every icon and every button.
             dragLayer.addView(pane, 0, lp);
@@ -311,7 +333,7 @@ public final class TaskbarGlass {
             brightenNavButtons(dragLayer);
             takeBackground(dragLayer);
             dragLayer.invalidate();
-            L.i("taskbar glass: applied");
+            L.i(retro ? "taskbar: retro bar applied" : "taskbar glass: applied");
         } catch (Throwable t) {
             // The pane is what licenses hiding the launcher's own bar, so dropping it puts the
             // stock one back rather than leaving a transparent taskbar behind.
@@ -375,6 +397,10 @@ public final class TaskbarGlass {
     private static void brightenNavButtons(ViewGroup dragLayer) {
         try {
             List<View> buttons = Reflect.findByIdNames(dragLayer, NAV_IDS);
+            if (isRetro(dragLayer)) {
+                pixelNavButtons(buttons);
+                return;
+            }
             int tinted = 0;
             boolean news = false;
             for (View button : buttons) {
@@ -421,13 +447,59 @@ public final class TaskbarGlass {
         }
     }
 
-    /** Puts each button's own tint back. */
+    /**
+     * Retro's keys: each button's own drawable and tint kept, and a black pixel key in their
+     * place. A key already ours is left as it is.
+     */
+    private static void pixelNavButtons(List<View> buttons) {
+        for (View button : buttons) {
+            if (!(button instanceof ImageView)) {
+                continue;
+            }
+            ImageView icon = (ImageView) button;
+            Drawable applied = APPLIED_PIXEL.get(icon);
+            if (applied != null && icon.getDrawable() == applied) {
+                continue;
+            }
+            Drawable key = pixelKey(Reflect.idName(icon));
+            if (key == null) {
+                continue;
+            }
+            if (!ORIGINAL_NAV_TINTS.containsKey(icon)) {
+                ORIGINAL_NAV_TINTS.put(icon, new ColorStateList[]{icon.getImageTintList()});
+            }
+            if (applied == null) {
+                ORIGINAL_NAV_DRAWABLES.put(icon, icon.getDrawable());
+            }
+            icon.setImageTintList(null);
+            icon.setImageDrawable(key);
+            APPLIED_PIXEL.put(icon, key);
+        }
+    }
+
+    private static Drawable pixelKey(String id) {
+        int ink = Theme.RETRO.text();
+        if ("back".equals(id)) {
+            return PixelIcons.back(ink);
+        }
+        if ("home".equals(id)) {
+            return PixelIcons.home(ink);
+        }
+        return "recent_apps".equals(id) ? PixelIcons.recents(ink) : null;
+    }
+
+    /** Puts each button's own tint, and its own drawable if Retro replaced it, back. */
     private static void restoreNavButtons(ViewGroup dragLayer) {
         try {
             for (View button : Reflect.findByIdNames(dragLayer, NAV_IDS)) {
                 ColorStateList[] original = ORIGINAL_NAV_TINTS.remove(button);
                 if (original != null && button instanceof ImageView) {
                     ((ImageView) button).setImageTintList(original[0]);
+                }
+                Drawable own = ORIGINAL_NAV_DRAWABLES.remove(button);
+                if (APPLIED_PIXEL.remove(button) != null && own != null
+                        && button instanceof ImageView) {
+                    ((ImageView) button).setImageDrawable(own);
                 }
             }
         } catch (Throwable t) {
@@ -480,15 +552,25 @@ public final class TaskbarGlass {
         return pane != null && pane.getParent() != null;
     }
 
-    /** Whether any taskbar currently has a live pane. See {@link Tone#glazedBy}. */
+    /**
+     * Whether any taskbar currently has a live glass pane. See {@link Tone#glazedBy}. Retro's bar
+     * is not glass: its colours are the theme's, and the tone of everything else stays as it was.
+     */
     static boolean anyGlazed() {
         for (WeakReference<View> ref : PANES.values()) {
             View pane = ref != null ? ref.get() : null;
-            if (pane != null && pane.getParent() != null) {
+            if (pane instanceof BarView && pane.getParent() != null && !((BarView) pane).mRetro) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Whether this bar's pane is Retro's. */
+    private static boolean isRetro(ViewGroup dragLayer) {
+        WeakReference<View> ref = PANES.get(dragLayer);
+        View pane = ref != null ? ref.get() : null;
+        return pane instanceof BarView && ((BarView) pane).mRetro;
     }
 
     /** Re-tints the navigation glyphs of every glazed taskbar, for when the tone has moved. */
@@ -526,7 +608,7 @@ public final class TaskbarGlass {
         View pane = dragLayer.findViewWithTag(TAG_GLASS);
         if (pane != null && pane.getParent() instanceof ViewGroup) {
             ((ViewGroup) pane.getParent()).removeView(pane);
-            L.i("taskbar glass: removed, the setting is off");
+            L.i("taskbar glass: removed, the setting or the theme changed");
         }
         restoreNavButtons(dragLayer);
         restoreBackground(dragLayer);
@@ -562,8 +644,15 @@ public final class TaskbarGlass {
      * its top edge bending what is under it - see {@link GlassBackdrop}. Elsewhere, the system's
      * blur with a lit gradient, a bright hairline along the top and a soft sheen. Either way the
      * contrast veil goes on top, so the glyphs stay legible over whatever is behind.
+     *
+     * <p>Retro's is none of that: Windows 98's raised grey bar, painted and done.
      */
     private static final class BarView extends FrameLayout {
+
+        /** Retro's bar rather than glass. */
+        final boolean mRetro;
+        /** On a bar at the top: rounded and lit along its bottom, the edge facing the screen. */
+        private final boolean mTop;
 
         private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
         /** Keeps the glyphs legible over whatever app is behind the glass; see dispatchDraw. */
@@ -581,8 +670,10 @@ public final class TaskbarGlass {
         private GlassBackdrop mGlass;
         private static boolean sSaid;
 
-        BarView(Context ctx) {
+        BarView(Context ctx, boolean retro, boolean top) {
             super(ctx);
+            mRetro = retro;
+            mTop = top;
             setWillNotDraw(false);
             mEdge.setStyle(Paint.Style.STROKE);
             mEdge.setStrokeWidth(Math.max(1f, Ui.dp(ctx, 1)));
@@ -593,6 +684,10 @@ public final class TaskbarGlass {
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
+            if (mRetro) {
+                setBackground(Bevel.raised(getContext()));
+                return;
+            }
             if (mBlurred || mLive) {
                 return;
             }
@@ -601,7 +696,8 @@ public final class TaskbarGlass {
                 // Two frames apart, not one: the bar is always on screen, and what is behind it
                 // rarely moves faster than that.
                 boolean dark = Tone.lightOnDark(getContext());
-                mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius, mRadius,
+                mGlass = new GlassBackdrop(getContext(), LiquidGlass.REGULAR, mRadius,
+                        mTop ? -mRadius : mRadius,
                         LiquidGlass.tintFor(dark), dark ? 0x99161620 : 0x99F2F2F5, 33L);
                 mGlass.setExtendSides(mSides);
                 addView(mGlass, 0, new LayoutParams(LayoutParams.MATCH_PARENT,
@@ -681,7 +777,7 @@ public final class TaskbarGlass {
 
         @Override
         protected void onDraw(Canvas canvas) {
-            if (mLive || mBlurred || !Tone.lightOnDark(getContext())) {
+            if (mRetro || mLive || mBlurred || !Tone.lightOnDark(getContext())) {
                 // Painted over a real blur this tint is exactly the colour cast that stops it
                 // reading as glass; under dark glyphs it is what made them disappear.
                 return;
@@ -689,9 +785,18 @@ public final class TaskbarGlass {
             float w = getWidth();
             float h = getHeight();
             if (w > 0 && h > 0) {
-                RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
-                canvas.drawRoundRect(r, mRadius, mRadius, mFill);
+                canvas.drawRoundRect(shape(w, h), mRadius, mRadius, mFill);
             }
+        }
+
+        /**
+         * Rounded on the side facing the screen, square on the screen's edge: the rectangle runs
+         * on past that edge, so its corners there fall off the view - and past both ends too
+         * when the bar spans the screen.
+         */
+        private RectF shape(float w, float h) {
+            return mTop ? new RectF(-mSides, -mRadius, w + mSides, h)
+                    : new RectF(-mSides, 0, w + mSides, h + mRadius);
         }
 
         @Override
@@ -699,13 +804,10 @@ public final class TaskbarGlass {
             super.dispatchDraw(canvas);
             float w = getWidth();
             float h = getHeight();
-            if (w <= 0 || h <= 0) {
+            if (w <= 0 || h <= 0 || mRetro) {
                 return;
             }
-            // Rounded at the top, square at the bottom: the bar sits on the screen edge, so the
-            // rectangle is extended past it and the bottom corners fall off the view - and past
-            // both ends too when the bar spans the screen.
-            RectF r = new RectF(-mSides, 0, w + mSides, h + mRadius);
+            RectF r = shape(w, h);
             // The floor under every glyph, over the glass: the lightest veil, in the colour
             // opposite the glyphs, that keeps them at 3:1 against anything behind.
             canvas.drawRoundRect(r, mRadius, mRadius, contrastPaint(Tone.lightOnDark(getContext())));
