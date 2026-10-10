@@ -76,7 +76,11 @@ public final class Bypass {
         L.i("bypass charging: turned off without the taskbar; battery " + battery(ctx, intent));
     }
 
-    /** What the battery is doing: current in mA (positive charging), status, plug, level. */
+    /**
+     * What the battery is doing: its current in mA with the kernel's sign - on this tablet
+     * positive is the battery giving current, as the owner's probes showed - then status, plug,
+     * level, and what the charger offers when the broadcast says.
+     */
     private static String battery(Context ctx, android.content.Intent intent) {
         try {
             android.os.BatteryManager bm = ctx.getSystemService(android.os.BatteryManager.class);
@@ -85,10 +89,13 @@ public final class Bypass {
                         android.content.Intent.ACTION_BATTERY_CHANGED));
             }
             int current = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
-            return (current / 1000)
-                    + " mA, status " + (intent != null ? intent.getIntExtra("status", -1) : -1)
+            return (current / 1000) + " mA (positive = from the battery)"
+                    + ", status " + (intent != null ? intent.getIntExtra("status", -1) : -1)
                     + ", plugged " + (intent != null ? intent.getIntExtra("plugged", -1) : -1)
-                    + ", level " + (intent != null ? intent.getIntExtra("level", -1) : -1);
+                    + ", level " + (intent != null ? intent.getIntExtra("level", -1) : -1)
+                    + ", charger max " + (intent != null
+                    ? intent.getIntExtra("max_charging_voltage", -1) / 1000 + " mV "
+                    + intent.getIntExtra("max_charging_current", -1) / 1000 + " mA" : "?");
         } catch (Throwable t) {
             return "unread (" + t + ")";
         }

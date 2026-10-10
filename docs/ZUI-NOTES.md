@@ -190,6 +190,15 @@ vendor power HAL's, not in these jars.
   `ZuiBatteryManagerService` turns into a charging-disabled vote. The service lets uid 0 or 1000,
   or any system app, call it, so ZUX Home can, and the tray's battery menu does
   (`hook/panel/Bypass`). The service turns bypass off at every boot (`init`).
+- The kernel's dual-port driver is `/devices/virtual/douusb/usbc1c2`. Its uevents carry
+  `DOU_USB=usb1or0port` when it re-arbitrates the ports, and `usb2port` / `c2dpin` for ZUI's
+  dialogs. The owner's probes (2026-10-10, hub on the long-side port, 68 W charger on the USB 2.0
+  port) show the result. Bypass turned on with the charger at 8.5 V × 2.5 A and the battery at
+  0 A. About 15 s later the USB 2.0 port's input (`wireless`) went offline, and the tablet ran on
+  the hub's 5 V at 0.4-1 A, with the battery making up the rest.
+- On this tablet `BATTERY_PROPERTY_CURRENT_NOW` and the `battery` supply's `current_now` are
+  positive when the battery gives current; the `qcom-battery` `fg*_current` nodes are the
+  opposite.
 - So nothing in Android can be hooked to charge from the USB 2.0 port while the fast port carries
   a hub. Whether the kernel offers any node for it is what the probe's "usb ports and charging"
   section reads (1.0.174).

@@ -124,7 +124,7 @@ public final class PowerProbe {
             for p in /sys/class/typec/port*; do
               [ -d "$p" ] || continue
               echo "${p##*/}: data $(cat $p/data_role 2>/dev/null), power $(cat $p/power_role 2>/dev/null), type $(cat $p/port_type 2>/dev/null), mode $(cat $p/power_operation_mode 2>/dev/null), pd $(cat $p/usb_power_delivery_revision 2>/dev/null), partner $(ls -d $p/${p##*/}-partner 2>/dev/null | wc -l)"
-              ls -l $p 2>/dev/null | grep -E '^-..w' | awk '{print "  writable: " $NF}'
+              ls -l $p 2>/dev/null | grep -E '^-.w' | awk '{print "  writable: " $NF}'
             done
             for s in /sys/class/power_supply/*; do
               echo "${s##*/}: type $(cat $s/type 2>/dev/null), online $(cat $s/online 2>/dev/null), present $(cat $s/present 2>/dev/null), usb_type $(cat $s/usb_type 2>/dev/null), $(cat $s/voltage_now 2>/dev/null) uV, $(cat $s/current_now 2>/dev/null) uA, limit $(cat $s/input_current_limit 2>/dev/null), max $(cat $s/current_max 2>/dev/null)"
@@ -135,6 +135,14 @@ public final class PowerProbe {
               for f in $d/*; do
                 [ -f "$f" ] && echo "  ${f##*/} = $(head -c 80 $f 2>/dev/null | tr '\\n' ' ')"
               done | head -80
+            done
+            for d in /sys/devices/virtual/douusb/*; do
+              [ -d "$d" ] || continue
+              echo "== $d (the kernel's dual-port driver: it picks the port)"
+              ls -l $d 2>/dev/null | grep -E '^-.w' | awk '{print "  writable: " $NF}'
+              for f in $d/*; do
+                [ -f "$f" ] && echo "  ${f##*/} = $(head -c 80 $f 2>/dev/null | tr '\\n' ' ')"
+              done | head -40
             done
             echo "usbport.status $(getprop persist.sys.zui.usbport.status)"
             dumpsys usb 2>/dev/null | grep -i -E 'port_id|power_role|data_role|connected|mode=|charging' | head -30
