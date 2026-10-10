@@ -90,6 +90,7 @@ public final class ActivityWatcher {
     private static void onActivityResumed(Activity activity) {
         try {
             Cfg.reload();
+            SettingsRestart.listen(activity);
             if (!Cfg.enabled()) {
                 return;
             }

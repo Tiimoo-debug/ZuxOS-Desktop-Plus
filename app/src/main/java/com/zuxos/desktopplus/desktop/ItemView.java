@@ -16,6 +16,7 @@ import android.widget.TextView;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
 
@@ -219,7 +220,8 @@ public class ItemView extends LinearLayout {
                     break;
                 }
             }
-            mIcon.setImageDrawable(new FolderIconDrawable(previews, mIcon.getLayoutParams().width));
+            mIcon.setImageDrawable(new FolderIconDrawable(getContext(), previews,
+                    mIcon.getLayoutParams().width, Theme.of(this)));
         } else {
             Drawable d = repo.iconFor(item);
             if (d != null) {

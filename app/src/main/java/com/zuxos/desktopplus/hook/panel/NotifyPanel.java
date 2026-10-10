@@ -58,6 +58,8 @@ public final class NotifyPanel {
     }
 
     public static void toggle(Context ctx, View anchor, int displayId) {
+        QuickPanel.trace("notifications pressed on display " + displayId + ", open "
+                + (sCurrent != null), null);
         if (sCurrent != null) {
             dismiss();
             return;
@@ -79,6 +81,7 @@ public final class NotifyPanel {
         if (current == null || wm == null) {
             return;
         }
+        QuickPanel.trace("notifications closed by " + QuickPanel.caller(), null);
         try {
             wm.removeViewImmediate(current);
         } catch (Throwable t) {
@@ -187,6 +190,7 @@ public final class NotifyPanel {
             FrameRate.forWindow(lp, wm.getDefaultDisplay());
             FrameRate.forView(root);
             wm.addView(root, lp);
+            QuickPanel.trace("notifications opened, bar " + bar, glass);
             sCurrent = root;
             sWm = wm;
             sAnchor = anchor;

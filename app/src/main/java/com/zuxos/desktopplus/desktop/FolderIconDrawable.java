@@ -1,5 +1,6 @@
 package com.zuxos.desktopplus.desktop;
 
+import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
@@ -8,26 +9,39 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
+
 import java.util.List;
 
-/** A folder icon: rounded translucent tile with up to four preview icons inside. */
+/**
+ * A folder icon: rounded translucent tile with up to four preview icons inside - in Retro, a
+ * square sunken box, as Windows 98 framed a list.
+ */
 public class FolderIconDrawable extends Drawable {
 
     private final List<Drawable> mPreviews;
     private final Paint mBg = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int mSize;
+    private final Bevel mBevel;
 
-    public FolderIconDrawable(List<Drawable> previews, int sizePx) {
+    public FolderIconDrawable(Context ctx, List<Drawable> previews, int sizePx, Theme theme) {
         mPreviews = previews;
         mSize = sizePx;
         mBg.setColor(FolderStyle.TILE);
+        mBevel = theme.retro() ? Bevel.sunken(ctx) : null;
     }
 
     @Override
     public void draw(Canvas canvas) {
         Rect b = getBounds();
-        float r = b.width() * 0.22f;
-        canvas.drawRoundRect(new RectF(b), r, r, mBg);
+        if (mBevel != null) {
+            mBevel.setBounds(b);
+            mBevel.draw(canvas);
+        } else {
+            float r = b.width() * 0.22f;
+            canvas.drawRoundRect(new RectF(b), r, r, mBg);
+        }
 
         int count = Math.min(4, mPreviews.size());
         if (count == 0) {

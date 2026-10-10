@@ -110,14 +110,12 @@ public class MainActivity extends Activity {
                 Const.KEY_THEME, Theme.GLASS_ID);
         addSummary("Retro is Windows 98 on the external screen: grey bevelled boxes, a pixel font, "
                 + "no blur and no live glass, which also saves the GPU there. The tablet keeps "
-                + "glass. Menus and panels take it when they next open, the taskbar when the "
-                + "monitor's home comes back.");
+                + "glass. The launcher restarts to apply it.");
         addSpinner("Taskbar position (monitor)", new String[]{
                         "Bottom",
                         "Top"},
                 Const.KEY_TASKBAR_EDGE, Const.EDGE_BOTTOM);
-        addSummary("Takes effect when the launcher restarts. The tablet's taskbar never "
-                + "moves.");
+        addSummary("The launcher restarts to apply it. The tablet's taskbar never moves.");
         addSwitch("Hide the monitor's status bar",
                 "ZUI's bar at the top of the external screen only shows icons - it cannot be "
                         + "pulled down. The tray and its panels do its job, and apps get its "
@@ -231,7 +229,7 @@ public class MainActivity extends Activity {
         addSwitch("Pop-ups on the monitor",
                 "A new notification that would pop up on the tablet shows above the tray on the "
                         + "external screen for a few seconds, with its buttons and a reply box. "
-                        + "Takes effect when the launcher restarts",
+                        + "The launcher restarts to apply it",
                 Const.KEY_NOTIFY_POPUPS, true);
         addButton("Grant notification access", () -> {
             try {
@@ -300,11 +298,25 @@ public class MainActivity extends Activity {
         sw.setChecked(mPrefs.getBoolean(key, def));
         sw.setPadding(0, Ui.dp(this, 10), 0, summary == null ? Ui.dp(this, 10) : 0);
         sw.setOnCheckedChangeListener((v, checked) ->
-                mPrefs.edit().putBoolean(key, checked).apply());
+                save(key, mPrefs.edit().putBoolean(key, checked)));
         mRoot.addView(sw, rowParams());
         if (summary != null) {
             addSummary(summary);
         }
+    }
+
+    /**
+     * Saves a change. One the launcher reads only as it starts is written at once and the
+     * launcher told, so it restarts with it - nobody has to force-stop it.
+     */
+    private void save(String key, SharedPreferences.Editor edit) {
+        if (!Const.RESTART_KEYS.contains(key)) {
+            edit.apply();
+            return;
+        }
+        edit.commit();
+        // To every launcher the module is in: each listens for itself.
+        sendBroadcast(new android.content.Intent(Const.ACTION_SETTINGS_CHANGED));
     }
 
     private void addSummary(String summary) {
@@ -334,7 +346,10 @@ public class MainActivity extends Activity {
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                mPrefs.edit().putInt(key, position).apply();
+                // Also called once as the spinner is set up, with what is already saved.
+                if (position != mPrefs.getInt(key, def)) {
+                    save(key, mPrefs.edit().putInt(key, position));
+                }
             }
 
             @Override

@@ -17,6 +17,7 @@ import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
@@ -514,7 +515,9 @@ public final class NativeDrawerHooks {
             }
             Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
-            FolderIconDrawable icon = new FolderIconDrawable(previews, sizePx);
+            // One picture in ZUI's model, shown on the tablet and the monitor alike: Glass.
+            FolderIconDrawable icon = new FolderIconDrawable(ctx, previews, sizePx,
+                    Theme.GLASS);
             icon.setBounds(0, 0, sizePx, sizePx);
             icon.draw(canvas);
 

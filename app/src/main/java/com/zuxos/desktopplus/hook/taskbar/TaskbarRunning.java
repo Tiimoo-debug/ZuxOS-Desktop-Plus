@@ -1607,7 +1607,8 @@ public final class TaskbarRunning {
                 }
             }
             ImageView view = new ImageView(ctx);
-            view.setImageDrawable(new FolderIconDrawable(previews, size));
+            view.setImageDrawable(new FolderIconDrawable(ctx, previews, size,
+                    Theme.of(displayId)));
             view.setContentDescription(folder.label != null ? folder.label : "Folder");
             view.setBackground(iconBackground(ctx, size, displayId));
             view.setOnClickListener(v -> openFolder(ctx, v, folder, displayId));

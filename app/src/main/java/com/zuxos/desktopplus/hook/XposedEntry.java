@@ -4,12 +4,14 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.ModuleStatus;
+import com.zuxos.desktopplus.hook.drawer.DrawerFromTop;
 import com.zuxos.desktopplus.hook.drawer.DrawerRetro;
 import com.zuxos.desktopplus.hook.drawer.NativeDrawerHooks;
 import com.zuxos.desktopplus.hook.home.ActivityWatcher;
 import com.zuxos.desktopplus.hook.home.HotseatButton;
 import com.zuxos.desktopplus.hook.home.NativeFolderMotion;
 import com.zuxos.desktopplus.hook.home.PinRequestHooks;
+import com.zuxos.desktopplus.hook.home.SettingsRestart;
 import com.zuxos.desktopplus.hook.home.StockUnlockHooks;
 import com.zuxos.desktopplus.hook.recents.RecentsRoute;
 import com.zuxos.desktopplus.hook.system.SystemBridge;
@@ -75,6 +77,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 return;
             }
             L.i("loaded into " + lpparam.packageName + " (" + lpparam.processName + ")");
+            SettingsRestart.remember();
             ActivityWatcher.install(lpparam.classLoader);
             PinRequestHooks.install();
             LaunchDisplay.install(lpparam.classLoader);
@@ -83,6 +86,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
             }
             NativeFolderMotion.install(lpparam.classLoader);
             DrawerRetro.install(lpparam.classLoader);
+            DrawerFromTop.install(lpparam.classLoader);
             RecentsRoute.install(lpparam.classLoader);
             DetachGuard.install();
             if (Cfg.unlockStock()) {

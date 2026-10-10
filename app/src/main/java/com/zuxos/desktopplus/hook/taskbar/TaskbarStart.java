@@ -28,7 +28,8 @@ import java.util.WeakHashMap;
 /**
  * The start button, at the left end of the bar where a desktop keeps it.
  *
- * <p>Ours, drawn in the bar beside the navigation keys, and pressing it presses ZUI's own
+ * <p>Ours, drawn in the bar after the navigation keys - before them on the monitor, at the far
+ * left - and pressing it presses ZUI's own
  * drawer button - so the drawer is ZUI's, opened with ZUI's own animation. ZUI's button is set
  * invisible when ZUI builds its row, and left at that.
  *
@@ -96,6 +97,7 @@ final class TaskbarStart {
         if (ours != null) {
             dragLayer.removeView(ours);
         }
+        keysBack(dragLayer);
         View zui = allAppsButton(icons);
         if (zui != null && HIDDEN.remove(zui) != null) {
             zui.setVisibility(View.VISIBLE);
@@ -177,8 +179,9 @@ final class TaskbarStart {
     }
 
     /**
-     * Beside the navigation keys, centred on the bar's row, at ZUI's own icon size. Retro's
-     * button is a box a little shorter than that, as wide as the robot and its label need.
+     * After the navigation keys, or before them at the far left on the monitor; centred on the
+     * bar's row, at ZUI's own icon size. Retro's button is a box a little shorter than that, as
+     * wide as the robot and its label need.
      */
     private static void place(ViewGroup dragLayer, StartButton button, View zui) {
         View reference = TaskbarTray.rowReference(dragLayer);
@@ -188,7 +191,9 @@ final class TaskbarStart {
         int size = size(zui, dragLayer.getContext());
         int height = button.retro() ? size * 4 / 5 : size;
         int width = button.retro() ? button.retroWidth(height) : size;
-        int left = navEnd(dragLayer);
+        View keys = monitorKeys(dragLayer);
+        int left = keys != null ? frameLeft(dragLayer, keys) + keysAfter(keys, width)
+                : navEnd(dragLayer);
         int top = reference.getTop() + (reference.getHeight() - height) / 2;
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) button.getLayoutParams();
         int gravity = Gravity.TOP | Gravity.START;
@@ -211,6 +216,66 @@ final class TaskbarStart {
             return zui.getWidth();
         }
         return Ui.dp(ctx, 48);
+    }
+
+    /** The monitor's navigation keys we moved after the start button, with ZUI's own margin. */
+    private static final Map<View, Integer> KEYS_MOVED = new WeakHashMap<>();
+
+    /**
+     * The monitor bar's navigation keys, or null on the tablet's bars. ZUI lays them at the
+     * start of that bar with a margin it sets once, when it builds the bar
+     * ({@code DpModeNavbarButtonsViewController.init}); the tablet's are slid instead.
+     */
+    private static View monitorKeys(ViewGroup dragLayer) {
+        if (TaskbarTray.displayIdOf(dragLayer) == android.view.Display.DEFAULT_DISPLAY) {
+            return null;
+        }
+        View keys = navKeys(dragLayer);
+        if (keys == null || !(keys.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return null;
+        }
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) keys.getLayoutParams();
+        int horizontal = Gravity.getAbsoluteGravity(lp.gravity, keys.getLayoutDirection())
+                & Gravity.HORIZONTAL_GRAVITY_MASK;
+        return horizontal == Gravity.LEFT ? keys : null;
+    }
+
+    /**
+     * On the monitor the start button takes the far left, where ZUI's margin puts the keys, and
+     * the keys move along by its width - ZUI's margin set once more, not undone each layout.
+     * Returns the button's left in the keys' frame.
+     */
+    private static int keysAfter(View keys, int width) {
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) keys.getLayoutParams();
+        Integer own = KEYS_MOVED.get(keys);
+        if (own == null) {
+            own = lp.getMarginStart();
+            KEYS_MOVED.put(keys, own);
+        }
+        int margin = own + width + own;
+        if (lp.getMarginStart() != margin) {
+            lp.leftMargin = margin;
+            lp.setMarginStart(margin);
+            keys.setLayoutParams(lp);
+        }
+        return own;
+    }
+
+    /** Where the frame holding the keys starts, in the drag layer's coordinates. */
+    private static int frameLeft(ViewGroup dragLayer, View keys) {
+        return keys.getParent() instanceof View ? offsetIn(dragLayer, (View) keys.getParent()) : 0;
+    }
+
+    /** ZUI's margin back on the monitor's keys, as it built them. */
+    private static void keysBack(ViewGroup dragLayer) {
+        View keys = navKeys(dragLayer);
+        Integer own = keys != null ? KEYS_MOVED.remove(keys) : null;
+        if (own != null && keys.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) keys.getLayoutParams();
+            lp.leftMargin = own;
+            lp.setMarginStart(own);
+            keys.setLayoutParams(lp);
+        }
     }
 
     /**
@@ -254,6 +319,13 @@ final class TaskbarStart {
                 if (pill != null && SEARCH_MOVED.containsKey(pill) && pill.getWidth() > 0) {
                     right = Math.max(right, Math.round(offsetIn(dragLayer, pill)
                             + pill.getTranslationX()) + pill.getWidth());
+                }
+                // On the monitor the keys come after it, and the apps after them.
+                View keys = navKeys(dragLayer);
+                if (keys != null && KEYS_MOVED.containsKey(keys)) {
+                    right = Math.max(right, frameLeft(dragLayer, keys)
+                            + ((FrameLayout.LayoutParams) keys.getLayoutParams()).getMarginStart()
+                            + keys.getWidth());
                 }
                 return right;
             }

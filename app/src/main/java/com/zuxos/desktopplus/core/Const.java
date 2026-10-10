@@ -28,6 +28,19 @@ public final class Const {
     public static final int TAKEOVER_GRID = 1;
     public static final int TAKEOVER_ALL = 2;
 
+    /**
+     * Sent by the settings app to the launcher when a setting changes that the launcher reads
+     * only as it starts: it restarts itself to take it.
+     */
+    public static final String ACTION_SETTINGS_CHANGED = "com.zuxos.desktopplus.SETTINGS_CHANGED";
+
+    /** The settings the launcher reads only as it starts. */
+    public static final java.util.Set<String> RESTART_KEYS = java.util.Collections.unmodifiableSet(
+            new java.util.HashSet<>(java.util.Arrays.asList(
+                    Const.KEY_ENABLED, Const.KEY_THEME, Const.KEY_TASKBAR_EDGE,
+                    Const.KEY_NATIVE_DRAWER, Const.KEY_TASKBAR_TRAY, Const.KEY_NOTIFY_POPUPS,
+                    Const.KEY_UNLOCK_STOCK)));
+
     /** How our UI paints itself on the monitor: {@code Theme.GLASS_ID} or {@code RETRO_ID}. */
     public static final String KEY_THEME = "theme";
 

@@ -186,6 +186,14 @@ Every class and method the module hooks by name is present in this version:
   `getDefaultTaskbarWindowSize`; `TaskbarInsetsController` - its two `Insets` answers for a side,
   found by shape (`e(int, int)`, `f(int, int, int)` here). Only with the bar set to the top.
 - `com.android.launcher3.views.ScrimView` and the drawable `drag_handle_indicator`
+- ZUI's start menu on the monitor is Launcher3's taskbar drawer (`TaskbarOverlayDragLayer`, the
+  `bottom_sheet_background` sheet), in a full-screen window. It assumes a bar at the bottom twice:
+  `AbstractSlideInView.setTranslationShift` slides the sheet down to close it, and
+  `TaskbarAllAppsContainerView.setInsets` sets the foot to the bar's height when `isInDpMode`. With
+  the bar at the top, both are decided the other way (`hook/drawer/DrawerFromTop`).
+- The monitor's navigation keys: `DpModeNavbarButtonsViewController.init` lays `end_nav_buttons`
+  at the start with a margin, once. Our Start sits in that margin and the keys move along by its
+  width (`hook/taskbar/TaskbarStart`).
 - `com.zui.launcher.uiextend.ZuiHotseat` - `dispatchDraw`, `onLayout`
 - `com.zui.launcher.taskbar.ZuiTaskbarSearchContainer`, `com.zui.launcher.taskbar.TaskbarActivityContextDp`
 - `com.zui.launcher.dpmode.secondarydisplaydp.RecentsDragLayerDp`

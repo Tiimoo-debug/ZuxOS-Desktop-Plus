@@ -132,6 +132,8 @@ public final class QuickPanel {
     }
 
     public static void toggle(Context ctx, View anchor, int displayId) {
+        trace("quick settings pressed on display " + displayId + ", open " + (sCurrent != null),
+                null);
         if (sCurrent != null) {
             dismiss();
             return;
@@ -188,6 +190,7 @@ public final class QuickPanel {
             stopWatching();
             return;
         }
+        trace("quick settings closed by " + caller(), null);
         try {
             wm.removeViewImmediate(current);
         } catch (IllegalArgumentException notThere) {
@@ -304,6 +307,7 @@ public final class QuickPanel {
             FrameRate.forWindow(lp, wm.getDefaultDisplay());
             FrameRate.forView(root);
             wm.addView(root, lp);
+            trace("quick settings opened, bar " + bar, glass);
             sCurrent = root;
             sWm = wm;
             sAnchor = anchor;
@@ -319,6 +323,45 @@ public final class QuickPanel {
             stopWatching();
             L.e("could not open the tray panel", t);
         }
+    }
+
+    /** Lines traced so far: a few opens are enough to read. */
+    private static int sTraced;
+
+    /**
+     * Read-only, while the panels not showing under a bar at the top are looked into: that the
+     * press arrived, and where the panel landed once laid out. The first few only.
+     */
+    static void trace(String line, View panel) {
+        if (sTraced >= 12) {
+            return;
+        }
+        sTraced++;
+        if (panel == null) {
+            L.i("panel trace: " + line);
+            return;
+        }
+        panel.postDelayed(() -> {
+            try {
+                int[] at = new int[2];
+                panel.getLocationOnScreen(at);
+                L.i("panel trace: " + line + "; panel at " + at[0] + "," + at[1] + " "
+                        + panel.getWidth() + "x" + panel.getHeight() + ", shown "
+                        + panel.isShown() + ", window " + panel.getWindowVisibility()
+                        + ", alpha " + panel.getAlpha());
+            } catch (Throwable t) {
+                L.d("panel trace: " + t);
+            }
+        }, 300L);
+    }
+
+    /** Who called the method that called this: which path closed a panel. */
+    static String caller() {
+        if (sTraced >= 12) {
+            return "";
+        }
+        StackTraceElement[] stack = new Throwable().getStackTrace();
+        return stack.length > 2 ? stack[2].getClassName() + "." + stack[2].getMethodName() : "?";
     }
 
     /**
