@@ -12,6 +12,10 @@ in a fresh session: it is the project's memory.
 - **Every feature has its own off switch**, and falls back to stock behaviour when a hook cannot
   find what it expects - logging why, once.
 - **One motion language**: iOS-quality springs from `core/motion/Motion`, used everywhere.
+- **Every feature goes through ZUI's own path, never around it** (owner, 2026-10-11): read how
+  ZUI does the same thing, then feed ours into that path - its lists, views, menus, folders, drag
+  and animations - so ZUI lays it out, styles it and animates it as its own. This is how the
+  module becomes stable. What still goes around ZUI is listed below and moved over one at a time.
 - **Evidence first**: fixes come from LSPosed logs, probes, screenshots and recordings. Where
   they cannot show something (what ZUI itself does), trace it first - never guess.
 - **Disable, don't fight ZUI**: switch ZUI's own behaviour off where it starts (a setting, a
@@ -32,6 +36,41 @@ in a fresh session: it is the project's memory.
 - **Device test list after every build**: app drawer open/close, folders (drawer, taskbar,
   desktop), every menu (taskbar, drawer app hold, desktop, power), quick panel, notifications,
   screenshot button, rotation, unplug and replug the display.
+
+## Through ZUI's own path
+
+Every feature of ours, and whether it goes through ZUI's own code or around it. Moved over one
+row at a time, each after reading ZUI's code for it (`docs/ZUI-NOTES.md`).
+
+**Already through ZUI's path**
+
+| Feature | ZUI's path |
+|---------|-----------|
+| Our actions in the tablet's app menu (drawers, home, taskbar) | ZUI's shortcut list, as `RemoteActionShortcut` (1.0.187) |
+| Hold menu of our drawer folders on the tablet | ZUI's `OptionsPopupView`, its folder-menu rows (1.0.184) |
+| Tablet drawers' look | ZUI's own sheet and folder panel, no glass (1.0.184-185) |
+| Icon size after a tap we take | ZUI's `resetIconScale` (1.0.185) |
+| Keeping the monitor's apps alive | ZUI's kill lists (`addZmcLmkWhiteList`, 1.0.165) |
+| Maximize on the monitor | ZUI's own full-screen rule and transition (1.0.167) |
+| No status bar on the monitor | SystemUI's own build method told to do nothing (1.0.171) |
+| Battery bypass | `ZuiBatteryManager.setBypassChargingStatus`, Game Assistant's own call |
+
+**Still around ZUI - to move, in this order**
+
+| # | Feature | Today | ZUI's path to use |
+|---|---------|-------|-------------------|
+| 1 | Our folders, everywhere (tablet drawers, taskbars, monitor) | Fake app entries in ZUI's list, opened in our own window (`DrawerFolderWindow`, `FolderOverlay`) | ZUI's `FolderInfo` / `FolderIcon` / `Folder`, which already run outside `Launcher` (taskbar: `LauncherDelegate.b`); its saves sent to our model, never ZUI's database |
+| 2 | Drag in the tablet drawers: reorder apps and folders, apps in and out of folders, out to the taskbar and home | Not on the tablet; on the monitor our own global drag (`startDragAndDrop` + clip) | ZUI's `DragController` and drop targets, as its home screen does |
+| 3 | Menus of our taskbar icons (pins, running apps) on both screens | Ours (`TaskbarMenu`), or ZUI's `OptionsPopupView` filled by us | ZUI's `TaskbarPopupController.showForIcon` with ZUI's real `AppInfo`, plus our shortcuts as in row 1 above |
+| 4 | Pins and running apps on the taskbar | Our own row inside ZUI's bar (`TaskbarRunning`) | ZUI's taskbar items and its own pinning (`PinToTaskbarShortcut`), to read first |
+| 5 | Drawer A-Z bar hidden | Hidden after ZUI sets it up (`DrawerLetters`) | ZUI's own choice of layout (`all_apps_fast_scroller`, `Utilities.isZuiRow()`), to read |
+| 6 | Drawer from the top on the monitor | Moved every frame of its slide (`DrawerFromTop`) | ZUI's own slide-in, given the top edge where it decides it |
+| 7 | Taskbar at the top on the monitor | ZUI's window parameters changed after it builds them (`TaskbarEdge`) | Launcher3's own per-edge placement, to read |
+| 8 | Recents on the monitor | Our own (`TaskOverview`), as ZUI's never showed | ZUI's `RecentsDragLayerDp`, once a trace shows why it stays hidden |
+| 9 | Monitor theme (Glass / Retro) on ZUI's views | Paint set on ZUI's views after they are built | ZUI's own colour and drawable lookups (as `DrawerRetro` does), where it reads them |
+
+The monitor's tray, quick panel, notification pop-ups and home screen are additions ZUI does not
+have on the monitor; they stay ours, built from ZUI's pieces where ZUI has them.
 
 ## Done
 

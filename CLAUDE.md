@@ -19,6 +19,11 @@ policy, and where each of our hooks lands. Read it before hooking anything of ZU
 - **Disable, don't fight ZUI.** Switch ZUI's own behaviour off where it starts: a setting, a
   decision, a resource that is never loaded. Never undo it after it happens, and never redo it
   every frame.
+- **Every feature goes through ZUI's own path, never around it.** Read how ZUI does the same
+  thing in its decompiled code, then feed ours into that path: its lists, its views, its menus,
+  its folders, its drag, its animations. ZUI then lays it out, styles it and animates it as its
+  own. A feature of ours that works beside ZUI is moved onto ZUI's path, one at a time; the list
+  is in `docs/ROADMAP.md`, "Through ZUI's own path".
 - **Evidence first, no guessing.** Fixes come from the owner's logs, probes, screenshots and
   videos. Where they cannot show something, such as what ZUI itself does, add a read-only trace,
   ship it, and wait for the owner's log before changing behaviour.
