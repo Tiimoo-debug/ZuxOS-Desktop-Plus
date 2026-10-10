@@ -39,6 +39,8 @@ import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.RetroParts;
 import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.KeyShell;
@@ -81,6 +83,8 @@ public final class TaskOverview {
     private static final int GLASS_CARDS = 64;
 
     private static FrameLayout sRoot;
+    /** The look of the overview up now, for its closing. */
+    private static Theme sTheme = Theme.GLASS;
     private static WindowManager sWm;
     private static int sDisplay = -1;
     private static final ArrayDeque<String> RECORD = new ArrayDeque<>();
@@ -134,15 +138,17 @@ public final class TaskOverview {
         final Context ctx = Overlays.windowContext(anchor.getContext());
         final List<Card> cards = tasksOn(ctx, display);
         sCards = cards;
+        final Theme theme = Theme.of(display);
+        sTheme = theme;
         try {
             FrameLayout root = new FrameLayout(ctx);
             root.setBackgroundColor(0x400A0A0E);
             // The whole background is one sheet of liquid glass: the screen behind frosted, and
-            // bent at its rim all the way round - not only the cards.
+            // bent at its rim all the way round - not only the cards. In Retro, one grey window.
             int sheetInset = Ui.dp(ctx, 12);
             GlassSurface sheet =
                     new GlassSurface(ctx, Ui.dp(ctx, 32),
-                            0x8C0A0A0E, LiquidGlass.THICK);
+                            0x8C0A0A0E, LiquidGlass.THICK).theme(theme);
             FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             slp.setMargins(sheetInset, sheetInset, sheetInset, sheetInset);
@@ -187,14 +193,14 @@ public final class TaskOverview {
             header.setGravity(Gravity.CENTER_VERTICAL);
             TextView title = new TextView(ctx);
             title.setText(cards.isEmpty() ? "No recent apps" : "Recent apps");
-            title.setTextColor(0xFFFFFFFF);
+            title.setTextColor(theme.retro() ? theme.text() : 0xFFFFFFFF);
             title.setTextSize(22);
             LinearLayout titles = new LinearLayout(ctx);
             titles.setOrientation(LinearLayout.VERTICAL);
             titles.addView(title);
             TextView memory = new TextView(ctx);
             memory.setText(memoryLine(ctx));
-            memory.setTextColor(0xB3FFFFFF);
+            memory.setTextColor(theme.retro() ? theme.dimText() : 0xB3FFFFFF);
             memory.setTextSize(13);
             memory.setPadding(0, Ui.dp(ctx, 4), 0, 0);
             titles.addView(memory);
@@ -203,18 +209,23 @@ public final class TaskOverview {
             if (!cards.isEmpty()) {
                 TextView clear = new TextView(ctx);
                 clear.setText("Clear all");
-                clear.setTextColor(0xFFFFFFFF);
+                clear.setTextColor(theme.retro() ? theme.text() : 0xFFFFFFFF);
                 clear.setTextSize(15);
                 int ph = Ui.dp(ctx, 18);
                 int pv = Ui.dp(ctx, 9);
                 clear.setPadding(ph, pv, ph, pv);
                 clear.setBackground(null);
                 clear.setOnClickListener(v -> clearAll(ctx, cards));
-                GlassSurface pill =
-                        new GlassSurface(ctx, Ui.dp(ctx, 20),
-                                0x401C1C22, LiquidGlass.MENU);
-                pill.addView(clear);
-                header.addView(pill);
+                if (theme.retro()) {
+                    clear.setBackground(Bevel.button(ctx));
+                    header.addView(clear);
+                } else {
+                    GlassSurface pill =
+                            new GlassSurface(ctx, Ui.dp(ctx, 20),
+                                    0x401C1C22, LiquidGlass.MENU);
+                    pill.addView(clear);
+                    header.addView(pill);
+                }
             }
             column.addView(header);
 
@@ -242,14 +253,17 @@ public final class TaskOverview {
                 Card card = cards.get(i);
                 // The picture and a title bar of liquid glass over it; no pane round the whole
                 // card - it showed as a band under the picture with a pointed corner.
-                View view = cardView(ctx, card, cards, cardW, thumbH, i < GLASS_CARDS,
-                        i * 25L);
+                View view = cardView(ctx, theme, card, cards, cardW, thumbH,
+                        i < GLASS_CARDS, i * 25L);
                 card.view = view;
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                         cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
                 clp.leftMargin = gap / 2;
                 clp.rightMargin = gap / 2;
                 row.addView(view, clp);
+                if (!theme.animates()) {
+                    continue;
+                }
                 view.setAlpha(0f);
                 view.setScaleX(0.92f);
                 view.setScaleY(0.92f);
@@ -280,15 +294,20 @@ public final class TaskOverview {
             // the far edge of the screen, so up to a bar at the bottom or down to one at the top.
             lp.gravity = bar.top > 0 ? Gravity.BOTTOM : Gravity.TOP;
             lp.setTitle("ZuxOS Desktop Plus recents");
-            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP * 2);
-            root.setAlpha(0f);
+            if (!theme.retro()) {
+                Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP * 2);
+                root.setAlpha(0f);
+            }
+            theme.applyFont(root);
             // The monitor's fastest refresh rate while this is up: its motion at what the
             // screen can show.
             FrameRate.forWindow(lp, wm.getDefaultDisplay());
             FrameRate.forView(root);
             wm.addView(root, lp);
-            root.animate().alpha(1f).setDuration(Motion.SHORT).setInterpolator(Motion.EASE)
-                    .start();
+            if (!theme.retro()) {
+                root.animate().alpha(1f).setDuration(Motion.SHORT).setInterpolator(Motion.EASE)
+                        .start();
+            }
             FrameRate.measure(root, "recents");
             root.requestFocus();
             sRoot = root;
@@ -303,13 +322,19 @@ public final class TaskOverview {
     }
 
     /** One card: icon and name over the app's last picture, with an X; tap, X or swipe up. */
-    private static View cardView(Context ctx, Card card, List<Card> all, int width, int thumbH,
-            boolean glass, long delay) {
+    private static View cardView(Context ctx, Theme theme, Card card, List<Card> all, int width,
+            int thumbH, boolean glass, long delay) {
         // Under a mouse or stylus: a soft light behind the card and its picture growing a
-        // little, steady across its X and icon - the same as the taskbar's previews.
-        // Glass: the monitor's recents take the theme in a later build.
-        HoverTile box = new HoverTile(ctx, Theme.GLASS);
+        // little, steady across its X and icon - the same as the taskbar's previews. In Retro a
+        // Windows 98 window, its title bar lit while the pointer is on it.
+        boolean retro = theme.retro();
+        HoverTile box = new HoverTile(ctx, theme);
         box.setOrientation(LinearLayout.VERTICAL);
+        if (retro) {
+            int edge = Ui.dp(ctx, 3);
+            box.setPadding(edge, edge, edge, edge);
+            box.setBackground(Bevel.raised(ctx));
+        }
 
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -329,11 +354,19 @@ public final class TaskOverview {
         name.setPadding(Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8), 0);
         header.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        int xPx = Ui.dp(ctx, 28);
-        header.addView(closeButton(ctx, xPx, glass, delay, () -> remove(ctx, card, all)),
-                new LinearLayout.LayoutParams(xPx, xPx));
+        int xPx = Ui.dp(ctx, retro ? 18 : 28);
+        View close = retro ? RetroParts.closeButton(ctx)
+                : closeButton(ctx, xPx, glass, delay, () -> remove(ctx, card, all));
+        if (retro) {
+            close.setOnClickListener(v -> remove(ctx, card, all));
+        }
+        header.addView(close, new LinearLayout.LayoutParams(xPx, xPx));
         int barRadius = Ui.dp(ctx, 18);
-        if (glass) {
+        if (retro) {
+            header.setPadding(Ui.dp(ctx, 4), Ui.dp(ctx, 2), Ui.dp(ctx, 2), Ui.dp(ctx, 2));
+            box.retroTitle(header, name);
+            box.addView(header);
+        } else if (glass) {
             // The title bar is a pane of liquid glass of its own, round at all four corners.
             GlassSurface bar =
                     new GlassSurface(ctx, barRadius, 0x401C1C22,
@@ -349,20 +382,27 @@ public final class TaskOverview {
 
         ImageView thumb = new ImageView(ctx);
         thumb.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        thumb.setBackground(Ui.roundRect(0x40FFFFFF, Ui.dp(ctx, 16)));
         thumb.setImageDrawable(card.icon);
-        int radius = Ui.dp(ctx, 16);
-        thumb.setOutlineProvider(new ViewOutlineProvider() {
-            @Override
-            public void getOutline(View view, Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
-            }
-        });
-        thumb.setClipToOutline(true);
+        if (retro) {
+            int field = Ui.dp(ctx, 2);
+            thumb.setBackground(Bevel.sunken(ctx));
+            thumb.setPadding(field, field, field, field);
+        } else {
+            thumb.setBackground(Ui.roundRect(0x40FFFFFF, Ui.dp(ctx, 16)));
+            int radius = Ui.dp(ctx, 16);
+            thumb.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+                }
+            });
+            thumb.setClipToOutline(true);
+        }
         thumb.setTag("thumb");
         box.mThumb = thumb;
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(width, thumbH);
-        tlp.topMargin = Ui.dp(ctx, 8);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                retro ? ViewGroup.LayoutParams.MATCH_PARENT : width, thumbH);
+        tlp.topMargin = Ui.dp(ctx, retro ? 3 : 8);
         box.addView(thumb, tlp);
 
         thumb.setOnClickListener(v -> launch(ctx, card));
@@ -778,6 +818,10 @@ public final class TaskOverview {
         if (root == null || wm == null) {
             return;
         }
+        if (sTheme.retro()) {
+            removeNow(wm, root);
+            return;
+        }
         View content = root.getChildCount() > 0 ? root.getChildAt(root.getChildCount() - 1)
                 : null;
         if (content != null) {
@@ -801,8 +845,12 @@ public final class TaskOverview {
         View view = card.view;
         if (view != null && view.getParent() instanceof ViewGroup) {
             ViewGroup row = (ViewGroup) view.getParent();
-            view.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT)
-                    .withEndAction(() -> row.removeView(view)).start();
+            if (sTheme.retro()) {
+                row.removeView(view);
+            } else {
+                view.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT)
+                        .withEndAction(() -> row.removeView(view)).start();
+            }
         }
         if (all.isEmpty()) {
             MAIN.postDelayed(TaskOverview::close, Motion.SHORT);
@@ -1322,15 +1370,24 @@ public final class TaskOverview {
         if (root == null || wm == null) {
             return;
         }
+        if (sTheme.retro()) {
+            removeNow(wm, root);
+            recycle(cards);
+            return;
+        }
         root.animate().alpha(0f).setDuration(Motion.SHORT).setInterpolator(Motion.EXIT)
                 .withEndAction(() -> {
-                    try {
-                        wm.removeViewImmediate(root);
-                    } catch (Throwable ignored) {
-                        // Already gone.
-                    }
+                    removeNow(wm, root);
                     recycle(cards);
                 }).start();
+    }
+
+    private static void removeNow(WindowManager wm, View root) {
+        try {
+            wm.removeViewImmediate(root);
+        } catch (Throwable ignored) {
+            // Already gone.
+        }
     }
 
     /** The cards of the open overview, so their pictures can be freed when it closes. */

@@ -27,6 +27,8 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.Glass;
 import com.zuxos.desktopplus.core.motion.Anim;
 import com.zuxos.desktopplus.core.motion.FrameRate;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.drawer.DrawerPanel;
 import com.zuxos.desktopplus.hook.DisplayTimeline;
 import com.zuxos.desktopplus.hook.KeepAlive;
@@ -497,6 +499,38 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
 
     // --- surface ---------------------------------------------------------
 
+    /** The look the desktop's own controls are in. */
+    private Theme mTheme = Theme.GLASS;
+
+    /**
+     * The Apps pill, the page arrows and the Remove target in the theme of this screen: glass
+     * pills, or Windows 98's bevelled buttons with black text. Only when the theme has changed.
+     */
+    private void dressControls() {
+        Theme theme = Theme.of(mRoot);
+        if (theme == mTheme) {
+            return;
+        }
+        mTheme = theme;
+        boolean retro = theme.retro();
+        mAppsButton.setBackground(retro ? Bevel.button(mActivity)
+                : Glass.pill(mActivity, Ui.dp(mActivity, 22), 0xCC2B2B2E));
+        mTrash.setBackground(retro ? Bevel.raised(mActivity)
+                : Glass.pill(mActivity, Ui.dp(mActivity, 20), 0xCCB3261E));
+        for (TextView text : new TextView[]{mAppsButton, mTrash, mPrevPage, mNextPage}) {
+            text.setTextColor(theme.text());
+            text.setTypeface(retro ? theme.font(mActivity) : null);
+        }
+        for (TextView arrow : new TextView[]{mPrevPage, mNextPage}) {
+            arrow.setBackground(retro ? Bevel.button(mActivity) : null);
+            if (retro) {
+                arrow.setShadowLayer(0, 0, 0, 0);
+            } else {
+                arrow.setShadowLayer(Ui.dp(mActivity, 4), 0, Ui.dp(mActivity, 1), 0x99000000);
+            }
+        }
+    }
+
     private TextView buildAppsButton() {
         TextView btn = new TextView(mActivity);
         btn.setText("Apps");
@@ -595,9 +629,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
      * Keeps what sits at the bottom of the desktop above the taskbar: the page dots and the Apps
      * pill. Anchored to the screen's bottom they sat under the bar - the dots blurred by its
      * glass, the pill right on top of the back key. And the Remove target, at the top, under a
-     * bar moved there.
+     * bar moved there, and the grid itself, between the two.
      */
     private void clearTaskbar() {
+        dressControls();
+        // The grid's cells never under the bar: it is laid out in the room the bar leaves, at
+        // whichever edge, and the icons are placed again when that room changes.
+        Insets over = BarEdge.over(mRoot);
+        FrameLayout.LayoutParams glp = (FrameLayout.LayoutParams) mGrid.getLayoutParams();
+        if (glp.topMargin != over.top || glp.bottomMargin != over.bottom) {
+            glp.topMargin = over.top;
+            glp.bottomMargin = over.bottom;
+            mGrid.setLayoutParams(glp);
+            mGrid.post(this::rebuildItems);
+        }
         Insets reserved = BarEdge.reserved(mDisplayId);
         FrameLayout.LayoutParams tlp = (FrameLayout.LayoutParams) mTrash.getLayoutParams();
         int trashTop = reserved.top + Ui.dp(mActivity, 16);
@@ -638,10 +683,13 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         // behind its glass read as part of the bar - blurred, and in the way of nothing useful.
         for (int i = 0; i < pages; i++) {
             View dot = new View(mActivity);
-            int size = Ui.dp(mActivity, 7);
+            int size = Ui.dp(mActivity, mTheme.retro() ? 10 : 7);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
             lp.setMargins(Ui.dp(mActivity, 4), 0, Ui.dp(mActivity, 4), 0);
-            dot.setBackground(Ui.roundRect(i == mPage ? 0xFFFFFFFF : 0x66FFFFFF, size / 2));
+            // Retro's are small square buttons, the page shown pressed in.
+            dot.setBackground(mTheme.retro()
+                    ? (i == mPage ? Bevel.sunken(mActivity) : Bevel.raised(mActivity))
+                    : Ui.roundRect(i == mPage ? 0xFFFFFFFF : 0x66FFFFFF, size / 2));
             final int target = i;
             dot.setOnClickListener(v -> goToPage(target));
             mDots.addView(dot, lp);
@@ -1604,18 +1652,20 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
     private View buildResizeBar(Item item) {
         LinearLayout bar = new LinearLayout(mActivity);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackground(Glass.pill(mActivity, Ui.dp(mActivity, 22), 0xEE2B2B2E));
+        bar.setBackground(mTheme.retro() ? Bevel.raised(mActivity)
+                : Glass.pill(mActivity, Ui.dp(mActivity, 22), 0xEE2B2B2E));
         int padH = Ui.dp(mActivity, 8);
         bar.setPadding(padH, padH / 2, padH, padH / 2);
 
-        bar.addView(barButton("Remove widget", 0xFFFF6B6B, () -> {
+        bar.addView(barButton("Remove widget", mTheme.retro() ? 0xFF800000 : 0xFFFF6B6B, () -> {
             endResize();
             mWidgets.deleteWidget(item.widgetId);
             mStore.remove(item);
             save();
             rebuildItems();
         }));
-        bar.addView(barButton("Done", Ui.COLOR_TEXT, this::endResize));
+        bar.addView(barButton("Done", mTheme.text(), this::endResize));
+        mTheme.applyFont(bar);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
@@ -1633,7 +1683,7 @@ public class DesktopHost implements CellLayoutView.Callbacks, WidgetFrame.Host,
         tv.setGravity(Gravity.CENTER);
         int pad = Ui.dp(mActivity, 14);
         tv.setPadding(pad, Ui.dp(mActivity, 8), pad, Ui.dp(mActivity, 8));
-        tv.setBackground(Ui.ripple(mActivity, 0x00000000, Ui.dp(mActivity, 18)));
+        tv.setBackground(mTheme.button(mActivity, 0x00000000, Ui.dp(mActivity, 18)));
         tv.setOnClickListener(v -> action.run());
         return tv;
     }

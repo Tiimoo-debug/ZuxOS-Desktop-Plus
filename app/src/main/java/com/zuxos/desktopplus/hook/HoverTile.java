@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.RetroParts;
 import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
@@ -46,6 +47,19 @@ public final class HoverTile extends LinearLayout {
 
     public void setOnHover(OnHover onHover) {
         mOnHover = onHover;
+    }
+
+    /**
+     * Retro's title bar on this tile: grey with grey text, and navy with white text while the
+     * pointer is on the tile - the active window's, as Windows 98 drew it.
+     */
+    public void retroTitle(android.view.View bar, android.widget.TextView name) {
+        bar.setBackgroundColor(RetroParts.INACTIVE_TITLE);
+        name.setTextColor(RetroParts.INACTIVE_TITLE_TEXT);
+        setOnHover(on -> {
+            bar.setBackgroundColor(on ? Theme.NAVY : RetroParts.INACTIVE_TITLE);
+            name.setTextColor(on ? RetroParts.ACTIVE_TITLE_TEXT : RetroParts.INACTIVE_TITLE_TEXT);
+        });
     }
 
     @Override

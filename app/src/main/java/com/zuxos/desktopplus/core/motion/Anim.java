@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.zuxos.desktopplus.core.Cfg;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
  * Short, consistent motion for the module's surfaces.
@@ -39,7 +40,7 @@ public final class Anim {
         view.animate().cancel();
         sheet.animate().cancel();
         view.setVisibility(View.VISIBLE);
-        if (!Cfg.animations()) {
+        if (!Theme.of(sheet).animates()) {
             sheet.setTranslationY(0f);
             view.setAlpha(1f);
             return;
@@ -54,7 +55,7 @@ public final class Anim {
     public static void slideDown(View view, View sheet, Runnable onEnd) {
         view.animate().cancel();
         sheet.animate().cancel();
-        if (!Cfg.animations()) {
+        if (!Theme.of(sheet).animates()) {
             view.setVisibility(View.GONE);
             sheet.setTranslationY(0f);
             if (onEnd != null) {

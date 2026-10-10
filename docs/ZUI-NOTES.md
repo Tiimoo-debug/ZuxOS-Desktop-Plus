@@ -247,6 +247,27 @@ device.
   setting of ZUI's turns it off. Everything else in the manager allows for it not being there
   (`removeStatusBar`, the colour updates in `onSystemBarAttributesChanged`); the screen width it
   stores on the way (`XSystemUtil.mDpModeScreenWidth`) is read only by the status bar's own view.
+  - **The window buttons went with it.** `WindowDecoration.getCurrentTaskInfoImmersived(task)`
+    counts a full-screen task as immersive - and its title bar hidden - when ZUI's
+    swipe-from-top flag is set (`OvcPcModeUtils.mImmersivedSwipFromUpTaskInfo`) or when
+    `mIsStatusBarVisible` is false. That flag follows the `statusBars` insets on the task's
+    display (`DesktopModeWindowDecorViewModel.DesktopModeOnInsetsChangedListener`), so with no
+    status bar every maximised window lost its buttons. ZUI's own test for an app asking to be
+    immersive is `(task.requestedVisibleTypes & statusBars()) == 0`
+    (`TaskInfoKt.getRequestingImmersive`). `CaptionWindowDecoration` reads the flag too, but it is
+    the non-desktop decoration.
+- **Where windows may go** (read 2026-10-10). The shell keeps windows in
+  `DisplayLayout.getStableBounds` / `getStableBoundsForDesktopMode`, built in `recalcInsets` -
+  run again on every change of the display's insets
+  (`DisplayInsetsController...DisplayWindowInsetsControllerImpl`). It assumes the navigation bar
+  at the bottom of a landscape screen, adds the configured status bar height at the top whenever
+  the display has one (`mHasStatusBar`, not the real bar), and on the desktop ends the bottom at
+  the screen less `mTaskbarFrameHeight` when that differs from `mNavBarFrameHeight` - the only
+  use of `mTaskbarFrameHeight`. A bar at the top, or no status bar, is not seen.
+- **ZUI's drawer app names** (ZUX Home): `BubbleTextView` with `mDisplay == 1` (all apps) take
+  their colour from their layout when made and from `setTextColor(int)` /
+  `setTextColor(ColorStateList)` after; `applyFromItemInfo` sets it only for workspace, hotseat
+  and folder containers (`Utilities.getTextColor`).
 - **#9 Boot animation.** Chosen by the native boot animation, not in these jars. The probe lists
   the files present.
 - **#10, #16 Window frames.** SystemUI draws them from resources:

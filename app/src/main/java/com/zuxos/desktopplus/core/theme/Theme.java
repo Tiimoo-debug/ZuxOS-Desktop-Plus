@@ -65,6 +65,11 @@ public final class Theme {
         return mRetro ? RETRO_DIM_TEXT : Ui.COLOR_TEXT_DIM;
     }
 
+    /** What a button that acts stands out in: Retro's navy, or Glass's accent. */
+    public int accent() {
+        return mRetro ? NAVY : Ui.COLOR_ACCENT;
+    }
+
     /** Whether things move: Retro steps rather than springs, and the user's switch holds. */
     public boolean animates() {
         return !mRetro && Cfg.animations();

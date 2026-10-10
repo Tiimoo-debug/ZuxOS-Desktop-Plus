@@ -11,6 +11,8 @@ import com.zuxos.desktopplus.core.glass.Glass;
 import com.zuxos.desktopplus.core.glass.GlassBackdrop;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +29,9 @@ import java.util.List;
  * <p>Where the device will not capture the screen, the panel keeps the in-window part and its own
  * tint shows through where that has nothing - the wallpaper, mostly - which is how it looked
  * before. Without AGSL at all it asks the compositor for a plain blur.
+ *
+ * <p>Told it is in the Retro theme ({@link #theme}), it is no glass at all: a raised Windows 98
+ * box, with nothing captured behind it.
  */
 public class GlassPanel extends FrameLayout {
 
@@ -40,6 +45,7 @@ public class GlassPanel extends FrameLayout {
 
     private final List<View> mSources = new ArrayList<>(2);
     private boolean mRealBlur;
+    private boolean mRetro;
     private static boolean sSaidPath;
 
     public GlassPanel(Context ctx, float radiusPx, int tint) {
@@ -65,6 +71,28 @@ public class GlassPanel extends FrameLayout {
     }
 
     /**
+     * The theme to paint in; glass unless told otherwise. Set before the panel is shown - and
+     * again on a panel kept between showings, which follows the setting both ways.
+     */
+    public GlassPanel theme(Theme theme) {
+        boolean retro = theme.retro();
+        if (retro == mRetro) {
+            return this;
+        }
+        mRetro = retro;
+        mBackdrop.setVisibility(retro ? GONE : VISIBLE);
+        if (retro) {
+            setBackground(Bevel.raised(getContext()));
+        } else {
+            setBackground(LiquidGlass.isSupported() ? null
+                    : Glass.panel(getContext(), (int) mRadiusPx));
+            mRealBlur = false;
+            mPictured[2] = 0;
+        }
+        return this;
+    }
+
+    /**
      * The live part starts with the panel, not once it has settled: the opening animation is
      * exactly when the glass has to be there already. Only the in-window picture, which has to
      * be taken where the panel will rest, waits for {@link #refresh}.
@@ -72,7 +100,7 @@ public class GlassPanel extends FrameLayout {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        if (LiquidGlass.isSupported() && !ScreenBackdrop.refused()) {
+        if (!mRetro && LiquidGlass.isSupported() && !ScreenBackdrop.refused()) {
             mBackdrop.setLive(true, () -> L.d("glass: panel stays on its in-window backdrop"));
         }
     }
@@ -108,7 +136,7 @@ public class GlassPanel extends FrameLayout {
      * left a folder or menu without the desktop behind it for its whole opening.
      */
     public void refresh() {
-        if (getWidth() <= 0 || getHeight() <= 0) {
+        if (mRetro || getWidth() <= 0 || getHeight() <= 0) {
             return;
         }
         if (!LiquidGlass.isSupported()) {

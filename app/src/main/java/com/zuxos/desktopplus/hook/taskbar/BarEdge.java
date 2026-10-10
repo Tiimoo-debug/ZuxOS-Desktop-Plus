@@ -64,6 +64,30 @@ public final class BarEdge {
     }
 
     /**
+     * How much of the top and of the bottom of {@code view} the bar on its display covers: only
+     * the part that overlaps it, so a window that already stops short of the bar gets nothing.
+     */
+    public static Insets over(View view) {
+        try {
+            if (view == null || view.getDisplay() == null) {
+                return Insets.NONE;
+            }
+            Insets bar = reserved(view.getDisplay().getDisplayId());
+            int[] at = new int[2];
+            view.getLocationOnScreen(at);
+            android.graphics.Point size = new android.graphics.Point();
+            view.getDisplay().getRealSize(size);
+            int screen = Math.max(view.getResources().getDisplayMetrics().heightPixels, size.y);
+            int bottom = Math.max(0, Math.min(bar.bottom,
+                    at[1] + view.getHeight() - (screen - bar.bottom)));
+            int top = Math.max(0, bar.top - at[1]);
+            return Insets.of(0, top, 0, bottom);
+        } catch (Throwable t) {
+            return Insets.NONE;
+        }
+    }
+
+    /**
      * Where a bar at the bottom of this display begins, in screen pixels: for a drawer, which
      * runs on under it, to stop at. -1 when the bar there is at the top, or none is showing.
      */

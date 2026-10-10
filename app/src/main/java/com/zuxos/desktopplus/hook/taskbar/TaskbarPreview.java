@@ -30,17 +30,16 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
-import com.zuxos.desktopplus.core.icons.PixelIcons;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.RetroParts;
 import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.recents.TaskOverview;
-import com.zuxos.desktopplus.logic.BevelMath;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -69,8 +68,6 @@ public final class TaskbarPreview {
     private static final int TILE_PAD_DP = 6;
     /** Retro's window edge: the bevel's width, and the gap under its title bar. */
     private static final int RETRO_EDGE_DP = 3;
-    /** Windows 98's title bar of a window not in front. */
-    private static final int RETRO_INACTIVE = BevelMath.shadow(BevelMath.FACE);
 
     private static final int TAG_PKG = 0x7A000201;
     private static final int TAG_DISPLAY = 0x7A000202;
@@ -512,7 +509,7 @@ public final class TaskbarPreview {
         name.setPadding(Ui.dp(ctx, retro ? 4 : 8), 0, Ui.dp(ctx, retro ? 4 : 8), 0);
         header.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        View x = retro ? retroClose(ctx) : glassClose(ctx);
+        View x = retro ? RetroParts.closeButton(ctx) : glassClose(ctx);
         x.setOnClickListener(v -> {
             TaskOverview.closeTask(tile.taskId, pkg);
             tiles.remove(tile);
@@ -536,12 +533,7 @@ public final class TaskbarPreview {
         if (retro) {
             int bar = Ui.dp(ctx, 2);
             header.setPadding(bar, bar, bar, bar);
-            header.setBackgroundColor(RETRO_INACTIVE);
-            box.setOnHover(on -> {
-                header.setBackgroundColor(on ? Theme.NAVY : RETRO_INACTIVE);
-                name.setTextColor(on ? 0xFFFFFFFF : BevelMath.FACE);
-            });
-            name.setTextColor(BevelMath.FACE);
+            box.retroTitle(header, name);
         }
         box.addView(header);
 
@@ -600,17 +592,6 @@ public final class TaskbarPreview {
             }
             return false;
         });
-        return x;
-    }
-
-    /** Windows 98's close: a small raised button with a black X, pressed in under a press. */
-    private static View retroClose(Context ctx) {
-        ImageView x = new ImageView(ctx);
-        x.setImageDrawable(PixelIcons.close(Theme.RETRO.text()));
-        int inset = Ui.dp(ctx, 3);
-        x.setPadding(inset, inset, inset, inset);
-        x.setBackground(Bevel.button(ctx));
-        x.setContentDescription("Close");
         return x;
     }
 

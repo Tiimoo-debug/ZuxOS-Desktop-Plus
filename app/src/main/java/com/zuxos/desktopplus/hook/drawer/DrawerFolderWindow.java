@@ -18,6 +18,7 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.Glass;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderStyle;
@@ -75,8 +76,9 @@ public final class DrawerFolderWindow {
 
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
+            Theme theme = Theme.of(displayId);
             GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP),
-                    FolderStyle.PANEL_TINT);
+                    FolderStyle.PANEL_TINT).theme(theme);
             glass.addView(panel, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
             int pad = Ui.dp(ctx, FolderStyle.PADDING_DP);
@@ -195,7 +197,10 @@ public final class DrawerFolderWindow {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus folder");
-            Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            if (!theme.retro()) {
+                Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
+            }
+            theme.applyFont(root);
             // The monitor's fastest refresh rate while this is up: its motion at what the
             // screen can show.
             FrameRate.forWindow(lp, wm.getDefaultDisplay());

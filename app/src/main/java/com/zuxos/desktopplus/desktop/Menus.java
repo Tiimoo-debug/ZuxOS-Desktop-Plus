@@ -103,15 +103,16 @@ public final class Menus {
 
     private static void showInPlace(Context ctx, FrameLayout root, float x, float y,
             List<Entry> entries, boolean above) {
+        final Theme theme = Theme.of(root);
         final FrameLayout shade = new FrameLayout(ctx);
         // Catches the tap that dismisses the menu, and stops it reaching whatever is underneath.
         shade.setClickable(true);
-        shade.setOnClickListener(v -> MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade)));
+        shade.setOnClickListener(v -> MenuRows.close(shade, theme, () -> root.removeView(shade)));
         shade.setFocusableInTouchMode(true);
         shade.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() == KeyEvent.ACTION_UP && (keyCode == KeyEvent.KEYCODE_BACK
                     || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
-                MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade));
+                MenuRows.close(shade, theme, () -> root.removeView(shade));
                 return true;
             }
             return false;
@@ -119,7 +120,7 @@ public final class Menus {
 
         // Liquid glass: the desktop behind the menu is ours to capture, so it is bent through the
         // lens rather than only blurred.
-        GlassPanel pane = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x591C1C22);
+        GlassPanel pane = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x591C1C22).theme(theme);
         LinearLayout body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(0, Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6));
@@ -135,10 +136,10 @@ public final class Menus {
         }
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
-            body.addView(MenuRows.row(ctx, Theme.GLASS, entry.title, icons.get(i), anyIcon,
+            body.addView(MenuRows.row(ctx, theme, entry.title, icons.get(i), anyIcon,
                     entry.enabled,
                     v -> {
-                        MenuRows.close(shade, Theme.GLASS, () -> root.removeView(shade));
+                        MenuRows.close(shade, theme, () -> root.removeView(shade));
                         if (entry.action != null) {
                             try {
                                 entry.action.run();
@@ -167,7 +168,7 @@ public final class Menus {
             int height = pane.getMeasuredHeight();
             // The usable height stops at the taskbar, at either edge: the activity runs on
             // under it.
-            Insets bar = taskbarOver(root);
+            Insets bar = BarEdge.over(root);
             int usable = root.getHeight() - bar.bottom;
             int top = (int) y;
             if (top + height > usable) {
@@ -181,30 +182,7 @@ public final class Menus {
         root.addView(shade, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         shade.requestFocus();
-        MenuRows.popIn(pane, Theme.GLASS, above, pane::refresh);
-    }
-
-    /** How much of the top and of the bottom of this view the taskbar covers. */
-    private static Insets taskbarOver(View view) {
-        try {
-            if (view.getDisplay() == null) {
-                return Insets.NONE;
-            }
-            Insets bar = BarEdge.reserved(view.getDisplay().getDisplayId());
-            int[] at = new int[2];
-            view.getLocationOnScreen(at);
-            int screen = view.getResources().getDisplayMetrics().heightPixels;
-            android.graphics.Point size = new android.graphics.Point();
-            view.getDisplay().getRealSize(size);
-            screen = Math.max(screen, size.y);
-            // Only the part of the bar that actually overlaps this view.
-            int viewBottom = at[1] + view.getHeight();
-            int bottom = Math.max(0, Math.min(bar.bottom, viewBottom - (screen - bar.bottom)));
-            int top = Math.max(0, bar.top - at[1]);
-            return Insets.of(0, top, 0, bottom);
-        } catch (Throwable t) {
-            return Insets.NONE;
-        }
+        MenuRows.popIn(pane, theme, above, pane::refresh);
     }
 
     /** At most {@code size}, or anything while the host has not been laid out yet. */

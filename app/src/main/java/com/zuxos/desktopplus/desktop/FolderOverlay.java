@@ -12,6 +12,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.Ui;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.Item;
 
@@ -148,8 +149,11 @@ public class FolderOverlay extends FrameLayout {
             View source) {
         mFolder = folder;
         mSource = source;
+        Theme theme = Theme.of(this);
+        mPanel.theme(theme);
         mName.setText(folder.label != null ? folder.label : "Folder");
         rebuild(iconSizePx, showLabels, labelShadow);
+        theme.applyFont(mPanel);
         bringToFront();
         // The panel grows out of the icon and the scrim fades with it; fading the whole overlay
         // as well would fade the panel in on top of its own growing.

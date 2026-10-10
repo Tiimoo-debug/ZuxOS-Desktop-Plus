@@ -86,14 +86,16 @@ mode along the way.
   the tray for a few seconds, with its buttons and a reply box. Needs notification access.
 - **Glass taskbar** (optional). Under the glyphs it adds the lightest tint that keeps them at a
   3:1 contrast ratio over any app, so white icons don't vanish over a white app.
-- **Retro theme** (optional, monitor only): the bar, Start, the tray, the bar's menus, panels and
-  window previews, pop-ups and the screenshot card as Windows 98 drew them - grey bevels, navy selection, a pixel
+- **Retro theme** (optional, monitor only): everything on the monitor as Windows 98 drew it - the
+  bar, Start and its grey start menu, the tray, menus, panels, window previews, pop-ups, folders,
+  the home screen's buttons, recents and the screenshot card - grey bevels, navy selection, a pixel
   font and pixel keys. Open apps are raised buttons, the one in front pressed in. Nothing moves
   and no glass is captured, so it is also the lightest look. The tablet keeps glass.
 - **Taskbar at the top** (optional, monitor only), over the monitor's status bar strip. Menus,
   panels, pop-ups and previews open below it, and maximised windows start under it.
 - **No status bar on the monitor.** ZUI's bar there only shows icons; the tray does its job, and
-  apps get the strip back. Needs System UI ticked in LSPosed.
+  apps get the strip back. Maximised windows keep their buttons. Needs System UI ticked in
+  LSPosed, which also keeps windows clear of the taskbar wherever it is.
 
 ### Liquid glass
 

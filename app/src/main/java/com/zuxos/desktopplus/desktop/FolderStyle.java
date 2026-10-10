@@ -4,10 +4,10 @@ import android.content.Context;
 import android.view.View;
 import android.widget.TextView;
 
-import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
  * How an open folder looks and moves - the same on the home screen, in the drawer and on the
@@ -80,7 +80,7 @@ public final class FolderStyle {
         cancel(panel);
         panel.setVisibility(View.VISIBLE);
         hide(panel, source);
-        if (!Cfg.animations()) {
+        if (!Theme.of(panel).animates()) {
             reset(panel);
             setScrim(panel, 1f);
             return;
@@ -114,7 +114,7 @@ public final class FolderStyle {
                 onEnd.run();
             }
         };
-        if (!Cfg.animations() || panel.getWidth() == 0) {
+        if (!Theme.of(panel).animates() || panel.getWidth() == 0) {
             done.run();
             return;
         }

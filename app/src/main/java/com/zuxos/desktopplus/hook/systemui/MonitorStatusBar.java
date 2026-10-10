@@ -8,6 +8,8 @@ import com.zuxos.desktopplus.core.Reflect;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.HashSet;
+import java.util.Set;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -31,6 +33,8 @@ public final class MonitorStatusBar {
     private static final String MANAGER = "com.android.systemui.dpmode.ZuiDpModeManager";
 
     private static boolean sSaid;
+    /** The displays whose status bar ZUI was asked not to build. Main thread only. */
+    private static final Set<Integer> HIDDEN = new HashSet<>();
 
     private MonitorStatusBar() {
     }
@@ -51,6 +55,10 @@ public final class MonitorStatusBar {
                             return;
                         }
                         param.setResult(null);
+                        Object display = param.args[param.args.length - 1];
+                        if (display instanceof Display) {
+                            HIDDEN.add(((Display) display).getDisplayId());
+                        }
                         if (!sSaid) {
                             sSaid = true;
                             L.i("monitor status bar: not built, the setting is on");
@@ -64,6 +72,11 @@ public final class MonitorStatusBar {
         } catch (Throwable t) {
             L.e("monitor status bar: could not install, ZUI's bar stays", t);
         }
+    }
+
+    /** Whether ZUI was asked not to build this display's status bar. */
+    static boolean hiddenOn(int displayId) {
+        return HIDDEN.contains(displayId);
     }
 
     /**

@@ -46,6 +46,8 @@ import com.zuxos.desktopplus.core.Su;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.motion.Hover;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.Menus;
 import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarBridge;
@@ -158,6 +160,8 @@ public final class DrawerAccountBar {
         private final ViewGroup mWindow;
         private final int mDisplay;
         private final boolean mDark;
+        /** Windows 98's start menu: square, bevelled, black, and nothing moving. */
+        private final boolean mRetro;
         private final ImageView mAvatar;
         private final TextView mName;
         private final EditText mEdit;
@@ -171,7 +175,9 @@ public final class DrawerAccountBar {
             setTag(TAG);
             mWindow = window;
             mDisplay = display;
-            mDark = (ctx.getResources().getConfiguration().uiMode
+            mRetro = Theme.of(display).retro();
+            // Retro's start menu is grey with black text, whatever the system's mode.
+            mDark = !mRetro && (ctx.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
@@ -182,13 +188,19 @@ public final class DrawerAccountBar {
             int avatar = Ui.dp(ctx, 40);
             mAvatar = new ImageView(ctx);
             mAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            mAvatar.setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setOval(0, 0, view.getWidth(), view.getHeight());
-                }
-            });
-            mAvatar.setClipToOutline(true);
+            if (mRetro) {
+                int frame = Ui.dp(ctx, 2);
+                mAvatar.setBackground(Bevel.sunken(ctx));
+                mAvatar.setPadding(frame, frame, frame, frame);
+            } else {
+                mAvatar.setOutlineProvider(new ViewOutlineProvider() {
+                    @Override
+                    public void getOutline(View view, Outline outline) {
+                        outline.setOval(0, 0, view.getWidth(), view.getHeight());
+                    }
+                });
+                mAvatar.setClipToOutline(true);
+            }
             mAvatar.setContentDescription("Change your picture");
             mAvatar.setOnClickListener(v -> pickPicture());
             addView(mAvatar, new LayoutParams(avatar, avatar));
@@ -242,10 +254,14 @@ public final class DrawerAccountBar {
             mPower.setImageDrawable(power);
             int inset = Ui.dp(ctx, 9);
             mPower.setPadding(inset, inset, inset, inset);
-            GradientDrawable round = new GradientDrawable();
-            round.setShape(GradientDrawable.OVAL);
-            round.setColor(mDark ? 0x14FFFFFF : 0x0D000000);
-            mPower.setBackground(round);
+            if (mRetro) {
+                mPower.setBackground(Bevel.button(ctx));
+            } else {
+                GradientDrawable round = new GradientDrawable();
+                round.setShape(GradientDrawable.OVAL);
+                round.setColor(mDark ? 0x14FFFFFF : 0x0D000000);
+                mPower.setBackground(round);
+            }
             mPower.setContentDescription("Power");
             mPower.setOnClickListener(v -> powerMenu());
             addView(mPower, new LayoutParams(button, button));
@@ -255,13 +271,18 @@ public final class DrawerAccountBar {
                 // Under a mouse or a stylus: a little bigger, with a soft light behind.
                 v.setOnHoverListener((h, e) -> {
                     int action = e.getActionMasked();
-                    if (action == android.view.MotionEvent.ACTION_HOVER_ENTER) {
+                    if (action == android.view.MotionEvent.ACTION_HOVER_ENTER && !mRetro) {
                         Hover.lift(h);
                     } else if (action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
                         Hover.drop(h);
                     }
                     return false;
                 });
+            }
+            if (mRetro) {
+                mName.setTextColor(Theme.RETRO.text());
+                mEdit.setTextColor(Theme.RETRO.text());
+                Theme.RETRO.applyFont(this);
             }
             String stored = storedName();
             mName.setText(stored);

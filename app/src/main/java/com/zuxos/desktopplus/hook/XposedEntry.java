@@ -4,6 +4,7 @@ import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Const;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.ModuleStatus;
+import com.zuxos.desktopplus.hook.drawer.DrawerRetro;
 import com.zuxos.desktopplus.hook.drawer.NativeDrawerHooks;
 import com.zuxos.desktopplus.hook.home.ActivityWatcher;
 import com.zuxos.desktopplus.hook.home.HotseatButton;
@@ -18,6 +19,8 @@ import com.zuxos.desktopplus.hook.system.SystemKeepAlive;
 import com.zuxos.desktopplus.hook.system.SystemNewWindow;
 import com.zuxos.desktopplus.hook.system.SystemTrace;
 import com.zuxos.desktopplus.hook.systemui.MonitorStatusBar;
+import com.zuxos.desktopplus.hook.systemui.StableBounds;
+import com.zuxos.desktopplus.hook.systemui.WindowCaptions;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -52,11 +55,14 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 return;
             }
             if (SYSTEMUI.equals(lpparam.packageName)) {
-                // ZUI's SystemUI - ticked as System UI in LSPosed. Its main process only, and
-                // only the switch for the monitor's status bar.
+                // ZUI's SystemUI - ticked as System UI in LSPosed. Its main process only: the
+                // monitor's status bar, the window buttons it took with it, and where windows
+                // may go with the bars where they really are.
                 Cfg.reload();
                 if (SYSTEMUI.equals(lpparam.processName) && Cfg.enabled()) {
                     MonitorStatusBar.install(lpparam.classLoader);
+                    WindowCaptions.install(lpparam.classLoader);
+                    StableBounds.install(lpparam.classLoader);
                 }
                 return;
             }
@@ -76,6 +82,7 @@ public class XposedEntry implements IXposedHookLoadPackage {
                 NativeDrawerHooks.install(lpparam.classLoader);
             }
             NativeFolderMotion.install(lpparam.classLoader);
+            DrawerRetro.install(lpparam.classLoader);
             RecentsRoute.install(lpparam.classLoader);
             DetachGuard.install();
             if (Cfg.unlockStock()) {

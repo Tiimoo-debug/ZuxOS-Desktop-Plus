@@ -18,6 +18,8 @@ import com.zuxos.desktopplus.core.glass.Blur;
 import com.zuxos.desktopplus.core.glass.Glass;
 import com.zuxos.desktopplus.core.glass.GlassBackdrop;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.logic.GlassPick;
 import com.zuxos.desktopplus.logic.ToneMath;
@@ -71,7 +73,7 @@ public final class DrawerGlass {
             return;
         }
         try {
-            if (!on()) {
+            if (!on(root)) {
                 restore((ViewGroup) root);
                 unwatch(root);
                 return;
@@ -88,8 +90,14 @@ public final class DrawerGlass {
         }
     }
 
+    /** Whether a drawer on this window's screen is dressed: in glass, or in Retro. */
+    private static boolean on(View root) {
+        return Theme.of(root).retro() || Cfg.drawerGlass() && Cfg.glass();
+    }
+
+    /** Whether any drawer may be dressed - for the blur hook, which has no window to ask. */
     private static boolean on() {
-        return Cfg.drawerGlass() && Cfg.glass();
+        return Cfg.theme() == Theme.RETRO_ID || Cfg.drawerGlass() && Cfg.glass();
     }
 
     /**
@@ -118,7 +126,7 @@ public final class DrawerGlass {
                 .OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
-                if (!on()) {
+                if (!on(root)) {
                     restore((ViewGroup) root);
                     unwatch(root);
                     return;
@@ -575,6 +583,12 @@ public final class DrawerGlass {
             Drawable original = sheet.getBackground();
             int tint = tintFor(best.colour);
             ORIGINALS.put(sheet, original);
+            if (Theme.of(window).retro()) {
+                retro(sheet);
+                clearWhatIsDrawnOver(candidates, best, (long) window.getWidth()
+                        * window.getHeight());
+                return true;
+            }
             float corner = cornerOf(original, sheet);
             // A sheet that reaches the bottom of the window is sitting on the screen edge: round
             // its top and leave the bottom square, or the blur cuts two notches out of it.
@@ -608,6 +622,32 @@ public final class DrawerGlass {
         } catch (Throwable t) {
             L.d("drawer glass: could not apply (" + t + ")");
             return false;
+        }
+    }
+
+    /**
+     * Windows 98's start menu: the sheet a raised grey box, square, nothing behind it captured
+     * or blurred, and the text on it black - its app names by {@link DrawerRetro} as ZUI draws
+     * them, the rest here, once.
+     */
+    private static void retro(View sheet) {
+        sheet.setBackground(Bevel.raised(sheet.getContext()));
+        sheet.setClipToOutline(false);
+        blacken(sheet, 0);
+        Theme.RETRO.applyFont(sheet);
+        L.i("drawer: retro start menu on " + sheet.getClass().getSimpleName());
+    }
+
+    private static void blacken(View view, int depth) {
+        if (view instanceof android.widget.TextView) {
+            android.widget.TextView text = (android.widget.TextView) view;
+            text.setTextColor(Theme.RETRO.text());
+            text.setHintTextColor(Theme.RETRO.dimText());
+        } else if (view instanceof ViewGroup && depth < MAX_DEPTH * 2) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                blacken(group.getChildAt(i), depth + 1);
+            }
         }
     }
 

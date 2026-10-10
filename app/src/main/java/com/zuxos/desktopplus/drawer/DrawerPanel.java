@@ -1,6 +1,7 @@
 package com.zuxos.desktopplus.drawer;
 
 import android.content.Context;
+import android.graphics.Insets;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
@@ -15,10 +16,13 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.motion.Anim;
+import com.zuxos.desktopplus.core.theme.Bevel;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.Dialogs;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.GlassPanel;
 import com.zuxos.desktopplus.desktop.ItemView;
+import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 import com.zuxos.desktopplus.model.AppsRepo;
 import com.zuxos.desktopplus.model.DrawerStore;
 import com.zuxos.desktopplus.model.Item;
@@ -88,6 +92,12 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     private final LinearLayout mSelectBar;
     private final TextView mSelectCount;
     private boolean mSelecting;
+
+    /** The look the drawer was last shown in. */
+    private Theme mTheme = Theme.GLASS;
+    /** Its text, and its accent-coloured buttons, which follow the theme. */
+    private final List<TextView> mTexts = new ArrayList<>();
+    private final List<TextView> mAccents = new ArrayList<>();
 
     public DrawerPanel(Context ctx, AppsRepo repo, DrawerStore store, Listener listener) {
         super(ctx);
@@ -189,6 +199,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         more.setText("⋮");
         more.setTextSize(20);
         more.setTextColor(Ui.COLOR_TEXT);
+        mTexts.add(more);
         more.setPadding(Ui.dp(ctx, 12), 0, Ui.dp(ctx, 6), 0);
         more.setOnClickListener(v -> {
             int[] loc = new int[2];
@@ -201,6 +212,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         close.setText("✕");
         close.setTextSize(18);
         close.setTextColor(Ui.COLOR_TEXT);
+        mTexts.add(close);
         close.setPadding(Ui.dp(ctx, 10), 0, Ui.dp(ctx, 4), 0);
         close.setOnClickListener(v -> hide());
         header.addView(close);
@@ -215,6 +227,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         mSelectBar.setPadding(pad, 0, pad, Ui.dp(ctx, 6));
         mSelectCount = new TextView(ctx);
         mSelectCount.setTextColor(Ui.COLOR_TEXT);
+        mTexts.add(mSelectCount);
         mSelectBar.addView(mSelectCount, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         mSelectBar.addView(barButton(ctx, "Add to folder",
@@ -259,6 +272,7 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
         TextView tv = new TextView(ctx);
         tv.setText(text);
         tv.setTextColor(Ui.COLOR_ACCENT);
+        mAccents.add(tv);
         int p = Ui.dp(ctx, 12);
         tv.setPadding(p, p / 2, p, p / 2);
         tv.setOnClickListener(v -> action.run());
@@ -315,6 +329,8 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
     public void show() {
         mSearch.setText("");
         mQuery = "";
+        dress(Theme.of(this));
+        clearTheBar();
         rebuild();
         bringToFront();
         // Laid out but not yet drawn: the glass captures what is behind it, then slides in.
@@ -330,6 +346,43 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
             Anim.slideUp(this, mSheet);
             mListener.onDrawerVisibility(true);
         });
+    }
+
+    /**
+     * Glass, or Windows 98 on a Retro screen: a raised grey sheet, black text and names, a white
+     * sunken search field, nothing sliding. Only when the theme has changed; the icons are made
+     * again so they take it.
+     */
+    private void dress(Theme theme) {
+        if (theme == mTheme) {
+            return;
+        }
+        mTheme = theme;
+        Context ctx = getContext();
+        mSheet.theme(theme);
+        mSearch.setTextColor(theme.text());
+        mSearch.setHintTextColor(theme.dimText());
+        mSearch.setBackground(theme.retro() ? new Bevel(ctx, Bevel.SUNKEN, 0xFFFFFFFF)
+                : Ui.roundRect(0x22FFFFFF, Ui.dp(ctx, 18)));
+        for (TextView text : mTexts) {
+            text.setTextColor(theme.text());
+        }
+        for (TextView accent : mAccents) {
+            accent.setTextColor(theme.accent());
+        }
+        theme.applyFont(mSheet);
+        mGrid.removeAllViews();
+    }
+
+    /** The sheet stands on a bar at the bottom, and stops short of one at the top. */
+    private void clearTheBar() {
+        Insets over = BarEdge.over(this);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mSheet.getLayoutParams();
+        if (lp.bottomMargin != over.bottom || lp.topMargin != over.top) {
+            lp.bottomMargin = over.bottom;
+            lp.topMargin = over.top;
+            mSheet.setLayoutParams(lp);
+        }
     }
 
     /** The view the drawer's glass samples, normally the launcher's content root. */
@@ -412,6 +465,9 @@ public class DrawerPanel extends FrameLayout implements View.OnDragListener {
                 mGrid.addView(iv);
             }
             iv.bind(entry, mRepo);
+            if (mTheme.retro()) {
+                iv.setLabelColor(mTheme.text());
+            }
             iv.setGestures(mGestures);
             iv.setOnContextClickListener(mItemContextClick);
             iv.setPicked(mSelecting && mPicked.containsKey(entry.key()));
