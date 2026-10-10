@@ -92,6 +92,7 @@ rows give only the date the owner confirmed.
 | 2026-10-07 | 1.0.128 | **Boot loop**: settings copy written from the system process |
 | 2026-10-07 | 1.0.131 | Swipe-up arrow on ZUI's home. Its image is now never loaded |
 | 2026-10-07 | 1.0.133 | Maximize on the tablet, in regular and desktop mode. 1.0.135 keeps this exact path on the tablet only |
+| 2026-10-10 | 1.0.176 | Bypass charging from the taskbar (owner's request): hold or right-click the tray's battery, on the desktop modes' bars only (1.0.176), for "Bypass charging: turn on/off" and the battery settings - ZUI's own switch, as Game Assistant uses it, no root (`hook/panel/Bypass`). Works with both USB cables in, too |
 
 | 2026-10-09 | 1.0.143 | Tray CPU work: the clock still ticks and the temperatures still show, now that the clock only ticks while the tray is visible and temperatures are only read while shown |
 
@@ -112,7 +113,6 @@ rows give only the date the owner confirmed.
 | 1.0.167 | Maximize on the monitor not filling the screen like ZUI's own button: ZUI's button makes the window full screen (its trace on 1.0.166), so ours now starts the same transition, and Restore its way back (named Floating, with its own icon, from 1.0.169). 1.0.165's floating maximise stays as the fallback |
 | 1.0.173 | Monitor, bar at the top: ZUI's start menu rising from the bottom of the screen - it now rests under the bar and drops down from it (`hook/drawer/DrawerFromTop`: ZUI's sheet slides and keeps a bar clear for a bottom bar only) |
 | 1.0.173 | Theme, bar position, pop-ups and the other start-only settings needing a force stop of ZUX Home: the settings app tells the launcher, which restarts itself when one really changed (`hook/home/SettingsRestart`) |
-| 1.0.175 | Bypass charging from the taskbar (owner's request): hold or right-click the tray's battery, on the desktop modes' bars only (1.0.176), for "Bypass charging: turn on/off" and the battery settings - ZUI's own switch, as Game Assistant uses it, no root (`hook/panel/Bypass`) |
 
 ### Open
 
