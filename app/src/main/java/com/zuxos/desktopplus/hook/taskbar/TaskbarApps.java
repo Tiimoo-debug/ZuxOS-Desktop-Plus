@@ -198,6 +198,11 @@ public final class TaskbarApps {
                     return;
                 }
                 View icon = (View) param.args[0];
+                if (icon.getDisplay() != null && icon.getDisplay().getDisplayId()
+                        == android.view.Display.DEFAULT_DISPLAY) {
+                    // The tablet keeps ZUI's own popup; our actions join it (ZuiAppRows).
+                    return;
+                }
                 if (show(icon)) {
                     // Ours is up; the launcher's would land on top of it.
                     param.setResult(null);
@@ -213,6 +218,7 @@ public final class TaskbarApps {
             }
         }
         Health.hooked("taskbar: icon menu", hooked);
+        ZuiAppRows.install(loader);
         L.i("taskbar apps: icon menu installed x" + hooked);
         if (hooked == 0) {
             L.w("taskbar apps: nothing to hook for the icon menu - holding an icon will do "

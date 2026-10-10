@@ -368,6 +368,11 @@ public final class TaskbarMenu {
     public static boolean showEntries(View source, int displayId, float rawX, float rawY,
             List<Entry> entries) {
         dismiss();
+        // On the tablet the menu is ZUI's own popup, in ZUI's look; ours stays the monitor's.
+        if (displayId == android.view.Display.DEFAULT_DISPLAY
+                && com.zuxos.desktopplus.hook.ZuiMenu.show(source, entries)) {
+            return true;
+        }
         if (!canShow(source.getContext())) {
             toast(source.getContext(),
                     "Allow \"display over other apps\" for the launcher to show this menu");
@@ -557,7 +562,7 @@ public final class TaskbarMenu {
         }
     }
 
-    public static final class Entry {
+    public static final class Entry implements com.zuxos.desktopplus.hook.ZuiMenu.Row {
         final String title;
         final Runnable action;
         final android.graphics.drawable.Drawable icon;
@@ -573,16 +578,24 @@ public final class TaskbarMenu {
             this.action = action;
         }
 
+        @Override
         public android.graphics.drawable.Drawable icon() {
             return icon != null ? icon : Glyphs.forTitle(title);
         }
 
+        @Override
         public String title() {
             return title;
         }
 
+        @Override
         public void run() {
             action.run();
+        }
+
+        @Override
+        public boolean ownIcon() {
+            return icon != null;
         }
     }
 }

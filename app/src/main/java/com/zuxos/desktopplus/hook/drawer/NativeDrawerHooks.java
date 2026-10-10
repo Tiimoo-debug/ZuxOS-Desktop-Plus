@@ -24,6 +24,7 @@ import com.zuxos.desktopplus.desktop.FolderIconDrawable;
 import com.zuxos.desktopplus.desktop.FolderStyle;
 import com.zuxos.desktopplus.hook.IconInfo;
 import com.zuxos.desktopplus.hook.Mirror;
+import com.zuxos.desktopplus.hook.ZuiMenu;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarBridge;
 import com.zuxos.desktopplus.model.AppsRepo;
@@ -730,7 +731,8 @@ public final class NativeDrawerHooks {
                 return false;
             }
             Item folder = folderBehind(view);
-            return folder != null && DrawerFolderMenu.show(view, folder);
+            return folder != null
+                    && ZuiMenu.show(view, DrawerHold.menuEntries(view, folder));
         } catch (Throwable t) {
             L.d("native drawer: no folder menu (" + t + ")");
             return false;

@@ -179,8 +179,9 @@ vendor power HAL's, not in these jars.
   items: each `OptionItem(CharSequence, Drawable, EventEnum, OnLongClickListener)` becomes a
   `system_shortcut` row - the same rows as ZUI's folder menu (`SystemShortcut.SwitchFolder`
   "Enlarge folder", the rename shortcut "Rename"). `ActivityContext.lookupContext(context)` gives
-  the drawer's own activity context, Launcher or the taskbar overlay. `hook/drawer/DrawerFolderMenu`
-  uses it for our folders on the tablet.
+  the drawer's own activity context, Launcher or the taskbar overlay. `hook/ZuiMenu.show` uses it
+  for our menus on the tablet. Over the taskbar, the bar's window only grows for a popup through
+  `BaseTaskbarContext.onPopupVisibilityChanged(true)`; it is given back with `false` on close.
 - ZUI's folder panel is the drawable `round_rect_folder`: `?attr/folder_fill_color` (`#fae5e5e5`),
   a `folder_border_color` stroke, corner `bg_round_rect_radius_folder`. Tablet folders use it.
 - `FolderIcon.inflateFolderAndIcon(layout, ActivityContext, parent, FolderInfo)` builds ZUI's real
@@ -191,6 +192,9 @@ vendor power HAL's, not in these jars.
   A click we take ourselves has to call it too, or the icon stays small (`FolderStyle.restoreIcon`).
 - ZUI's app popup (`PopupContainerWithArrow`) puts deep shortcuts on top and its system shortcuts
   below, as an icon strip or as `deep_shortcut` rows (`addSystemShortcutsIconsOnly`).
+  `ArrowPopup.show()` measures it and gives every section ZUI's margins and background, so rows
+  added before it (`inflateAndAdd(system_shortcut_rows_container)` + `system_shortcut` rows) look
+  like ZUI's own (`hook/taskbar/ZuiAppRows`). Its `mOriginalIcon` is the icon that was held.
 - The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
   `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
 
