@@ -200,10 +200,12 @@ vendor power HAL's, not in these jars.
   positive when the battery gives current; the `qcom-battery` `fg*_current` nodes are the
   opposite.
 - The driver's folder has no control: its only writable file is `uevent` (1.0.179's probe,
-  three times). The port choice is the kernel's and the hardware's.
-- So nothing in Android can be hooked to charge from the USB 2.0 port while the fast port carries
-  a hub. Whether the kernel offers any node for it is what the probe's "usb ports and charging"
-  section reads (1.0.174).
+  three times). The port choice is the kernel's.
+- The owner reports that bypass does hold with both cables in (0 mA, "Not charging AC"), so the
+  5 V hand-over seen in the probes is not the whole story: what turns charging back on is
+  traced from 1.0.182.
+- In bypass the battery status is 4 (not charging); ZUI's battery service logs it as
+  `[bypass, bp]:[true, ...]` in `LongtimeChargingProtectController`.
 
 ## The module's hooks against ZUX Home 18.2.0.0375
 
