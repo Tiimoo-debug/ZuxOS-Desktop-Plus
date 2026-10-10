@@ -28,6 +28,7 @@ import com.zuxos.desktopplus.hook.DisplayTimeline;
 import com.zuxos.desktopplus.hook.Windows;
 import com.zuxos.desktopplus.hook.drawer.DrawerAccountBar;
 import com.zuxos.desktopplus.hook.drawer.DrawerGlass;
+import com.zuxos.desktopplus.hook.panel.Bypass;
 import com.zuxos.desktopplus.hook.panel.Notifications;
 import com.zuxos.desktopplus.hook.panel.NotifyPanel;
 import com.zuxos.desktopplus.hook.panel.QuickPanel;
@@ -555,6 +556,19 @@ public final class TaskbarTray {
                     LayoutParams.WRAP_CONTENT);
             tlp.leftMargin = Ui.dp(ctx, 3);
             addView(mBatteryText, tlp);
+            // Hold or right-click the battery for bypass charging, as ZUI's Game Assistant offers.
+            for (View battery : new View[]{mBatteryIcon, mBatteryText}) {
+                battery.setOnLongClickListener(this::batteryMenu);
+                battery.setOnTouchListener((v, e) -> {
+                    if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN
+                            && e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)
+                            && (e.getButtonState()
+                            & android.view.MotionEvent.BUTTON_SECONDARY) != 0) {
+                        return batteryMenu(v);
+                    }
+                    return false;
+                });
+            }
 
             mTemps = label(ctx, 11f);
             LayoutParams templp = new LayoutParams(LayoutParams.WRAP_CONTENT,
@@ -592,6 +606,41 @@ public final class TaskbarTray {
             mPanelButton = iconButton(ctx, "Quick settings",
                     () -> QuickPanel.toggle(getContext(), TrayView.this, mDisplayId));
             addView(mPanelButton, buttonParams(ctx, 4));
+        }
+
+        /**
+         * The battery's menu: bypass charging on or off, and the battery settings. Read when it
+         * opens, so it shows what ZUI has now - Game Assistant switches the same thing.
+         */
+        private boolean batteryMenu(View anchor) {
+            try {
+                Context ctx = getContext();
+                Boolean on = Bypass.on(ctx);
+                java.util.List<TaskbarMenu.Entry> entries = new java.util.ArrayList<>();
+                if (on != null) {
+                    boolean turnOn = !on;
+                    entries.add(new TaskbarMenu.Entry(
+                            turnOn ? "Bypass charging: turn on" : "Bypass charging: turn off",
+                            () -> {
+                                if (!Bypass.set(ctx, turnOn)) {
+                                    TaskbarMenu.toast(ctx, "ZUI did not switch bypass charging");
+                                } else if (turnOn) {
+                                    TaskbarMenu.toast(ctx, "Bypass charging on: with a "
+                                            + "charger in, it powers the tablet and the battery "
+                                            + "rests. Off again after a restart");
+                                }
+                            }));
+                }
+                entries.add(new TaskbarMenu.Entry("Battery settings", () -> TaskbarMenu.open(ctx,
+                        android.content.Intent.ACTION_POWER_USAGE_SUMMARY, mDisplayId)));
+                int[] at = new int[2];
+                anchor.getLocationOnScreen(at);
+                return TaskbarMenu.showEntries(anchor, mDisplayId,
+                        at[0] + anchor.getWidth() / 2f, entries);
+            } catch (Throwable t) {
+                L.e("tray: battery menu failed", t);
+                return false;
+            }
         }
 
         /** A round, tappable icon in the tray row. */

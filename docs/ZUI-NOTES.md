@@ -185,6 +185,11 @@ vendor power HAL's, not in these jars.
 - Bypass charging (Game Assistant, `ItemBypassCharging`) writes
   `/sys/class/qcom-battery/batt_charge_bypass_en` (and `charging_enabled`,
   `lenovo_supply/bq2589h-charger/user_charging_enabled`). It applies to whichever port charges.
+  On this build Game Assistant writes no file (`bypassWriteSetting` is true): it calls
+  `android.hardware.battery.ZuiBatteryManager.setBypassChargingStatus(boolean)`, which
+  `ZuiBatteryManagerService` turns into a charging-disabled vote. The service lets uid 0 or 1000,
+  or any system app, call it, so ZUX Home can, and the tray's battery menu does
+  (`hook/panel/Bypass`). The service turns bypass off at every boot (`init`).
 - So nothing in Android can be hooked to charge from the USB 2.0 port while the fast port carries
   a hub. Whether the kernel offers any node for it is what the probe's "usb ports and charging"
   section reads (1.0.174).
