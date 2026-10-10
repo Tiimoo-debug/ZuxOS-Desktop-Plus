@@ -173,6 +173,22 @@ vendor power HAL's, not in these jars.
   `log.tag.OVC`. It is off on this device, which is why the probe's section came back empty on
   1.0.166. `setprop log.tag.OVC D` (root, until reboot) turns it on.
 
+## Two USB-C ports: which one charges (`services.jar` 16)
+
+- The kernel picks the port that powers the tablet; Android does not. With both ports in use it
+  raises a uevent `DOU_USB=usb2port`, and `com.android.server.usb.DualPortUsbManager`
+  (`ZuiDualPortDialogEventObserver`) only shows "The long side USB-C port takes priority when both
+  ports are connected".
+- `DualPortChargingObserver` only watches: both ports `sink` → broadcast
+  `com.lenovo.action.CHARGE_INFO`, `dual_port_charging=true`. It sets nothing.
+- `persist.sys.zui.usbport.status` names the port that is host and source, as information.
+- Bypass charging (Game Assistant, `ItemBypassCharging`) writes
+  `/sys/class/qcom-battery/batt_charge_bypass_en` (and `charging_enabled`,
+  `lenovo_supply/bq2589h-charger/user_charging_enabled`). It applies to whichever port charges.
+- So nothing in Android can be hooked to charge from the USB 2.0 port while the fast port carries
+  a hub. Whether the kernel offers any node for it is what the probe's "usb ports and charging"
+  section reads (1.0.174).
+
 ## The module's hooks against ZUX Home 18.2.0.0375
 
 Every class and method the module hooks by name is present in this version:

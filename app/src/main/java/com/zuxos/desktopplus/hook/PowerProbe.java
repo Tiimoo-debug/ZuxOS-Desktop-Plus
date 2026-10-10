@@ -120,6 +120,26 @@ public final class PowerProbe {
               [ -n "$v" ] && echo "$(cat $r/name 2>/dev/null): $v uV"
             done | head -40
             echo "debugfs mounted: $(grep -c debugfs /proc/mounts); voltage entries in it: $(ls /sys/kernel/debug 2>/dev/null | grep -i -E 'regulator|cpr' | tr '\\n' ' ')"
+            echo "--- usb ports and charging (read only: which port charges, and whether anything picks it)"
+            for p in /sys/class/typec/port*; do
+              [ -d "$p" ] || continue
+              echo "${p##*/}: data $(cat $p/data_role 2>/dev/null), power $(cat $p/power_role 2>/dev/null), type $(cat $p/port_type 2>/dev/null), mode $(cat $p/power_operation_mode 2>/dev/null), pd $(cat $p/usb_power_delivery_revision 2>/dev/null), partner $(ls -d $p/${p##*/}-partner 2>/dev/null | wc -l)"
+              ls -l $p 2>/dev/null | grep -E '^-..w' | awk '{print "  writable: " $NF}'
+            done
+            for s in /sys/class/power_supply/*; do
+              echo "${s##*/}: type $(cat $s/type 2>/dev/null), online $(cat $s/online 2>/dev/null), present $(cat $s/present 2>/dev/null), usb_type $(cat $s/usb_type 2>/dev/null), $(cat $s/voltage_now 2>/dev/null) uV, $(cat $s/current_now 2>/dev/null) uA, limit $(cat $s/input_current_limit 2>/dev/null), max $(cat $s/current_max 2>/dev/null)"
+            done
+            for d in /sys/class/qcom-battery /sys/class/lenovo_supply/*; do
+              [ -d "$d" ] || continue
+              echo "== $d"
+              for f in $d/*; do
+                [ -f "$f" ] && echo "  ${f##*/} = $(head -c 80 $f 2>/dev/null | tr '\\n' ' ')"
+              done | head -80
+            done
+            echo "usbport.status $(getprop persist.sys.zui.usbport.status)"
+            dumpsys usb 2>/dev/null | grep -i -E 'port_id|power_role|data_role|connected|mode=|charging' | head -30
+            logcat -d -b main,system 2>/dev/null | grep -E 'DualPortUsbManager|DualPortChargingObserver' | tail -15
+            dmesg 2>/dev/null | grep -i -E 'DOU_USB|usb2port|dual.?port' | tail -15
             echo "--- android thermal service"
             dumpsys thermalservice 2>/dev/null | head -80
             echo "--- cpu clusters again, seconds later (a minimum that stays at the top is held there)"
