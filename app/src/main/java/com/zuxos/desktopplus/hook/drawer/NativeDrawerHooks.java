@@ -89,6 +89,7 @@ public final class NativeDrawerHooks {
         }
         sInstalled = true;
         DrawerLetters.install(loader);
+        ZuiFolders.install(loader);
 
         Class<?> listCls = Reflect.findClass(
                 "com.android.launcher3.allapps.AlphabeticalAppsList", loader);
@@ -101,6 +102,12 @@ public final class NativeDrawerHooks {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
                 customise(param.thisObject);
+                ZuiFolders.building(param.thisObject);
+            }
+
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                ZuiFolders.built();
             }
         });
         int hookedUpdates = hookUpTheHierarchy(listCls, "onAppsUpdated", new XC_MethodHook() {
@@ -241,6 +248,7 @@ public final class NativeDrawerHooks {
             }
 
             List<Object> kept = new ArrayList<>(apps.size());
+            Map<String, Object> filedApps = new HashMap<>();
             int iconPx = 0;
             for (Object app : apps) {
                 if (folderIdOf(app) != null) {
@@ -251,11 +259,16 @@ public final class NativeDrawerHooks {
                     iconPx = iconSizeOf(app);
                 }
                 String key = keyOf(ctx, app);
+                if (key != null && filed.contains(key)) {
+                    // In a folder: what ZUI's folder of it is made from.
+                    filedApps.put(key, app);
+                }
                 if (key != null && (hidden.contains(key) || filed.contains(key))) {
                     continue;
                 }
                 kept.add(app);
             }
+            ZuiFolders.remember(filedApps);
             if (kept.isEmpty()) {
                 note("refusing to empty the drawer - no entries survived filtering");
                 return false;
@@ -603,17 +616,31 @@ public final class NativeDrawerHooks {
         if (sFolderEntries.isEmpty()) {
             return null;
         }
-        String folderId = folderIdOf(view.getTag());
-        if (folderId == null) {
+        Item folder = folderOfEntry(view.getTag());
+        return folder != null ? folder : ZuiFolders.folderOfIcon(view);
+    }
+
+    /** Our folder behind one of our entries in ZUI's list, or null for anything else. */
+    static Item folderOfEntry(Object entry) {
+        String folderId = entry == null || sFolderEntries.isEmpty() ? null : folderIdOf(entry);
+        Context ctx = AppCtx.get();
+        if (folderId == null || ctx == null) {
             return null;
         }
-        Context ctx = AppCtx.get() != null ? AppCtx.get() : view.getContext();
         for (Item folder : store(ctx).folders()) {
             if (folder.id.equals(folderId)) {
                 return folder;
             }
         }
         return null;
+    }
+
+    /** Has ZUI's drawer list built again from our model, as after any change to it. */
+    static void refreshList() {
+        Object list = sLastList != null ? sLastList.get() : null;
+        if (list != null) {
+            Reflect.call(list, "updateAdapterItems");
+        }
     }
 
     /**

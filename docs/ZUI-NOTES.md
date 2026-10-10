@@ -206,6 +206,20 @@ vendor power HAL's, not in these jars.
   `desktop_mode_ic_taskbar_menu_new_window`, `ic_close_option`.
 - ZUI's `Folder` runs outside `Launcher` too: `LauncherDelegate.d(context)` gives the taskbar a
   delegate (`LauncherDelegate.b`) with no drag (`h()` false) and the model's own writer.
+  `FolderIcon.inflateFolderAndIcon(layout, ctx, parent, FolderInfo)` builds icon and folder; ZUI's
+  taskbar opens one with `folder.animateOpen()` after making its window full screen
+  (`TaskbarActivityContext.expandFolder` / `x0`, which also closes the drawer), `Launcher` with
+  `ItemClickHandler.onClickFolderIcon`. A folder writes through `ModelWriter` only: positions on
+  `bind` (`updateItemLocationsInDatabaseBatch` -> `moveItemsInDatabase`), its name
+  (`FolderInfo.setTitle` -> `updateItemInDatabase`), moves and removals. `Folder.onLongClick` drags
+  only when `LauncherDelegate.h()` allows. `FolderIcon` only needs `ShortcutAndWidgetContainer` /
+  `CellLayout` parents for drag-over and resize, not to open or close.
+- ZUI's drawer list: `AdapterItem.viewType` picks the cell; `isIconViewType` (mask 1538) gives
+  the icon span; `onCreateViewHolder`/`onBindViewHolder` switch on exact types and throw for one
+  nobody supports. Items are matched across rebuilds by type (`AdapterItem.isSameAs`), so a type
+  has to be given as `AdapterItem.asApp` makes the item. Row heights are cached per type
+  (`ScrollableLayoutManager.mCachedSizes`). Our drawer folders are ZUI's own this way
+  (`hook/drawer/ZuiFolders`, writes kept out of ZUI's database by `ZuiFolderWrites`).
 - The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
   `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
   ZUI shows it again whenever a search starts or ends (`ActivityAllAppsContainerView.x()`); its

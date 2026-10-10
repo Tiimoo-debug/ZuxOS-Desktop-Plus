@@ -22,6 +22,7 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.hook.IconInfo;
 import com.zuxos.desktopplus.hook.ZuiLook;
+import com.zuxos.desktopplus.hook.drawer.ZuiFolders;
 import com.zuxos.desktopplus.logic.PinList;
 import com.zuxos.desktopplus.model.Item;
 
@@ -210,6 +211,11 @@ final class ZuiAppRows {
                 TaskbarPins.pin(ctx, item, PinList.AT_THE_END);
                 TaskbarRunning.refreshAll();
             }));
+        }
+        // Inside one of our drawer folders: out of it again.
+        Runnable remove = ZuiFolders.removeAction(info);
+        if (remove != null) {
+            rows.add(new Row("Remove from folder", "ic_remove_zui", remove));
         }
         // A window of it on the tablet: a second one, and closing it.
         for (TaskbarMenu.Entry entry : TaskbarApps.entriesFor(ctx, pkg, user,

@@ -256,8 +256,14 @@ final class DrawerHold {
         int display = TaskbarTray.displayIdOf(source);
         List<TaskbarMenu.Entry> entries = new ArrayList<>();
         if (item.type == Item.TYPE_FOLDER) {
-            entries.add(new TaskbarMenu.Entry("Open folder",
-                    () -> NativeDrawerHooks.openFolderFor(source)));
+            // ZUI's own folder icon opens with its own click; our entry with our window.
+            entries.add(new TaskbarMenu.Entry("Open folder", () -> {
+                if (ZuiFolders.folderOfIcon(source) != null) {
+                    source.performClick();
+                } else {
+                    NativeDrawerHooks.openFolderFor(source);
+                }
+            }));
         } else if (item.pkg != null) {
             entries.addAll(TaskbarApps.entriesFor(ctx, item.pkg,
                     android.os.Process.myUserHandle(), display));
