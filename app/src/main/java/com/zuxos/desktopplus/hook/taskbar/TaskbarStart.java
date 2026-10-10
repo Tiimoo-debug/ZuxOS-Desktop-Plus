@@ -59,6 +59,8 @@ final class TaskbarStart {
 
     /** Every start button made, so ZUI's drawer opening or closing reaches its display's. */
     private static final Map<StartButton, Boolean> BUTTONS = new WeakHashMap<>();
+    /** ZUI's drawer sheets that are up, by the display each came up on. Main thread only. */
+    private static final Map<View, Integer> SHEETS = new WeakHashMap<>();
 
     private TaskbarStart() {
     }
@@ -69,6 +71,10 @@ final class TaskbarStart {
      * ({@code handleClose}) or is gone. However it is opened or closed - our button, a swipe,
      * back, an app launched from it - and with nothing ticking while it is up; the eyes used to
      * follow our own press and a check of the window list a few times a second.
+     *
+     * <p>ZUI makes a new sheet on every open, so the eyes follow whether any sheet is up, not the
+     * last event: opened again quickly, the old sheet's window can go after the new sheet has
+     * come, and taking that as the drawer closing left the eyes small with the drawer open.
      */
     static void install(ClassLoader loader) {
         try {
@@ -80,6 +86,7 @@ final class TaskbarStart {
             }
             int hooked = XposedBridge.hookAllMethods(sheet, "onAttachedToWindow",
                     drawerHook(true)).size();
+            // The close is the same whichever of ZUI's handleClose overloads it goes through.
             hooked += XposedBridge.hookAllMethods(sheet, "handleClose", drawerHook(false)).size();
             hooked += XposedBridge.hookAllMethods(sheet, "onDetachedFromWindow",
                     drawerHook(false)).size();
@@ -94,11 +101,19 @@ final class TaskbarStart {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
                 try {
-                    int display = TaskbarTray.displayIdOf((View) param.thisObject);
+                    View sheet = (View) param.thisObject;
+                    Integer display = open ? Integer.valueOf(TaskbarTray.displayIdOf(sheet))
+                            : SHEETS.remove(sheet);
+                    if (display == null) {
+                        return;
+                    }
+                    if (open) {
+                        SHEETS.put(sheet, display);
+                    }
                     for (StartButton button : BUTTONS.keySet()) {
                         if (button.isAttachedToWindow()
                                 && TaskbarTray.displayIdOf(button) == display) {
-                            button.drawerShown(open);
+                            button.drawerShown(drawerUp(display));
                         }
                     }
                 } catch (Throwable t) {
@@ -106,6 +121,11 @@ final class TaskbarStart {
                 }
             }
         };
+    }
+
+    /** Whether one of ZUI's drawer sheets is up on this display. */
+    private static boolean drawerUp(int display) {
+        return SHEETS.containsValue(display);
     }
 
     /** Puts our button on this bar, or ZUI's back, following the setting and the bar. */
@@ -514,6 +534,13 @@ final class TaskbarStart {
 
         boolean retro() {
             return mTheme.retro();
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            // A bar put up while ZUI's drawer is already open: the eyes as the drawer is.
+            drawerShown(drawerUp(TaskbarTray.displayIdOf(this)));
         }
 
         /** Takes ZUI's button: what a press presses, and the icon size to match. */

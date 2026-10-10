@@ -55,7 +55,7 @@ row at a time, each after reading ZUI's code for it (`docs/ZUI-NOTES.md`).
 | Maximize on the monitor | ZUI's own full-screen rule and transition (1.0.167) |
 | No status bar on the monitor | SystemUI's own build method told to do nothing (1.0.171) |
 | Battery bypass | `ZuiBatteryManager.setBypassChargingStatus`, Game Assistant's own call |
-| Start button's eyes | ZUI's drawer sheet attaching and closing (`TaskbarAllAppsSlideInView`, 1.0.194) |
+| Start button's eyes | ZUI's drawer sheets attaching and closing (`TaskbarAllAppsSlideInView`, 1.0.194); wide while any is up (1.0.195) |
 | App info, Lock, Hide, Cast in the tablet taskbar's menus | ZUI's own shortcut factories, as its desktop mode adds them (1.0.194) |
 
 **Still around ZUI - to move, in this order**
