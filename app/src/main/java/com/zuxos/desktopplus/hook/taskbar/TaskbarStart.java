@@ -25,6 +25,9 @@ import com.zuxos.desktopplus.core.theme.Theme;
 import java.util.Map;
 import java.util.WeakHashMap;
 
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+
 /**
  * The start button, at the left end of the bar where a desktop keeps it.
  *
@@ -54,7 +57,55 @@ final class TaskbarStart {
     private static final java.util.Set<String> SAID_PRESS = new java.util.HashSet<>();
     private static final java.util.Set<String> SAID_TOUCH = new java.util.HashSet<>();
 
+    /** Every start button made, so ZUI's drawer opening or closing reaches its display's. */
+    private static final Map<StartButton, Boolean> BUTTONS = new WeakHashMap<>();
+
     private TaskbarStart() {
+    }
+
+    /**
+     * The robot's eyes follow ZUI's drawer itself: wide when ZUI's taskbar drawer
+     * ({@code TaskbarAllAppsSlideInView}) is attached, back as it starts to close
+     * ({@code handleClose}) or is gone. However it is opened or closed - our button, a swipe,
+     * back, an app launched from it - and with nothing ticking while it is up; the eyes used to
+     * follow our own press and a check of the window list a few times a second.
+     */
+    static void install(ClassLoader loader) {
+        try {
+            Class<?> sheet = Reflect.findClass(
+                    "com.android.launcher3.taskbar.allapps.TaskbarAllAppsSlideInView", loader);
+            if (sheet == null) {
+                L.w("taskbar start: ZUI's drawer sheet not found, the robot's eyes stay as they are");
+                return;
+            }
+            int hooked = XposedBridge.hookAllMethods(sheet, "onAttachedToWindow",
+                    drawerHook(true)).size();
+            hooked += XposedBridge.hookAllMethods(sheet, "handleClose", drawerHook(false)).size();
+            hooked += XposedBridge.hookAllMethods(sheet, "onDetachedFromWindow",
+                    drawerHook(false)).size();
+            L.i("taskbar start: the robot's eyes follow ZUI's drawer x" + hooked);
+        } catch (Throwable t) {
+            L.w("taskbar start: the robot's eyes not following ZUI's drawer (" + t + ")");
+        }
+    }
+
+    private static XC_MethodHook drawerHook(boolean open) {
+        return new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    int display = TaskbarTray.displayIdOf((View) param.thisObject);
+                    for (StartButton button : BUTTONS.keySet()) {
+                        if (button.isAttachedToWindow()
+                                && TaskbarTray.displayIdOf(button) == display) {
+                            button.drawerShown(open);
+                        }
+                    }
+                } catch (Throwable t) {
+                    L.d("taskbar start: eyes not moved (" + t + ")");
+                }
+            }
+        };
     }
 
     /** Puts our button on this bar, or ZUI's back, following the setting and the bar. */
@@ -169,6 +220,7 @@ final class TaskbarStart {
         }
         StartButton button = new StartButton(dragLayer.getContext());
         button.setTag(TAG_START);
+        BUTTONS.put(button, Boolean.TRUE);
         dragLayer.addView(button, lp);
         if (!sSaid) {
             sSaid = true;
@@ -433,21 +485,6 @@ final class TaskbarStart {
         private Drawable mPixelRobot;
         private Paint mLabel;
 
-        private final Runnable mWatchDrawer = new Runnable() {
-            @Override
-            public void run() {
-                // Only while the drawer is up, and a few times a second: the eyes close with it.
-                if (!isAttachedToWindow()) {
-                    return;
-                }
-                if (drawerOpen(TaskbarTray.displayIdOf(StartButton.this))) {
-                    postDelayed(this, 300L);
-                } else {
-                    drawerShown(false);
-                }
-            }
-        };
-
         StartButton(Context ctx) {
             super(ctx);
             setScaleType(ScaleType.FIT_CENTER);
@@ -576,10 +613,10 @@ final class TaskbarStart {
         }
 
         /**
-         * The drawer this button opened is up, or gone: the robot's eyes, and on a Retro bar the
-         * box held in.
+         * ZUI's drawer on this button's screen is up, or closing: the robot's eyes, and on a Retro
+         * bar the box held in.
          */
-        private void drawerShown(boolean open) {
+        void drawerShown(boolean open) {
             if (!mTheme.retro()) {
                 mRobot.setWide(open);
             }
@@ -599,7 +636,6 @@ final class TaskbarStart {
                 // A second press closes it, as a start button does.
                 PRESSED.delete(display);
                 if (TaskbarBridge.closeStockDrawer(display)) {
-                    drawerShown(false);
                     L.i("start button: closed the drawer on display " + display);
                     return;
                 }
@@ -608,9 +644,6 @@ final class TaskbarStart {
                 return;
             }
             PRESSED.put(display, SystemClock.uptimeMillis());
-            drawerShown(true);
-            removeCallbacks(mWatchDrawer);
-            postDelayed(mWatchDrawer, 600L);
             View zui = mZui;
             if (mThroughController) {
                 L.i("start button: " + openThroughController(zui) + " on display " + display);

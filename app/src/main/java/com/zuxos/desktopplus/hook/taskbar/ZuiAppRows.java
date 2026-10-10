@@ -57,6 +57,23 @@ final class ZuiAppRows {
     private static final String POPUP = "com.zui.launcher.views.ZuiPopupContainerWithArrow";
     private static final String REMOTE = "com.android.launcher3.popup.RemoteActionShortcut";
     private static final String CONTEXT = "com.android.launcher3.views.ActivityContext";
+    private static final String TASKBAR_CONTEXT = "com.android.launcher3.taskbar.BaseTaskbarContext";
+    private static final String FACTORY = "com.android.launcher3.popup.SystemShortcut$Factory";
+
+    /**
+     * ZUI's own shortcuts its taskbar menus carry in desktop mode ({@code TaskbarPopupController}):
+     * app info, lock, unlock, hide, cast. Out of desktop mode ZUI leaves them out of the tablet
+     * bar's menus and its drawer's, so they are handed to its popup there, made by ZUI. App info's
+     * factory also turns the bar's own icons down out of desktop mode ("long press for taskbar
+     * view not show"); there ZUI's {@code SystemShortcut.AppInfo} is made directly.
+     */
+    private static final String[][] ZUI_OWN = {
+            {"com.android.launcher3.popup.SystemShortcut", "APP_INFO"},
+            {"com.zui.launcher.uiextend.ZuiSystemShortcuts", "LOCK_APP"},
+            {"com.zui.launcher.uiextend.ZuiSystemShortcuts", "UNLOCK_APP"},
+            {"com.zui.launcher.uiextend.ZuiSystemShortcuts", "HIDE_APP"},
+            {"com.zui.launcher.uiextend.ZuiSystemShortcuts", "CASTING"},
+    };
 
     /** Our actions, by the {@link RemoteAction} each of our shortcuts carries. Main thread only. */
     private static final Map<RemoteAction, Runnable> OURS = new WeakHashMap<>();
@@ -66,6 +83,11 @@ final class ZuiAppRows {
     private static Method sLookup;
     private static PendingIntent sNothing;
     private static boolean sSaid;
+    private static Class<?> sTaskbarContext;
+    private static Method sGetShortcut;
+    private static Constructor<?> sAppInfo;
+    private static Object sAppInfoFactory;
+    private static final List<Object> FACTORIES = new ArrayList<>();
 
     private ZuiAppRows() {
     }
@@ -91,6 +113,7 @@ final class ZuiAppRows {
                 }
             }
             sLookup = context.getMethod("lookupContext", Context.class);
+            findZuiOwn(loader);
             if (sMake == null || sAction == null) {
                 L.w("zui app rows: ZUI's RemoteActionShortcut is not as expected, menu left as it is");
                 return;
@@ -119,6 +142,74 @@ final class ZuiAppRows {
             L.i("zui app rows: our actions as ZUI's own shortcuts on the tablet x" + hooked);
         } catch (Throwable t) {
             L.w("zui app rows: not installed (" + t + ")");
+        }
+    }
+
+    /** ZUI's own shortcut factories for its taskbar menus; none found leaves ZUI's list as it is. */
+    private static void findZuiOwn(ClassLoader loader) {
+        try {
+            sTaskbarContext = Reflect.findClass(TASKBAR_CONTEXT, loader);
+            Class<?> factory = Reflect.findClass(FACTORY, loader);
+            if (sTaskbarContext == null || factory == null) {
+                L.w("zui app rows: ZUI's shortcut factories not found, its taskbar menus as they are");
+                return;
+            }
+            for (Method m : factory.getMethods()) {
+                if (m.getName().equals("getShortcut") && m.getParameterCount() == 3) {
+                    sGetShortcut = m;
+                }
+            }
+            Class<?> appInfo = Reflect.findClass("com.android.launcher3.popup.SystemShortcut$AppInfo",
+                    loader);
+            if (appInfo != null) {
+                for (Constructor<?> c : appInfo.getConstructors()) {
+                    if (c.getParameterCount() == 3 && c.getParameterTypes()[2] == View.class) {
+                        sAppInfo = c;
+                    }
+                }
+            }
+            for (String[] own : ZUI_OWN) {
+                Class<?> holder = Reflect.findClass(own[0], loader);
+                Object made = holder == null ? null : holder.getField(own[1]).get(null);
+                if (made != null) {
+                    FACTORIES.add(made);
+                    if (own[1].equals("APP_INFO")) {
+                        sAppInfoFactory = made;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            L.w("zui app rows: ZUI's shortcut factories not read (" + t + ")");
+        }
+    }
+
+    /**
+     * ZUI's own shortcuts its taskbar menu left out, made by ZUI for this app, after ZUI's own:
+     * only on the taskbar and its drawer, and only those not in the menu already.
+     */
+    private static void addZuiOwn(List<Object> all, Object target, Object info, View icon) {
+        if (sGetShortcut == null || !sTaskbarContext.isInstance(target)) {
+            return;
+        }
+        for (Object factory : FACTORIES) {
+            try {
+                Object shortcut = sGetShortcut.invoke(factory, target, info, icon);
+                if (shortcut == null && factory == sAppInfoFactory && sAppInfo != null) {
+                    shortcut = sAppInfo.newInstance(target, info, icon);
+                }
+                if (shortcut == null) {
+                    continue;
+                }
+                boolean there = false;
+                for (Object had : all) {
+                    there |= had.getClass() == shortcut.getClass();
+                }
+                if (!there) {
+                    all.add(shortcut);
+                }
+            } catch (Throwable t) {
+                L.d("zui app rows: one of ZUI's own not made (" + t + ")");
+            }
         }
     }
 
@@ -165,6 +256,8 @@ final class ZuiAppRows {
                 return;
             }
             List<Object> all = new ArrayList<>(zui);
+            addZuiOwn(all, target, info, icon);
+            int zuis = all.size();
             // ZUI's shortcut colour as the popup itself resolves it - light or dark as the popup
             // is - for ZUI's icons of ours, some drawn in a fixed colour, and our one glyph.
             int colour = ZuiLook.shortcutIcon(((View) param.thisObject).getContext());
@@ -177,8 +270,9 @@ final class ZuiAppRows {
             param.args[3] = all;
             if (!sSaid) {
                 sSaid = true;
-                L.i("zui app rows: " + (all.size() - zui.size()) + " of ours beside ZUI's "
-                        + zui.size() + " for " + pkg);
+                L.i("zui app rows: " + (all.size() - zuis) + " of ours beside ZUI's "
+                        + zui.size() + " (" + (zuis - zui.size()) + " more of ZUI's own) for "
+                        + pkg);
             }
         } catch (Throwable t) {
             L.d("zui app rows: none added (" + t + ")");
@@ -229,7 +323,8 @@ final class ZuiAppRows {
                 Display.DEFAULT_DISPLAY)) {
             String title = entry.title();
             if (title.equals("Open") || title.equals("App info") || entry.ownIcon()) {
-                // ZUI's own popup opens the app and has its own app info; shortcuts are ZUI's.
+                // ZUI's popup opens the app, its app info is ZUI's own (addZuiOwn where ZUI's
+                // taskbar leaves it out), and shortcuts are ZUI's.
                 continue;
             }
             rows.add(new Row(title, zuiIconFor(title), entry::run));

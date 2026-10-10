@@ -1025,7 +1025,8 @@ public final class TaskbarRunning {
             // Faded out still counts: ZUI fades its search pill in when an app opens, and a row
             // placed while it was at nothing ran on under it once it showed.
             if (view.getVisibility() != View.VISIBLE
-                    || view.getClass().getName().startsWith("com.zuxos.desktopplus.")) {
+                    || view.getClass().getName().startsWith("com.zuxos.desktopplus.")
+                    || floating(view)) {
                 continue;
             }
             if (view.getWidth() >= half && view instanceof ViewGroup) {
@@ -1049,6 +1050,20 @@ public final class TaskbarRunning {
             watchBoundary(dragLayer, view);
         }
         return found;
+    }
+
+    /**
+     * ZUI's popups, folders and menus: over the bar for a moment, never a part of it. Counted as
+     * the bar's, an app menu opened over the bar's window - full screen while it is up - cut our
+     * row short at the menu, and it stayed short after the menu closed.
+     */
+    private static boolean floating(View view) {
+        for (Class<?> c = view.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            if (c.getName().equals("com.android.launcher3.AbstractFloatingView")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

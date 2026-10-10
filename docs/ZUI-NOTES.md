@@ -261,6 +261,18 @@ vendor power HAL's, not in these jars.
 - ZUI's popup look: panel `ic_popupcontainer_bg_new` (`popup_container_bg`, a
   `popup_container_stroke` hairline, `popup_container_radius`), row text
   `popup_container_text_color` (`hook/ZuiLook`).
+- ZUI's taskbar menus (`TaskbarPopupController.showForIcon`, list from `s(isInDpMode)`): in
+  desktop mode App info, Lock, Unlock, Hide and Cast (`SystemShortcut.APP_INFO` via `f7411h`,
+  `ZuiSystemShortcuts.LOCK_APP` / `UNLOCK_APP` / `HIDE_APP`, `CASTING`); out of it only Float
+  open, split and window entries - no App info in the tablet bar's menus or its drawer's. The
+  App info factory also refuses the bar's own icons out of desktop mode ("long press for taskbar
+  view not show"). `ZuiAppRows` hands ZUI's own factories' shortcuts to the popup there, and
+  `SystemShortcut.AppInfo` directly where the factory refuses.
+- ZUI's taskbar drawer is `TaskbarAllAppsSlideInView`, made by `TaskbarAllAppsController.d` on
+  every open: attached when it opens, `handleClose` as it starts closing, detached when gone.
+  The start button's eyes follow these (`TaskbarStart.install`).
+- ZUI's popups, folders and menus (`AbstractFloatingView`) sit in the bar's drag layer while
+  open, with the bar's window full screen; they are not part of the bar's row.
 
 ## Two USB-C ports: which one charges (`services.jar` 16)
 

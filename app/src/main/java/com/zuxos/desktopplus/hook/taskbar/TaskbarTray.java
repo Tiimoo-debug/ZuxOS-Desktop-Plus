@@ -96,6 +96,7 @@ public final class TaskbarTray {
         TaskbarEdge.install(loader);
         TaskbarMenu.install(loader);
         TaskbarApps.install(loader);
+        TaskbarStart.install(loader);
         NavKeysHold.install(loader);
         TaskbarDiag.install(loader);
         try {
