@@ -211,6 +211,7 @@ public final class SysState {
                 }
                 if (Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) {
                     readBattery(intent);
+                    Bypass.batteryChanged(context, intent);
                 } else if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(intent.getAction())) {
                     refreshNetwork();
                     return;

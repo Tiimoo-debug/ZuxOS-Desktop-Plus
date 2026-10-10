@@ -92,7 +92,7 @@ rows give only the date the owner confirmed.
 | 2026-10-07 | 1.0.128 | **Boot loop**: settings copy written from the system process |
 | 2026-10-07 | 1.0.131 | Swipe-up arrow on ZUI's home. Its image is now never loaded |
 | 2026-10-07 | 1.0.133 | Maximize on the tablet, in regular and desktop mode. 1.0.135 keeps this exact path on the tablet only |
-| 2026-10-10 | 1.0.176 | Bypass charging from the taskbar (owner's request): hold or right-click the tray's battery, on the desktop modes' bars only (1.0.176), for "Bypass charging: turn on/off" and the battery settings - ZUI's own switch, as Game Assistant uses it, no root (`hook/panel/Bypass`). Works with both USB cables in, too |
+| 2026-10-10 | 1.0.176 | Bypass charging from the taskbar (owner's request): hold or right-click the tray's battery, on the desktop modes' bars only (1.0.176), for "Bypass charging: turn on/off" and the battery settings - ZUI's own switch, as Game Assistant uses it, no root (`hook/panel/Bypass`). Works with both USB cables in, too. In bypass the charger's input stays at about 9 V and 3 A (the probe: `usb` 8.6 V, input limit 3 A), so about 27 W - beyond that the battery helps; that is the charging chip's limit, not a setting |
 
 | 2026-10-09 | 1.0.143 | Tray CPU work: the clock still ticks and the temperatures still show, now that the clock only ticks while the tray is visible and temperatures are only read while shown |
 
@@ -118,6 +118,7 @@ rows give only the date the owner confirmed.
 
 | Since | Bug | Next step |
 |-------|-----|-----------|
+| 2026-10-10 | Bypass charging sometimes not holding (owner's report, 1.0.176) | The owner's log: ZUI took the switch (its battery service logged the vote) yet the probe 19 s later read the battery at about 3 A with the level rising, and twice the menu offered "turn on" while it had been left on - something turned it off. ZUI's code: Game Assistant turns bypass off whenever a game ends, and its automatic mode turns it off below 40% battery (the owner was at 32%). 1.0.178 traces it read-only: the battery current 10 s after the switch, and a line when bypass goes off without the taskbar |
 | 2026-10-10 | Game Assistant's overlay not coming up over games open on the monitor, as it does on the tablet (owner's report) | Read where `com.zui.game.service` adds its overlay window and which display it picks (its decompile is in the scratchpad); then a read-only trace if the code does not settle it |
 | 2026-10-10 | Charging from the USB 2.0 port while the fast port carries a hub without PD pass-through (owner's request); the tablet gives the long-side port priority | ZUI's code: the kernel picks the port and Android only shows the dialog (`docs/ZUI-NOTES.md`). 1.0.174's probe reads the Type-C ports, power supplies and charger nodes, read only; waiting for three probes (hub only, charger only, both) to see whether any node picks the port |
 | 2026-10-10 | Monitor, bar at the top: the notification and quick settings panels not showing when pressed | Nothing in the code shows why. 1.0.173 traces it read-only (`panel trace:` lines: the press, where the panel landed, what closed it); waiting for the owner's log |
