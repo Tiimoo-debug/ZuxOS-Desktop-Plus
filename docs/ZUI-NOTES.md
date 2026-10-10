@@ -199,6 +199,8 @@ vendor power HAL's, not in these jars.
 - On this tablet `BATTERY_PROPERTY_CURRENT_NOW` and the `battery` supply's `current_now` are
   positive when the battery gives current; the `qcom-battery` `fg*_current` nodes are the
   opposite.
+- The driver's folder has no control: its only writable file is `uevent` (1.0.179's probe,
+  three times). The port choice is the kernel's and the hardware's.
 - So nothing in Android can be hooked to charge from the USB 2.0 port while the fast port carries
   a hub. Whether the kernel offers any node for it is what the probe's "usb ports and charging"
   section reads (1.0.174).
