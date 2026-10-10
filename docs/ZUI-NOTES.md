@@ -187,9 +187,13 @@ vendor power HAL's, not in these jars.
 - `FolderIcon.inflateFolderAndIcon(layout, ActivityContext, parent, FolderInfo)` builds ZUI's real
   folder for any activity context; ZUI's taskbar already hosts real folders (`TaskbarView`
   implements `FolderIcon.FolderIconParent`).
-- A pressed icon's picture shrinks to 0.8 inside its drawable (`FastBitmapDrawable.onStateChange`),
-  and ZUI's click handler undoes it with `BubbleTextView.resetIconScale()` (`ItemClickHandler`).
-  A click we take ourselves has to call it too, or the icon stays small (`FolderStyle.restoreIcon`).
+- A pressed icon's picture shrinks to 0.8 inside its drawable (`FastBitmapDrawable.onStateChange`).
+  On touch down `BubbleTextView` holds itself pressed (`setStayPressed(true)`), and only ZUI's own
+  handlers let go: `ItemClickHandler` (`setStayPressed(false)`, `resetIconScale()`), a hold that
+  opens a popup without a drag (`clearPressedBackground()`, in `LauncherCustom.skipHotseatDrag`
+  and `ZuiNavOverlayContext.onIconLongClick`), a drag (`prepareDrawDragView`). A rebuilt icon
+  starts at its view's pressed state (`initState`), so an icon never let go is small for good.
+  Every tap, hold or drag we take from ZUI calls `hook/IconPress.release`, the same calls.
 - ZUI's app popup (`PopupContainerWithArrow`) puts deep shortcuts on top and its system shortcuts
   below, as an icon strip or as `deep_shortcut` rows (`addSystemShortcutsIconsOnly`).
   Every app popup - drawers, home, taskbar - goes through
@@ -204,6 +208,15 @@ vendor power HAL's, not in these jars.
   delegate (`LauncherDelegate.b`) with no drag (`h()` false) and the model's own writer.
 - The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
   `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
+  ZUI shows it again whenever a search starts or ends (`ActivityAllAppsContainerView.x()`); its
+  letters are a fixed A-Z array drawn in `onDraw`, which also sets its back-gesture exclusion.
+- ZUI's taskbar opens a popup with `BaseTaskbarContext.showPopupMenuForIcon`: the bar's window
+  full screen first (`setTaskbarWindowFullscreen(true)`), the popup on a post. When the popup
+  leaves the drag layer, `TaskbarDragLayerController.onDragLayerViewRemoved` shrinks the window
+  back (`onDragEndOrViewRemoved`). Only `TaskbarActivityContext` has these methods.
+- ZUI's popup look: panel `ic_popupcontainer_bg_new` (`popup_container_bg`, a
+  `popup_container_stroke` hairline, `popup_container_radius`), row text
+  `popup_container_text_color` (`hook/ZuiLook`).
 
 ## Two USB-C ports: which one charges (`services.jar` 16)
 

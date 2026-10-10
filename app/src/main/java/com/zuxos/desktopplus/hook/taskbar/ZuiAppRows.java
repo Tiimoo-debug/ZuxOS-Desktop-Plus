@@ -21,6 +21,7 @@ import com.zuxos.desktopplus.core.Reflect;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.hook.IconInfo;
+import com.zuxos.desktopplus.hook.ZuiLook;
 import com.zuxos.desktopplus.logic.PinList;
 import com.zuxos.desktopplus.model.Item;
 
@@ -163,7 +164,7 @@ final class ZuiAppRows {
                 return;
             }
             List<Object> all = new ArrayList<>(zui);
-            int colour = shortcutColour(ctx);
+            int colour = ZuiLook.shortcutIcon(ctx);
             for (Row row : rowsFor(ctx, info, pkg, component)) {
                 RemoteAction action = new RemoteAction(iconFor(ctx, row, colour), row.title,
                         row.title, nothing(ctx));
@@ -240,13 +241,6 @@ final class ZuiAppRows {
             icon = Icon.createWithBitmap(bitmap);
         }
         return icon.setTint(colour);
-    }
-
-    /** The colour ZUI draws its own shortcut icons in ({@code ic_system_shortcut_solid}). */
-    private static int shortcutColour(Context ctx) {
-        int id = ctx.getResources().getIdentifier("ic_system_shortcut_solid", "color",
-                ctx.getPackageName());
-        return id != 0 ? ctx.getColor(id) : 0xFF666666;
     }
 
     /**

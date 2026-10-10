@@ -3,17 +3,22 @@ package com.zuxos.desktopplus.desktop;
 import android.content.Context;
 import android.graphics.Insets;
 import android.graphics.drawable.Drawable;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.MenuRows;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.icons.Glyphs;
 import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.hook.ZuiLook;
 import com.zuxos.desktopplus.hook.taskbar.BarEdge;
 
 import java.util.ArrayList;
@@ -118,15 +123,29 @@ public final class Menus {
             return false;
         });
 
-        // Liquid glass: the desktop behind the menu is ours to capture, so it is bent through the
-        // lens rather than only blurred.
-        GlassPanel pane = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x591C1C22).theme(theme);
+        // On the tablet, ZUI's own popup panel and colours - no glass there. Elsewhere liquid
+        // glass: the desktop behind the menu is ours to capture, so it is bent through the lens
+        // rather than only blurred.
+        final boolean zui = Ui.displayOf(root) == Display.DEFAULT_DISPLAY;
+        final FrameLayout pane;
+        final Runnable settled;
+        if (zui) {
+            pane = new FrameLayout(ctx);
+            Drawable panel = ZuiLook.popupBackground(ctx);
+            pane.setBackground(panel != null ? panel : Ui.roundRect(0xFAFAFAFA, Ui.dp(ctx, 16)));
+            pane.setElevation(Ui.dp(ctx, 8));
+            settled = null;
+        } else {
+            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, 16), 0x591C1C22).theme(theme);
+            glass.setSource(root);
+            pane = glass;
+            settled = glass::refresh;
+        }
         LinearLayout body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(0, Ui.dp(ctx, 6), 0, Ui.dp(ctx, 6));
         pane.addView(body, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-        pane.setSource(root);
         List<Drawable> icons = new ArrayList<>();
         boolean anyIcon = false;
         for (Entry entry : entries) {
@@ -136,7 +155,7 @@ public final class Menus {
         }
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
-            body.addView(MenuRows.row(ctx, theme, entry.title, icons.get(i), anyIcon,
+            View row = MenuRows.row(ctx, theme, entry.title, icons.get(i), anyIcon,
                     entry.enabled,
                     v -> {
                         MenuRows.close(shade, theme, () -> root.removeView(shade));
@@ -147,7 +166,11 @@ public final class Menus {
                                 L.e("menu action failed: " + entry.title, t);
                             }
                         }
-                    }), new LinearLayout.LayoutParams(
+                    });
+            if (zui) {
+                inZuiColours(row, entry.enabled);
+            }
+            body.addView(row, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
         }
@@ -182,7 +205,29 @@ public final class Menus {
         root.addView(shade, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         shade.requestFocus();
-        MenuRows.popIn(pane, theme, above, pane::refresh);
+        MenuRows.popIn(pane, theme, above, settled);
+    }
+
+    /** A row in the colours of ZUI's popup rows: ZUI's text, its line icons in ZUI's grey. */
+    private static void inZuiColours(View row, boolean enabled) {
+        if (!(row instanceof ViewGroup)) {
+            return;
+        }
+        Context ctx = row.getContext();
+        int text = ZuiLook.popupText(ctx);
+        ViewGroup group = (ViewGroup) row;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof TextView) {
+                ((TextView) child).setTextColor(text);
+                child.setAlpha(enabled ? 1f : 0.4f);
+            } else if (child instanceof ImageView) {
+                Drawable icon = ((ImageView) child).getDrawable();
+                if (icon != null && Glyphs.isGlyph(icon)) {
+                    icon.setTint(ZuiLook.shortcutIcon(ctx));
+                }
+            }
+        }
     }
 
     /** At most {@code size}, or anything while the host has not been laid out yet. */

@@ -1,7 +1,6 @@
 package com.zuxos.desktopplus.hook.drawer;
 
-import android.view.View;
-
+import com.zuxos.desktopplus.core.Cfg;
 import com.zuxos.desktopplus.core.Health;
 import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Reflect;
@@ -14,15 +13,21 @@ import de.robv.android.xposed.XposedBridge;
  *
  * <p>ZUI's {@code RecyclerViewLettersScroller} jumps to an app by its first letter, which only
  * means something in an alphabetical list - and ours is the order the owner arranged, folders
- * first. ZUI has no setting for it: both of its scroller layouts use that class. So it is hidden
- * once, as ZUI hands it its list ({@code setRecyclerView}), and while hidden it takes no touches.
- * Installed with the drawer order itself, so turning that off brings the letters back.
+ * first. ZUI has no setting for it: both of its scroller layouts use that class, and ZUI shows it
+ * again whenever a search starts or ends ({@code ActivityAllAppsContainerView}), so hiding it was
+ * undone (the 00:28 recording). Its visibility is left to ZUI; its letters are never drawn and it
+ * takes no touches while the drawer follows our order, so turning that off brings them back.
  */
 final class DrawerLetters {
 
     private static final String SCROLLER = "com.zui.launcher.views.RecyclerViewLettersScroller";
 
     private DrawerLetters() {
+    }
+
+    /** Whether the letters are off: while the drawer follows our order. */
+    private static boolean off() {
+        return Cfg.enabled() && Cfg.nativeDrawer();
     }
 
     static void install(ClassLoader loader) {
@@ -32,22 +37,20 @@ final class DrawerLetters {
                 L.i("drawer letters: ZUI's letter bar not on this build");
                 return;
             }
-            int hooked = XposedBridge.hookAllMethods(scroller, "setRecyclerView",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            try {
-                                ((View) param.thisObject).setVisibility(View.GONE);
-                            } catch (Throwable t) {
-                                L.d("drawer letters: left showing (" + t + ")");
-                            }
-                        }
-                    }).size();
+            // Its letters are never drawn - and with them goes the strip it keeps back from the
+            // back gesture, which is set while drawing.
+            int hooked = XposedBridge.hookAllMethods(scroller, "onDraw", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (off()) {
+                        param.setResult(null);
+                    }
+                }
+            }).size();
             XC_MethodHook inert = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    if (param.thisObject instanceof View
-                            && ((View) param.thisObject).getVisibility() == View.GONE) {
+                    if (off()) {
                         param.setResult(Boolean.FALSE);
                     }
                 }

@@ -21,8 +21,8 @@ import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.desktop.DesktopHost;
 import com.zuxos.desktopplus.desktop.DragPayload;
 import com.zuxos.desktopplus.desktop.FolderIconDrawable;
-import com.zuxos.desktopplus.desktop.FolderStyle;
 import com.zuxos.desktopplus.hook.IconInfo;
+import com.zuxos.desktopplus.hook.IconPress;
 import com.zuxos.desktopplus.hook.Mirror;
 import com.zuxos.desktopplus.hook.ZuiMenu;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarApps;
@@ -137,14 +137,8 @@ public final class NativeDrawerHooks {
                             if (param.thisObject instanceof View
                                     && openFolderFor((View) param.thisObject)) {
                                 param.setResult(Boolean.TRUE);
-                                // The launcher's tap feedback is cut short here: undo its
-                                // shrink now, not only when the folder closes.
-                                View tapped = (View) param.thisObject;
-                                tapped.post(() -> FolderStyle
-                                        .restoreIcon(tapped));
-                                // And once more after any press animation of its own has run.
-                                tapped.postDelayed(() -> com.zuxos.desktopplus.desktop
-                                        .FolderStyle.restoreIcon(tapped), 350L);
+                                // ZUI's click handler is skipped: its press let go here.
+                                IconPress.release((View) param.thisObject);
                             } else if (param.thisObject instanceof View
                                     && bringIfOpen((View) param.thisObject)) {
                                 // ZUI's launch skipped: the app's window came forward instead.
@@ -709,6 +703,10 @@ public final class NativeDrawerHooks {
             DrawerHold.watch(view, item);
             boolean started = view.startDragAndDrop(payload.toClip(),
                     new View.DragShadowBuilder(view), payload, DragPayload.FLAGS);
+            if (started) {
+                // ZUI's own drag lets go of the press as it starts (prepareDrawDragView); ours too.
+                IconPress.release(view);
+            }
             L.i("native drawer: drag of " + item.label + " on display "
                     + view.getDisplay().getDisplayId() + (started ? " started" : " refused"));
             return started;
@@ -731,8 +729,12 @@ public final class NativeDrawerHooks {
                 return false;
             }
             Item folder = folderBehind(view);
-            return folder != null
-                    && ZuiMenu.show(view, DrawerHold.menuEntries(view, folder));
+            if (folder == null || !ZuiMenu.show(view, DrawerHold.menuEntries(view, folder))) {
+                return false;
+            }
+            // As ZUI does after a popup on a hold without a drag (skipHotseatDrag).
+            IconPress.release(view);
+            return true;
         } catch (Throwable t) {
             L.d("native drawer: no folder menu (" + t + ")");
             return false;

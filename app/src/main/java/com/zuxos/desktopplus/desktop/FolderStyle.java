@@ -8,6 +8,7 @@ import com.zuxos.desktopplus.core.L;
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Motion;
 import com.zuxos.desktopplus.core.theme.Theme;
+import com.zuxos.desktopplus.hook.IconPress;
 
 /**
  * How an open folder looks and moves - the same on the home screen, in the drawer and on the
@@ -372,11 +373,6 @@ public final class FolderStyle {
             View icon = (View) hidden;
             icon.setAlpha(1f);
             restoreIcon(icon);
-            if (sSaidRestore < 4) {
-                // The first few closes: what the icon came back as, beside a neighbour.
-                sSaidRestore++;
-                icon.postDelayed(() -> describeBeside(icon), Motion.SPRING_MS + 50L);
-            }
         }
     }
 
@@ -405,14 +401,8 @@ public final class FolderStyle {
                 }
             }
             icon.jumpDrawablesToCurrentState();
-            // ZUI keeps the press shrink (0.8) in its icon drawable's own scale, which a state
-            // change does not undo; its click handler undoes it with this, after every tap - the
-            // tap we took from it (the 23:58 recording: the folder 80% of its neighbours).
-            try {
-                icon.getClass().getMethod("resetIconScale").invoke(icon);
-            } catch (NoSuchMethodException notZuis) {
-                // Not one of ZUI's icons: nothing of ZUI's to undo.
-            }
+            // ZUI's own icon holds its press until ZUI's handlers let go of it.
+            IconPress.release(icon);
             if (icon.getScaleX() != 1f || icon.getScaleY() != 1f) {
                 icon.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
                         .setInterpolator(Motion.SNAPPY).start();
@@ -421,40 +411,6 @@ public final class FolderStyle {
         } catch (Throwable ignored) {
             // A view gone with its window.
         }
-    }
-
-    private static int sSaidRestore;
-
-    /** The restored icon's size beside a neighbour's, so a difference left over is named. */
-    private static void describeBeside(View icon) {
-        View neighbour = null;
-        if (icon.getParent() instanceof android.view.ViewGroup) {
-            android.view.ViewGroup parent = (android.view.ViewGroup) icon.getParent();
-            for (int i = 0; i < parent.getChildCount(); i++) {
-                View c = parent.getChildAt(i);
-                if (c != icon && c.getClass() == icon.getClass()) {
-                    neighbour = c;
-                    break;
-                }
-            }
-        }
-        L.i("folder style: icon after close " + sizeOf(icon)
-                + (neighbour != null ? ", neighbour " + sizeOf(neighbour) : ""));
-    }
-
-    private static String sizeOf(View v) {
-        String drawn = "";
-        if (v instanceof android.widget.TextView) {
-            for (android.graphics.drawable.Drawable d
-                    : ((android.widget.TextView) v).getCompoundDrawables()) {
-                if (d != null) {
-                    drawn = " icon " + d.getBounds().width() + "x" + d.getBounds().height()
-                            + " level " + d.getLevel() + " " + d.getClass().getSimpleName();
-                    break;
-                }
-            }
-        }
-        return v.getWidth() + "x" + v.getHeight() + " scale " + v.getScaleX() + drawn;
     }
 
     private static void sourceAlpha(View panel, float alpha) {
