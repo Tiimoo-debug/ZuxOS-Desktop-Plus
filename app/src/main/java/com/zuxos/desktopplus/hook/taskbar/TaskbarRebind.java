@@ -1,5 +1,6 @@
 package com.zuxos.desktopplus.hook.taskbar;
 
+import android.view.View;
 import android.view.ViewGroup;
 
 import com.zuxos.desktopplus.core.Cfg;
@@ -121,10 +122,17 @@ public final class TaskbarRebind {
         if (!Cfg.taskbarRunningOnly() || !Cfg.hideRecommendedFlash()) {
             return;
         }
+        View bar = param.thisObject instanceof View ? (View) param.thisObject : null;
+        if (bar != null) {
+            ZuiBarPins.building(bar, (java.lang.reflect.Method) param.method, param.args);
+        }
         for (int i = 0; i < param.args.length; i++) {
             Object arg = param.args[i];
             if (arg instanceof Object[]) {
-                param.args[i] = java.lang.reflect.Array.newInstance(
+                // On the tablet, our pins as ZUI's own items; elsewhere nothing.
+                Object ours = bar == null ? null : ZuiBarPins.items(bar,
+                        arg.getClass().getComponentType(), arg);
+                param.args[i] = ours != null ? ours : java.lang.reflect.Array.newInstance(
                         arg.getClass().getComponentType(), 0);
             } else if (arg instanceof java.util.List) {
                 param.args[i] = new java.util.ArrayList<>();

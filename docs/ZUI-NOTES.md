@@ -225,6 +225,22 @@ vendor power HAL's, not in these jars.
 - The bar's `showPopupMenuForIcon(view)` makes the window full screen and posts
   `TaskbarPopupController.showForIcon(view)`, which reads the view's tag as an `ItemInfo`; the
   bar's own apps are an `AppInfo[]` on `TaskbarPopupController` (`setApps`).
+- Outside `Launcher` ZUI's folder delegate (`LauncherDelegate$b`) answers no `Launcher` (`e()`),
+  so a folder in the taskbar's drawer gets ZUI's context-checking motion; given ZUI's tablet
+  Launcher (`Launcher.ACTIVITY_TRACKER.getCreatedContext()`, as `expandFolder` reads it) it is
+  drawn and moves as in ZUX Home's drawer, its Launcher-only effects still behind
+  `isFromLauncher()` (the folder's own context).
+- The taskbar's drawer takes back by registering itself with its window's
+  `OnBackInvokedDispatcher` (`TaskbarAllAppsSlideInView`); a `Folder` registers nothing there, so
+  back skips it. `AbstractFloatingView` is an `OnBackAnimationCallback` whose `onBackInvoked`
+  closes it.
+- ZUI's app popup fills its app-shortcut rows (`loadAppShortcuts`) only for ZUI's own icons
+  (`instanceof WorkspaceIconCompat`); on any other view they stay empty placeholders.
+- ZUI's bar builds its row from item infos (`TaskbarView.updateHotseatItems`): an app as ZUI's
+  icon, a `FolderInfo` as `FolderIcon` opened by `expandFolder`. Our tablet pins are handed to it
+  as ZUI's hotseat items (`hook/taskbar/ZuiBarPins`).
+- ZUI's own Uninstall is `Utilities.startUninstallActivity(launcher, item)` (`ic_delete_zui`,
+  `uninstall_item_title`); its factory leaves items outside the home screen out.
 - ZUI's folder "Add apps" (`Folder.createAddAppButton` -> `BigFolderIconSelectDialog`) moves apps
   between the folder and the home screen (`addOrMoveItemInDatabase(item, -100, ...)`,
   `launcher.removeItem`). Hidden in our folders until it is routed to our drawer.

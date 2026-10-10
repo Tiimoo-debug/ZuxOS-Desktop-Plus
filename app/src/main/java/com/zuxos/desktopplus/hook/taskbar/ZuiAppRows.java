@@ -165,7 +165,9 @@ final class ZuiAppRows {
                 return;
             }
             List<Object> all = new ArrayList<>(zui);
-            int colour = ZuiLook.shortcutIcon(ctx);
+            // ZUI's shortcut colour as the popup itself resolves it - light or dark as the popup
+            // is - for ZUI's icons of ours, some drawn in a fixed colour, and our one glyph.
+            int colour = ZuiLook.shortcutIcon(((View) param.thisObject).getContext());
             for (Row row : rowsFor(ctx, info, pkg, component)) {
                 RemoteAction action = new RemoteAction(iconFor(ctx, row, colour), row.title,
                         row.title, nothing(ctx));
@@ -216,6 +218,11 @@ final class ZuiAppRows {
         Runnable remove = ZuiFolders.removeAction(info);
         if (remove != null) {
             rows.add(new Row("Remove from folder", "ic_remove_zui", remove));
+            Runnable uninstall = ZuiFolders.uninstallAction(info);
+            if (uninstall != null) {
+                rows.add(new Row(zuiString(ctx, "uninstall_item_title", "Uninstall"),
+                        "ic_delete_zui", uninstall));
+            }
         }
         // A window of it on the tablet: a second one, minimised, maximised, closed.
         for (TaskbarMenu.Entry entry : TaskbarApps.entriesFor(ctx, pkg, user,
@@ -228,6 +235,12 @@ final class ZuiAppRows {
             rows.add(new Row(title, zuiIconFor(title), entry::run));
         }
         return rows;
+    }
+
+    /** One of ZUI's own strings, so our rows read as ZUI's do in the owner's language. */
+    private static String zuiString(Context ctx, String name, String fallback) {
+        int id = ctx.getResources().getIdentifier(name, "string", ctx.getPackageName());
+        return id != 0 ? ctx.getString(id) : fallback;
     }
 
     /** ZUI's own icon for one of our window actions; none for minimise, which ZUI lacks. */
