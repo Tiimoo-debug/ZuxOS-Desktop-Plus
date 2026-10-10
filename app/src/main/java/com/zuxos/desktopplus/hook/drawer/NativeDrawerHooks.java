@@ -87,6 +87,7 @@ public final class NativeDrawerHooks {
             return;
         }
         sInstalled = true;
+        DrawerLetters.install(loader);
 
         Class<?> listCls = Reflect.findClass(
                 "com.android.launcher3.allapps.AlphabeticalAppsList", loader);
@@ -176,7 +177,7 @@ public final class NativeDrawerHooks {
                                 return;
                             }
                             View view = (View) param.thisObject;
-                            if (dragOut(view)) {
+                            if (folderMenu(view) || dragOut(view)) {
                                 param.setResult(Boolean.TRUE);
                             }
                         }
@@ -714,6 +715,36 @@ public final class NativeDrawerHooks {
             L.d("native drawer: could not start a drag (" + t + ")");
             return false;
         }
+    }
+
+    /**
+     * A hold on one of our folders in a drawer on the tablet - ZUI's taskbar drawer or ZUX Home's
+     * own: ZUI's menu with our folder's actions, rather than ZUI's app menu, which took the folder
+     * for an app (app info for this module, "App isn't installed"). The monitor keeps its drag.
+     */
+    private static boolean folderMenu(View view) {
+        try {
+            if (!Cfg.enabled() || view.getDisplay() == null
+                    || view.getDisplay().getDisplayId() != android.view.Display.DEFAULT_DISPLAY
+                    || !inAppsList(view)) {
+                return false;
+            }
+            Item folder = folderBehind(view);
+            return folder != null && DrawerFolderMenu.show(view, folder);
+        } catch (Throwable t) {
+            L.d("native drawer: no folder menu (" + t + ")");
+            return false;
+        }
+    }
+
+    /** Whether a view is an entry of ZUI's app list, in either of its drawers. */
+    private static boolean inAppsList(View view) {
+        for (android.view.ViewParent p = view.getParent(); p instanceof View; p = p.getParent()) {
+            if (p.getClass().getName().endsWith("AllAppsRecyclerView")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Whether a view is inside the drawer's own window rather than some other one. */

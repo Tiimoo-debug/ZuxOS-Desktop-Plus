@@ -63,6 +63,7 @@ public final class DrawerFolderWindow {
     public static void show(Context ctx, Item folder, AppsRepo repo, int displayId,
             int iconSizePx, DrawerStore store, View source) {
         dismiss();
+        Context launcher = ctx;
         // Opened from the taskbar, ctx is bound to the taskbar's window type and refuses an
         // overlay outright (type 2024 vs 2038), so every caller goes through a context that may.
         ctx = Overlays.windowContext(ctx);
@@ -77,8 +78,12 @@ public final class DrawerFolderWindow {
             LinearLayout panel = new LinearLayout(ctx);
             panel.setOrientation(LinearLayout.VERTICAL);
             Theme theme = Theme.of(displayId);
-            GlassPanel glass = new GlassPanel(ctx, Ui.dp(ctx, FolderStyle.RADIUS_DP),
-                    FolderStyle.PANEL_TINT).theme(theme);
+            // On the tablet the folder is ZUI's colour, not glass: the panel ZUI's own folders
+            // draw. Glass stays the monitor's.
+            boolean tablet = displayId == android.view.Display.DEFAULT_DISPLAY;
+            GlassPanel lens = tablet ? null : new GlassPanel(ctx,
+                    Ui.dp(ctx, FolderStyle.RADIUS_DP), FolderStyle.PANEL_TINT).theme(theme);
+            FrameLayout glass = lens != null ? lens : zuiPanel(ctx, launcher);
             glass.addView(panel, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
             int pad = Ui.dp(ctx, FolderStyle.PADDING_DP);
@@ -131,9 +136,11 @@ public final class DrawerFolderWindow {
             // The stock drawer sits behind this window in a window of its own, so it is captured
             // first and our scrim second: the lens then bends the real app grid, dimmed, instead
             // of a flat sheet of colour.
-            glass.addSource(TaskbarBridge.stockDrawerRootOn(displayId));
-            glass.addSource(root);
-            glass.post(glass::refresh);
+            if (lens != null) {
+                lens.addSource(TaskbarBridge.stockDrawerRootOn(displayId));
+                lens.addSource(root);
+                lens.post(lens::refresh);
+            }
             root.setFocusableInTouchMode(true);
             root.setOnKeyListener((v, keyCode, event) -> {
                 if (event.getAction() == android.view.KeyEvent.ACTION_UP
@@ -197,7 +204,7 @@ public final class DrawerFolderWindow {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             lp.setTitle("ZuxOS Desktop Plus folder");
-            if (!theme.retro()) {
+            if (lens != null && !theme.retro()) {
                 Glass.blurBehind(ctx, lp, Glass.BEHIND_BLUR_DP);
             }
             theme.applyFont(root);
@@ -217,6 +224,26 @@ public final class DrawerFolderWindow {
         } catch (Throwable t) {
             L.e("could not open drawer folder", t);
         }
+    }
+
+    /**
+     * A panel as ZUI paints its own folders: its {@code round_rect_folder} - its fill and border
+     * colours and its corner - from ZUX Home's own resources and theme. ZUI's look where that
+     * drawable cannot be had is its fill colour on our corner.
+     */
+    private static FrameLayout zuiPanel(Context ctx, Context launcher) {
+        FrameLayout panel = new FrameLayout(ctx);
+        android.content.res.Resources res = launcher.getResources();
+        try {
+            int id = res.getIdentifier("round_rect_folder", "drawable", launcher.getPackageName());
+            panel.setBackground(res.getDrawable(id, launcher.getTheme()));
+        } catch (Throwable t) {
+            int fill = res.getIdentifier("folder_fill_color", "color", launcher.getPackageName());
+            panel.setBackground(Ui.roundRect(fill != 0 ? launcher.getColor(fill) : 0xFAE5E5E5,
+                    Ui.dp(ctx, FolderStyle.RADIUS_DP)));
+            L.d("drawer folder: ZUI's folder panel not found, its colour instead (" + t + ")");
+        }
+        return panel;
     }
 
     /** Fills the folder grid; called again after a reorder. */

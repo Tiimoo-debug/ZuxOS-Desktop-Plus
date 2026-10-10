@@ -573,8 +573,16 @@ public final class TaskbarMenu {
             this.action = action;
         }
 
-        android.graphics.drawable.Drawable icon() {
+        public android.graphics.drawable.Drawable icon() {
             return icon != null ? icon : Glyphs.forTitle(title);
+        }
+
+        public String title() {
+            return title;
+        }
+
+        public void run() {
+            action.run();
         }
     }
 }

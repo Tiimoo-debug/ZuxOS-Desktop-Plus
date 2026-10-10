@@ -236,28 +236,8 @@ final class DrawerHold {
     /** The same menu a taskbar icon has, plus the two things the drawer is for. */
     private static void showMenu(View source, Item item) {
         try {
-            Context ctx = source.getContext();
             int display = TaskbarTray.displayIdOf(source);
-            List<TaskbarMenu.Entry> entries = new ArrayList<>();
-            if (item.type == Item.TYPE_FOLDER) {
-                entries.add(new TaskbarMenu.Entry("Open folder",
-                        () -> NativeDrawerHooks.openFolderFor(source)));
-            } else if (item.pkg != null) {
-                entries.addAll(TaskbarApps.entriesFor(ctx, item.pkg,
-                        android.os.Process.myUserHandle(), display));
-            }
-            entries.add(new TaskbarMenu.Entry("Pin to the taskbar", () -> {
-                TaskbarPins.pin(ctx, item, PinList.AT_THE_END);
-                TaskbarRunning.refreshAll();
-            }));
-            // This screen's desktop: the last one attached could be the other screen's.
-            DesktopHost desktop = DesktopHost.on(display);
-            if (desktop != null) {
-                entries.add(new TaskbarMenu.Entry("Add to desktop", () -> {
-                    desktop.addPinnedItem(copyOf(item));
-                    TaskbarBridge.closeStockDrawer();
-                }));
-            }
+            List<TaskbarMenu.Entry> entries = menuEntries(source, item);
             int[] at = new int[2];
             source.getLocationOnScreen(at);
             TaskbarMenu.showEntries(source, display, at[0] + source.getWidth() / 2f,
@@ -265,6 +245,36 @@ final class DrawerHold {
         } catch (Throwable t) {
             L.d("drawer hold: no menu (" + t + ")");
         }
+    }
+
+    /**
+     * What holding an item in a drawer offers: a folder opens, an app has its taskbar menu, and
+     * either can be pinned to the taskbar or put on this screen's desktop where it has one.
+     */
+    static List<TaskbarMenu.Entry> menuEntries(View source, Item item) {
+        Context ctx = source.getContext();
+        int display = TaskbarTray.displayIdOf(source);
+        List<TaskbarMenu.Entry> entries = new ArrayList<>();
+        if (item.type == Item.TYPE_FOLDER) {
+            entries.add(new TaskbarMenu.Entry("Open folder",
+                    () -> NativeDrawerHooks.openFolderFor(source)));
+        } else if (item.pkg != null) {
+            entries.addAll(TaskbarApps.entriesFor(ctx, item.pkg,
+                    android.os.Process.myUserHandle(), display));
+        }
+        entries.add(new TaskbarMenu.Entry("Pin to the taskbar", () -> {
+            TaskbarPins.pin(ctx, item, PinList.AT_THE_END);
+            TaskbarRunning.refreshAll();
+        }));
+        // This screen's desktop: the last one attached could be the other screen's.
+        DesktopHost desktop = DesktopHost.on(display);
+        if (desktop != null) {
+            entries.add(new TaskbarMenu.Entry("Add to desktop", () -> {
+                desktop.addPinnedItem(copyOf(item));
+                TaskbarBridge.closeStockDrawer();
+            }));
+        }
+        return entries;
     }
 
     /** A copy for the desktop, under an id of its own so the two never get confused. */

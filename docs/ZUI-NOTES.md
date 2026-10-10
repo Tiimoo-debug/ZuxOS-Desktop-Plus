@@ -173,6 +173,22 @@ vendor power HAL's, not in these jars.
   `log.tag.OVC`. It is off on this device, which is why the probe's section came back empty on
   1.0.166. `setprop log.tag.OVC D` (root, until reboot) turns it on.
 
+## Folders and menus in ZUI's drawers (read 2026-10-10)
+
+- `OptionsPopupView.show(ActivityContext, RectF, List<OptionItem>, boolean)` is ZUI's popup with any
+  items: each `OptionItem(CharSequence, Drawable, EventEnum, OnLongClickListener)` becomes a
+  `system_shortcut` row - the same rows as ZUI's folder menu (`SystemShortcut.SwitchFolder`
+  "Enlarge folder", the rename shortcut "Rename"). `ActivityContext.lookupContext(context)` gives
+  the drawer's own activity context, Launcher or the taskbar overlay. `hook/drawer/DrawerFolderMenu`
+  uses it for our folders on the tablet.
+- ZUI's folder panel is the drawable `round_rect_folder`: `?attr/folder_fill_color` (`#fae5e5e5`),
+  a `folder_border_color` stroke, corner `bg_round_rect_radius_folder`. Tablet folders use it.
+- `FolderIcon.inflateFolderAndIcon(layout, ActivityContext, parent, FolderInfo)` builds ZUI's real
+  folder for any activity context; ZUI's taskbar already hosts real folders (`TaskbarView`
+  implements `FolderIcon.FolderIconParent`).
+- The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
+  `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
+
 ## Two USB-C ports: which one charges (`services.jar` 16)
 
 - The kernel picks the port that powers the tablet; Android does not. With both ports in use it
