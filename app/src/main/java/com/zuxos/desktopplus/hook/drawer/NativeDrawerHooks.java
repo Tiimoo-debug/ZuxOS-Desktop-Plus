@@ -248,7 +248,6 @@ public final class NativeDrawerHooks {
             }
 
             List<Object> kept = new ArrayList<>(apps.size());
-            Map<String, Object> filedApps = new HashMap<>();
             int iconPx = 0;
             for (Object app : apps) {
                 if (folderIdOf(app) != null) {
@@ -259,16 +258,12 @@ public final class NativeDrawerHooks {
                     iconPx = iconSizeOf(app);
                 }
                 String key = keyOf(ctx, app);
-                if (key != null && filed.contains(key)) {
-                    // In a folder: what ZUI's folder of it is made from.
-                    filedApps.put(key, app);
-                }
                 if (key != null && (hidden.contains(key) || filed.contains(key))) {
                     continue;
                 }
                 kept.add(app);
             }
-            ZuiFolders.remember(filedApps);
+            ZuiFolders.remember(storeAppsByKey(ctx, appsList, filed));
             if (kept.isEmpty()) {
                 note("refusing to empty the drawer - no entries survived filtering");
                 return false;
@@ -291,6 +286,41 @@ public final class NativeDrawerHooks {
         } catch (Throwable t) {
             L.e("native drawer: rewriting the app list failed", t);
             return false;
+        }
+    }
+
+    /**
+     * The installed apps filed in our folders, by key, from ZUI's own app store
+     * ({@code AllAppsStore.getApps()}): the list rewritten here has them taken out after its first
+     * pass, so it cannot be where ZUI's folders of them are made from (1.0.190: every folder
+     * empty). Null where the store is not found.
+     */
+    private static Map<String, Object> storeAppsByKey(Context ctx, Object appsList,
+            Set<String> filed) {
+        try {
+            Object store = null;
+            for (Field f : Mirror.fields(appsList.getClass())) {
+                if (f.getType().getName().endsWith(".AllAppsStore")) {
+                    store = Mirror.get(f, appsList);
+                    break;
+                }
+            }
+            Object apps = store == null ? null : Reflect.call(store, "getApps");
+            if (!(apps instanceof Object[])) {
+                note("ZUI's app store not found - folders keep the apps last seen");
+                return null;
+            }
+            Map<String, Object> byKey = new HashMap<>();
+            for (Object app : (Object[]) apps) {
+                String key = app == null ? null : keyOf(ctx, app);
+                if (key != null && filed.contains(key)) {
+                    byKey.put(key, app);
+                }
+            }
+            return byKey;
+        } catch (Throwable t) {
+            L.d("native drawer: ZUI's app store not read (" + t + ")");
+            return null;
         }
     }
 

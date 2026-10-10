@@ -182,9 +182,14 @@ public final class ZuiFolders {
 
     // --- ZUI's list ------------------------------------------------------
 
-    /** The drawer's entries for the apps in our folders, from the latest pass over its list. */
+    /**
+     * ZUI's entries for the apps in our folders, from its app store; null when the store could
+     * not be read, which keeps the ones last seen.
+     */
     static void remember(Map<String, Object> filed) {
-        sFiled = filed;
+        if (filed != null) {
+            sFiled = filed;
+        }
     }
 
     /** Whether the list ZUI is building now is a drawer's on the tablet, for its items' birth. */
@@ -372,8 +377,14 @@ public final class ZuiFolders {
             add.invoke(info, made);
             CHILDREN.put(made, child);
         }
+        if (rank == 0 && SAID_EMPTY.add(folder.id)) {
+            L.w("zui folders: folder " + folder.label + " - none of its "
+                    + folder.children.size() + " apps in ZUI's app store");
+        }
         return rank == 0 ? null : info;
     }
+
+    private static final java.util.Set<String> SAID_EMPTY = new java.util.HashSet<>();
 
     private static synchronized int idOf(Item folder) {
         for (Map.Entry<Integer, Item> e : BY_ID.entrySet()) {
