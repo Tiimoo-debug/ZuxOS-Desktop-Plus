@@ -9,7 +9,6 @@ import com.zuxos.desktopplus.hook.drawer.DrawerRetro;
 import com.zuxos.desktopplus.hook.drawer.NativeDrawerHooks;
 import com.zuxos.desktopplus.hook.home.ActivityWatcher;
 import com.zuxos.desktopplus.hook.home.HotseatButton;
-import com.zuxos.desktopplus.hook.home.NativeFolderMotion;
 import com.zuxos.desktopplus.hook.home.PinRequestHooks;
 import com.zuxos.desktopplus.hook.home.SettingsRestart;
 import com.zuxos.desktopplus.hook.home.StockUnlockHooks;
@@ -84,7 +83,6 @@ public class XposedEntry implements IXposedHookLoadPackage {
             if (Cfg.nativeDrawer()) {
                 NativeDrawerHooks.install(lpparam.classLoader);
             }
-            NativeFolderMotion.install(lpparam.classLoader);
             DrawerRetro.install(lpparam.classLoader);
             DrawerFromTop.install(lpparam.classLoader);
             RecentsRoute.install(lpparam.classLoader);

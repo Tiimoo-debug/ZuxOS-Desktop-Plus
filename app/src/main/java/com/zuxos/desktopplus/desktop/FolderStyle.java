@@ -166,19 +166,6 @@ public final class FolderStyle {
     }
 
     /**
-     * The launcher's own folder animation, replaced by this one: the same morph out of the icon
-     * and back, for the folders ZUI opens on the tablet's home screen. The launcher hides and
-     * shows its icon itself, so that part is left to it; whoever runs this attaches its own
-     * listeners and starts it.
-     */
-    public static android.animation.ValueAnimator nativeMorph(View folder, View icon,
-            boolean opening) {
-        return opening
-                ? morphAnimator(folder, icon, 0f, 1f, Motion.SPRING_MS, OPEN, false)
-                : morphAnimator(folder, icon, 1f, 0f, CLOSE_MS, Motion.EASE, false);
-    }
-
-    /**
      * The animator under both. Where the icon is is measured on its first frame with the panel
      * laid out, not when it is made: the launcher builds its animation before its folder has a
      * place, and a panel never laid out cannot be put over anything.
@@ -396,7 +383,7 @@ public final class FolderStyle {
     /**
      * An icon a folder opened from, back to its full size. Opening the folder ourselves cut the
      * launcher's tap short: its press shrink was never undone, and the drawer folder stayed a
-     * size smaller than its neighbours after it closed (the 15:35 recording).
+     * size smaller than its neighbours after it closed (the 15:35 and 23:58 recordings).
      */
     public static void restoreIcon(View icon) {
         try {
@@ -418,6 +405,14 @@ public final class FolderStyle {
                 }
             }
             icon.jumpDrawablesToCurrentState();
+            // ZUI keeps the press shrink (0.8) in its icon drawable's own scale, which a state
+            // change does not undo; its click handler undoes it with this, after every tap - the
+            // tap we took from it (the 23:58 recording: the folder 80% of its neighbours).
+            try {
+                icon.getClass().getMethod("resetIconScale").invoke(icon);
+            } catch (NoSuchMethodException notZuis) {
+                // Not one of ZUI's icons: nothing of ZUI's to undo.
+            }
             if (icon.getScaleX() != 1f || icon.getScaleY() != 1f) {
                 icon.animate().scaleX(1f).scaleY(1f).setDuration(Motion.SPRING_MS)
                         .setInterpolator(Motion.SNAPPY).start();

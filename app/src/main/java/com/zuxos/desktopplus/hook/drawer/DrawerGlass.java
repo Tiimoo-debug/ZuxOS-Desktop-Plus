@@ -90,9 +90,13 @@ public final class DrawerGlass {
         }
     }
 
-    /** Whether a drawer on this window's screen is dressed: in glass, or in Retro. */
+    /**
+     * Whether a drawer on this window's screen is dressed: in glass, or in Retro - on the monitor
+     * only. The tablet's drawers keep ZUI's own sheet in both of its modes.
+     */
     private static boolean on(View root) {
-        return Theme.of(root).retro() || Cfg.drawerGlass() && Cfg.glass();
+        return Ui.displayOf(root) > android.view.Display.DEFAULT_DISPLAY
+                && (Theme.of(root).retro() || Cfg.drawerGlass() && Cfg.glass());
     }
 
     /** Whether any drawer may be dressed - for the blur hook, which has no window to ask. */

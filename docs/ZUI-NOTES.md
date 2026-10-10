@@ -186,6 +186,11 @@ vendor power HAL's, not in these jars.
 - `FolderIcon.inflateFolderAndIcon(layout, ActivityContext, parent, FolderInfo)` builds ZUI's real
   folder for any activity context; ZUI's taskbar already hosts real folders (`TaskbarView`
   implements `FolderIcon.FolderIconParent`).
+- A pressed icon's picture shrinks to 0.8 inside its drawable (`FastBitmapDrawable.onStateChange`),
+  and ZUI's click handler undoes it with `BubbleTextView.resetIconScale()` (`ItemClickHandler`).
+  A click we take ourselves has to call it too, or the icon stays small (`FolderStyle.restoreIcon`).
+- ZUI's app popup (`PopupContainerWithArrow`) puts deep shortcuts on top and its system shortcuts
+  below, as an icon strip or as `deep_shortcut` rows (`addSystemShortcutsIconsOnly`).
 - The A-Z bar in both drawers is `com.zui.launcher.views.RecyclerViewLettersScroller`, from either
   `all_apps_fast_scroller` layout (chosen by `Utilities.isZuiRow()`); no setting turns it off.
 
