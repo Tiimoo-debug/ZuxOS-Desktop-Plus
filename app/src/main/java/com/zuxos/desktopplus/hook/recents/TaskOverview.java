@@ -39,6 +39,7 @@ import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.KeyShell;
 import com.zuxos.desktopplus.hook.Overlays;
@@ -306,7 +307,8 @@ public final class TaskOverview {
             boolean glass, long delay) {
         // Under a mouse or stylus: a soft light behind the card and its picture growing a
         // little, steady across its X and icon - the same as the taskbar's previews.
-        HoverTile box = new HoverTile(ctx);
+        // Glass: the monitor's recents take the theme in a later build.
+        HoverTile box = new HoverTile(ctx, Theme.GLASS);
         box.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout header = new LinearLayout(ctx);

@@ -239,6 +239,14 @@ device.
   (`dpmode/ExtendStatusBarController`, its own notification icons). Whether heads-up pop-ups appear
   there is not clear from the code. The probe now lists SystemUI's windows per display. Android 16
   Live Updates arrive through the module's listener like any notification.
+- **#20 The monitor's status bar** (read 2026-10-10). Built by SystemUI's
+  `dpmode/ZuiDpModeManager`, in one place: its `createStatusBar(Display)` (compiled as the static
+  `-$$Nest$mcreateStatusBar`), called when `zui_dp_display_pc_mode` turns on and when the external
+  screen is added in that mode. It is a `DpStatusBarWindowControllerImpl` window, type 2000,
+  titled `StatusBar<display id>`, keeping `statusBars` and `tappableElement` clear at the top. No
+  setting of ZUI's turns it off. Everything else in the manager allows for it not being there
+  (`removeStatusBar`, the colour updates in `onSystemBarAttributesChanged`); the screen width it
+  stores on the way (`XSystemUtil.mDpModeScreenWidth`) is read only by the status bar's own view.
 - **#9 Boot animation.** Chosen by the native boot animation, not in these jars. The probe lists
   the files present.
 - **#10, #16 Window frames.** SystemUI draws them from resources:

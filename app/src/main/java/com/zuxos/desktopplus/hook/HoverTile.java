@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 
 import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Theme;
 
 /**
  * A tile under the pointer: a soft highlight comes up behind it and its picture grows a
@@ -15,18 +16,36 @@ import com.zuxos.desktopplus.core.motion.Motion;
  * <p>Hover is read from what reaches the tile as a whole, not from the tile's own
  * enter/exit: those fire every time the pointer crosses the tile's X or icon, and the tile
  * used to grow and shrink with each crossing - taking the icon and X with it.
+ *
+ * <p>In Retro nothing glows or grows: the tile's owner is told, and lights the tile's title bar
+ * as Windows 98 lit the active window's.
  */
 public final class HoverTile extends LinearLayout {
+
+    /** Told when the pointer comes onto the tile and when it leaves. */
+    public interface OnHover {
+        void hovered(boolean on);
+    }
+
     public ImageView mThumb;
     private boolean mHovered;
+    private final Theme mTheme;
     private final android.graphics.drawable.GradientDrawable mGlow;
     private android.animation.ValueAnimator mFade;
+    private OnHover mOnHover;
 
-    public HoverTile(Context ctx) {
+    public HoverTile(Context ctx, Theme theme) {
         super(ctx);
+        mTheme = theme;
         mGlow = Ui.roundRect(0x1FFFFFFF, Ui.dp(ctx, 16));
         mGlow.setAlpha(0);
-        setBackground(mGlow);
+        if (!theme.retro()) {
+            setBackground(mGlow);
+        }
+    }
+
+    public void setOnHover(OnHover onHover) {
+        mOnHover = onHover;
     }
 
     @Override
@@ -43,6 +62,12 @@ public final class HoverTile extends LinearLayout {
     }
 
     private void hovered(boolean on) {
+        if (mOnHover != null) {
+            mOnHover.hovered(on);
+        }
+        if (mTheme.retro()) {
+            return;
+        }
         if (mFade != null) {
             mFade.cancel();
         }

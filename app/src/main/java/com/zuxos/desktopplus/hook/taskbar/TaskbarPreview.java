@@ -30,14 +30,17 @@ import com.zuxos.desktopplus.core.Ui;
 import com.zuxos.desktopplus.core.glass.GlassSurface;
 import com.zuxos.desktopplus.core.glass.LiquidGlass;
 import com.zuxos.desktopplus.core.glass.ScreenBackdrop;
+import com.zuxos.desktopplus.core.icons.PixelIcons;
 import com.zuxos.desktopplus.core.motion.FrameRate;
 import com.zuxos.desktopplus.core.motion.Hover;
 import com.zuxos.desktopplus.core.motion.Motion;
+import com.zuxos.desktopplus.core.theme.Bevel;
 import com.zuxos.desktopplus.core.theme.Theme;
 import com.zuxos.desktopplus.hook.HoverTile;
 import com.zuxos.desktopplus.hook.Overlays;
 import com.zuxos.desktopplus.hook.Tasks;
 import com.zuxos.desktopplus.hook.recents.TaskOverview;
+import com.zuxos.desktopplus.logic.BevelMath;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -64,6 +67,10 @@ public final class TaskbarPreview {
 
     /** Room round a tile for its hover highlight. */
     private static final int TILE_PAD_DP = 6;
+    /** Retro's window edge: the bevel's width, and the gap under its title bar. */
+    private static final int RETRO_EDGE_DP = 3;
+    /** Windows 98's title bar of a window not in front. */
+    private static final int RETRO_INACTIVE = BevelMath.shadow(BevelMath.FACE);
 
     private static final int TAG_PKG = 0x7A000201;
     private static final int TAG_DISPLAY = 0x7A000202;
@@ -91,6 +98,8 @@ public final class TaskbarPreview {
     private static WindowManager sWm;
     /** The icon whose window the preview shows. */
     private static View sShown;
+    /** The look of the preview up now, for its going. */
+    private static Theme sTheme = Theme.GLASS;
 
     private TaskbarPreview() {
     }
@@ -335,8 +344,10 @@ public final class TaskbarPreview {
             // Shown by its package name.
         }
 
+        Theme theme = Theme.of(display);
+        sTheme = theme;
         GlassSurface pane = new GlassSurface(ctx, Ui.dp(ctx, 18), 0x401C1C22,
-                LiquidGlass.MENU);
+                LiquidGlass.MENU).theme(theme);
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(pad, pad, pad, pad);
@@ -350,7 +361,8 @@ public final class TaskbarPreview {
             tile.taskId = task.taskId;
             tile.visible = Boolean.TRUE.equals(Reflect.field(task, "isVisible"));
             visibleCount += tile.visible ? 1 : 0;
-            tile.view = tileView(ctx, tile, pkg, label, appIcon, display, tileW, tileH, tiles);
+            tile.view = tileView(ctx, theme, tile, pkg, label, appIcon, display, tileW, tileH,
+                    tiles);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     tileW + 2 * Ui.dp(ctx, TILE_PAD_DP), ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.leftMargin = tiles.isEmpty() ? 0 : gap;
@@ -428,7 +440,13 @@ public final class TaskbarPreview {
         sWm = wm;
         sShown = icon;
         sOverPane = false;
+        theme.applyFont(root);
 
+        if (theme.retro()) {
+            // Retro's preview is simply there.
+            startPictures(tiles, root, display, uid, visibleCount, dm);
+            return;
+        }
         // Out of the icon on iOS's spring: a little small and nearer the bar, then in place.
         pane.setPivotX(w / 2f);
         pane.setPivotY(below ? 0f : root.getMeasuredHeight());
@@ -439,13 +457,20 @@ public final class TaskbarPreview {
         pane.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
                 .setDuration(Motion.IOS_MS).setInterpolator(Motion.IOS).withLayer().start();
         FrameRate.measure(root, "window preview");
+        startPictures(tiles, root, display, uid, visibleCount, dm);
+    }
 
+    /**
+     * Each window's last picture, and the window on screen live when it is the only one: from
+     * that app's own layers. Two on screen would share the one capture, so those keep their
+     * pictures.
+     */
+    private static void startPictures(List<Tile> tiles, FrameLayout root, int display, int uid,
+            int visibleCount, DisplayMetrics dm) {
         for (Tile tile : tiles) {
             loadSnapshot(tile, root);
         }
         if (uid >= 0 && visibleCount == 1) {
-            // One window on screen: live, from that app's own layers. Two on screen would share
-            // the one capture, so those keep their pictures.
             for (Tile tile : tiles) {
                 if (tile.visible) {
                     feed(tile, root, display, uid, dm);
@@ -454,19 +479,29 @@ public final class TaskbarPreview {
         }
     }
 
-    private static View tileView(Context ctx, Tile tile, String pkg, CharSequence label,
-            Drawable appIcon, int display, int tileW, int tileH, List<Tile> tiles) {
-        HoverTile box = new HoverTile(ctx);
+    /**
+     * One window: its app's icon and name over its picture, with an X. In Retro it is a Windows
+     * 98 window - a raised box, a title bar that turns navy under the pointer as the active
+     * window's did and grey off it, a bevelled close button, the picture sunk into a field.
+     */
+    private static View tileView(Context ctx, Theme theme, Tile tile, String pkg,
+            CharSequence label, Drawable appIcon, int display, int tileW, int tileH,
+            List<Tile> tiles) {
+        boolean retro = theme.retro();
+        HoverTile box = new HoverTile(ctx, theme);
         box.setOrientation(LinearLayout.VERTICAL);
-        int boxPad = Ui.dp(ctx, TILE_PAD_DP);
+        int boxPad = Ui.dp(ctx, retro ? RETRO_EDGE_DP : TILE_PAD_DP);
         box.setPadding(boxPad, boxPad, boxPad, boxPad);
+        if (retro) {
+            box.setBackground(Bevel.raised(ctx));
+        }
 
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         ImageView icon = new ImageView(ctx);
         icon.setImageDrawable(appIcon);
-        int iconPx = Ui.dp(ctx, 20);
+        int iconPx = Ui.dp(ctx, retro ? 16 : 20);
         header.addView(icon, new LinearLayout.LayoutParams(iconPx, iconPx));
         TextView name = new TextView(ctx);
         name.setText(label);
@@ -474,9 +509,76 @@ public final class TaskbarPreview {
         name.setTextSize(13);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setPadding(Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8), 0);
+        name.setPadding(Ui.dp(ctx, retro ? 4 : 8), 0, Ui.dp(ctx, retro ? 4 : 8), 0);
         header.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        View x = retro ? retroClose(ctx) : glassClose(ctx);
+        x.setOnClickListener(v -> {
+            TaskOverview.closeTask(tile.taskId, pkg);
+            tiles.remove(tile);
+            Runnable gone = () -> {
+                if (box.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) box.getParent()).removeView(box);
+                }
+                if (tiles.isEmpty()) {
+                    dismiss();
+                }
+            };
+            if (retro) {
+                gone.run();
+                return;
+            }
+            box.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT)
+                    .withEndAction(gone).start();
+        });
+        int xPx = Ui.dp(ctx, retro ? 16 : 22);
+        header.addView(x, new LinearLayout.LayoutParams(xPx, xPx));
+        if (retro) {
+            int bar = Ui.dp(ctx, 2);
+            header.setPadding(bar, bar, bar, bar);
+            header.setBackgroundColor(RETRO_INACTIVE);
+            box.setOnHover(on -> {
+                header.setBackgroundColor(on ? Theme.NAVY : RETRO_INACTIVE);
+                name.setTextColor(on ? 0xFFFFFFFF : BevelMath.FACE);
+            });
+            name.setTextColor(BevelMath.FACE);
+        }
+        box.addView(header);
+
+        ImageView thumb = new ImageView(ctx);
+        thumb.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        thumb.setImageDrawable(appIcon);
+        if (retro) {
+            int field = Ui.dp(ctx, 2);
+            thumb.setBackground(Bevel.sunken(ctx));
+            thumb.setPadding(field, field, field, field);
+        } else {
+            thumb.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 12)));
+            int radius = Ui.dp(ctx, 12);
+            thumb.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+                }
+            });
+            thumb.setClipToOutline(true);
+        }
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, tileH);
+        tlp.topMargin = Ui.dp(ctx, retro ? RETRO_EDGE_DP : 8);
+        box.addView(thumb, tlp);
+        tile.thumb = thumb;
+
+        box.setOnClickListener(v -> {
+            dismiss();
+            TaskOverview.bringToFront(tile.taskId, display);
+        });
+        box.mThumb = thumb;
+        return box;
+    }
+
+    /** Glass's close: a round light X that turns as the pointer reaches it. */
+    private static View glassClose(Context ctx) {
         TextView x = new TextView(ctx);
         x.setText("✕");
         x.setTextColor(0xFF1C1C1E);
@@ -498,46 +600,18 @@ public final class TaskbarPreview {
             }
             return false;
         });
-        x.setOnClickListener(v -> {
-            TaskOverview.closeTask(tile.taskId, pkg);
-            tiles.remove(tile);
-            box.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(Motion.SHORT)
-                    .withEndAction(() -> {
-                        if (box.getParent() instanceof ViewGroup) {
-                            ((ViewGroup) box.getParent()).removeView(box);
-                        }
-                        if (tiles.isEmpty()) {
-                            dismiss();
-                        }
-                    }).start();
-        });
-        header.addView(x, new LinearLayout.LayoutParams(xPx, xPx));
-        box.addView(header);
+        return x;
+    }
 
-        ImageView thumb = new ImageView(ctx);
-        thumb.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        thumb.setBackground(Ui.roundRect(0x33FFFFFF, Ui.dp(ctx, 12)));
-        thumb.setImageDrawable(appIcon);
-        int radius = Ui.dp(ctx, 12);
-        thumb.setOutlineProvider(new ViewOutlineProvider() {
-            @Override
-            public void getOutline(View view, Outline outline) {
-                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
-            }
-        });
-        thumb.setClipToOutline(true);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, tileH);
-        tlp.topMargin = Ui.dp(ctx, 8);
-        box.addView(thumb, tlp);
-        tile.thumb = thumb;
-
-        box.setOnClickListener(v -> {
-            dismiss();
-            TaskOverview.bringToFront(tile.taskId, display);
-        });
-        box.mThumb = thumb;
-        return box;
+    /** Windows 98's close: a small raised button with a black X, pressed in under a press. */
+    private static View retroClose(Context ctx) {
+        ImageView x = new ImageView(ctx);
+        x.setImageDrawable(PixelIcons.close(Theme.RETRO.text()));
+        int inset = Ui.dp(ctx, 3);
+        x.setPadding(inset, inset, inset, inset);
+        x.setBackground(Bevel.button(ctx));
+        x.setContentDescription("Close");
+        return x;
     }
 
     private static void loadSnapshot(Tile tile, FrameLayout root) {
@@ -607,7 +681,7 @@ public final class TaskbarPreview {
         }
     }
 
-    /** Closes it the iOS way: a quick fade as it settles back a touch. */
+    /** Closes it the iOS way: a quick fade as it settles back a touch. Retro's just goes. */
     public static void dismiss() {
         FrameLayout root = sRoot;
         WindowManager wm = sWm;
@@ -616,6 +690,10 @@ public final class TaskbarPreview {
         sShown = null;
         sOverPane = false;
         if (root == null || wm == null) {
+            return;
+        }
+        if (sTheme.retro()) {
+            remove(wm, root);
             return;
         }
         View pane = root.getChildCount() > 0 ? root.getChildAt(0) : root;

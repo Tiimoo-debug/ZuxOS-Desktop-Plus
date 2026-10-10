@@ -86,12 +86,14 @@ mode along the way.
   the tray for a few seconds, with its buttons and a reply box. Needs notification access.
 - **Glass taskbar** (optional). Under the glyphs it adds the lightest tint that keeps them at a
   3:1 contrast ratio over any app, so white icons don't vanish over a white app.
-- **Retro theme** (optional, monitor only): the bar, Start, the tray, the bar's menus and panels,
-  pop-ups and the screenshot card as Windows 98 drew them - grey bevels, navy selection, a pixel
+- **Retro theme** (optional, monitor only): the bar, Start, the tray, the bar's menus, panels and
+  window previews, pop-ups and the screenshot card as Windows 98 drew them - grey bevels, navy selection, a pixel
   font and pixel keys. Open apps are raised buttons, the one in front pressed in. Nothing moves
   and no glass is captured, so it is also the lightest look. The tablet keeps glass.
 - **Taskbar at the top** (optional, monitor only), over the monitor's status bar strip. Menus,
   panels, pop-ups and previews open below it, and maximised windows start under it.
+- **No status bar on the monitor.** ZUI's bar there only shows icons; the tray does its job, and
+  apps get the strip back. Needs System UI ticked in LSPosed.
 
 ### Liquid glass
 
@@ -157,7 +159,9 @@ Where the project is going, and in what order: [docs/ROADMAP.md](docs/ROADMAP.md
 
 1. You need root with **LSPosed** (Zygisk on Magisk, KernelSU or APatch) working on Android 16.
 2. Install the APK, enable the module in LSPosed and **scope it to the home app**
-   (`com.zui.launcher` on this firmware). Then restart the home app or reboot.
+   (`com.zui.launcher` on this firmware). Then restart the home app or reboot. Tick **System
+   Framework** too to keep apps on the monitor alive, and **System UI** to take the monitor's
+   status bar away.
 3. Open **ZuxOS Desktop Plus** once. The banner says whether LSPosed has really loaded it.
 4. Connect the monitor and enter desktop mode.
 
@@ -194,6 +198,7 @@ survives restarts and reboots.
 | **Glass taskbar** | Off | Experimental: a translucent bar with a contrast floor |
 | **Theme** | Glass | Retro: Windows 98 on the monitor's bar and panels |
 | **Taskbar position (monitor)** | Bottom | Top; read when the launcher restarts |
+| **Hide the monitor's status bar** | On | Off brings ZUI's back, the next time the monitor's desktop starts |
 | **Status tray / Show temperatures** | On | The tray at the right of the bar |
 | **Drag apps out of the stock drawer** | On | Hold and move in ZUI's drawer to drag to the desktop or bar |
 | **Use the stock taskbar drawer too** | On | Your folders and order in ZUI's own drawer |

@@ -17,6 +17,7 @@ import com.zuxos.desktopplus.hook.system.SystemFullscreen;
 import com.zuxos.desktopplus.hook.system.SystemKeepAlive;
 import com.zuxos.desktopplus.hook.system.SystemNewWindow;
 import com.zuxos.desktopplus.hook.system.SystemTrace;
+import com.zuxos.desktopplus.hook.systemui.MonitorStatusBar;
 import com.zuxos.desktopplus.hook.taskbar.TaskbarTray;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -26,6 +27,8 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /** LSPosed entry point. */
 public class XposedEntry implements IXposedHookLoadPackage {
+
+    private static final String SYSTEMUI = "com.android.systemui";
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
@@ -45,6 +48,15 @@ public class XposedEntry implements IXposedHookLoadPackage {
                     SystemFullscreen.install(lpparam.classLoader);
                     SystemDrag.install(lpparam.classLoader);
                     SystemTrace.install(lpparam.classLoader);
+                }
+                return;
+            }
+            if (SYSTEMUI.equals(lpparam.packageName)) {
+                // ZUI's SystemUI - ticked as System UI in LSPosed. Its main process only, and
+                // only the switch for the monitor's status bar.
+                Cfg.reload();
+                if (SYSTEMUI.equals(lpparam.processName) && Cfg.enabled()) {
+                    MonitorStatusBar.install(lpparam.classLoader);
                 }
                 return;
             }

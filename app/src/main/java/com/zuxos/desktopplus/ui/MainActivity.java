@@ -116,8 +116,14 @@ public class MainActivity extends Activity {
                         "Bottom",
                         "Top"},
                 Const.KEY_TASKBAR_EDGE, Const.EDGE_BOTTOM);
-        addSummary("Top covers the monitor's own status bar strip. Takes effect when the "
-                + "launcher restarts. The tablet's taskbar never moves.");
+        addSummary("Takes effect when the launcher restarts. The tablet's taskbar never "
+                + "moves.");
+        addSwitch("Hide the monitor's status bar",
+                "ZUI's bar at the top of the external screen only shows icons - it cannot be "
+                        + "pulled down. The tray and its panels do its job, and apps get its "
+                        + "room. Needs System UI ticked in LSPosed; takes effect the next time "
+                        + "the monitor's desktop starts.",
+                Const.KEY_HIDE_MONITOR_STATUS_BAR, true);
 
         addHeader("App drawer");
         addSwitch("Use the stock taskbar drawer too",

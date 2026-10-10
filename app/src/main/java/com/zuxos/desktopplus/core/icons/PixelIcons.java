@@ -57,6 +57,16 @@ public final class PixelIcons {
             ".#....#.",
             "..####..",
     };
+    /** Windows 98's close: the X on a window's title bar. */
+    private static final String[] CLOSE = {
+            "##....##",
+            ".##..##.",
+            "..####..",
+            "...##...",
+            "..####..",
+            ".##..##.",
+            "##....##",
+    };
     private static final String[] RECENTS = {
             "########",
             "#......#",
@@ -88,6 +98,10 @@ public final class PixelIcons {
 
     public static Drawable recents(int color) {
         return new Grid(RECENTS, color);
+    }
+
+    public static Drawable close(int color) {
+        return new Grid(CLOSE, color);
     }
 
     /**

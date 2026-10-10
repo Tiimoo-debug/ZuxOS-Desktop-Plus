@@ -36,6 +36,9 @@ public final class Const {
     public static final int EDGE_BOTTOM = 0;
     public static final int EDGE_TOP = 1;
 
+    /** ZUI's status bar on the monitor's desktop not built: the tray and its panels stand in. */
+    public static final String KEY_HIDE_MONITOR_STATUS_BAR = "hide_monitor_status_bar";
+
     /** Attach to every activity of the target package, not just detected home activities. */
     public static final String KEY_ATTACH_ANY = "attach_any_activity";
 

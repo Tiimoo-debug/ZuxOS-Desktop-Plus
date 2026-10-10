@@ -315,6 +315,14 @@ public final class Cfg {
         return getInt(Const.KEY_TASKBAR_EDGE, Const.EDGE_BOTTOM);
     }
 
+    /**
+     * On by default, at the owner's request: on the monitor ZUI's status bar only shows icons,
+     * and the taskbar's tray does its job.
+     */
+    public static boolean hideMonitorStatusBar() {
+        return getBool(Const.KEY_HIDE_MONITOR_STATUS_BAR, true);
+    }
+
     public static boolean nativeDrawer() {
         return getBool(Const.KEY_NATIVE_DRAWER, true);
     }
