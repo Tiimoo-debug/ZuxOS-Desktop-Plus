@@ -287,15 +287,18 @@ device.
   setting of ZUI's turns it off. Everything else in the manager allows for it not being there
   (`removeStatusBar`, the colour updates in `onSystemBarAttributesChanged`); the screen width it
   stores on the way (`XSystemUtil.mDpModeScreenWidth`) is read only by the status bar's own view.
-  - **The window buttons went with it.** `WindowDecoration.getCurrentTaskInfoImmersived(task)`
-    counts a full-screen task as immersive - and its title bar hidden - when ZUI's
-    swipe-from-top flag is set (`OvcPcModeUtils.mImmersivedSwipFromUpTaskInfo`) or when
-    `mIsStatusBarVisible` is false. That flag follows the `statusBars` insets on the task's
-    display (`DesktopModeWindowDecorViewModel.DesktopModeOnInsetsChangedListener`), so with no
-    status bar every maximised window lost its buttons. ZUI's own test for an app asking to be
-    immersive is `(task.requestedVisibleTypes & statusBars()) == 0`
-    (`TaskInfoKt.getRequestingImmersive`). `CaptionWindowDecoration` reads the flag too, but it is
-    the non-desktop decoration.
+  - **The window buttons went with it.** The title bar of a full-screen window is shown only
+    while `mIsStatusBarVisible` is true: `DesktopModeWindowDecoration.relayout` (the 7-argument
+    one) passes the field to `updateRelayoutParams`, which makes it
+    `RelayoutParams.mIsCaptionVisible` (`isFreeform() || (statusBarVisible && !keyguardOccluded)`,
+    read with jadx `--show-bad-code`; plain jadx skips that method). ZUI's immersive test
+    `WindowDecoration.getCurrentTaskInfoImmersived` reads the same field, and so does
+    `CaptionWindowDecoration`. The field follows the `statusBars` insets on the task's display
+    (`DesktopModeWindowDecorViewModel.DesktopModeOnInsetsChangedListener`), so with no status bar
+    every maximised window lost its buttons. 1.0.172 hooked only the immersive test, which is not
+    what hides them; 1.0.181 sets the field before each relayout instead. ZUI's own test for an
+    app asking to be immersive is `(task.requestedVisibleTypes & statusBars()) == 0`
+    (`TaskInfoKt.getRequestingImmersive`).
 - **Where windows may go** (read 2026-10-10). The shell keeps windows in
   `DisplayLayout.getStableBounds` / `getStableBoundsForDesktopMode`, built in `recalcInsets` -
   run again on every change of the display's insets
