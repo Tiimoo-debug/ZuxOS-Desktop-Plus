@@ -204,6 +204,12 @@ vendor power HAL's, not in these jars.
 - The owner reports that bypass does hold with both cables in (0 mA, "Not charging AC"), so the
   5 V hand-over seen in the probes is not the whole story: what turns charging back on is
   traced from 1.0.182.
+- The charger is held back by Qualcomm's thermal-engine, not by ZUI:
+  `thermal-engine_battery_0.conf`, `[MON-BATTERY-USER]`, sensor `quiet-therm` (the skin),
+  sampled every 2 s. It sets the `battery` cooling device to level 7 at 30 °C, then 11 at 32,
+  13 at 34, 15 at 36, 16 at 38 and 20 at 49. Every probe of 2026-10-10 had it at 16 of 20, with
+  quiet-therm near 44 °C. During 3DMark with bypass on, the input was 2-3 W (8.9 V × 0.35 A,
+  then 5 V × 0.4 A) and the battery gave the rest, about 1.6 A.
 - In bypass the battery status is 4 (not charging); ZUI's battery service logs it as
   `[bypass, bp]:[true, ...]` in `LongtimeChargingProtectController`.
 

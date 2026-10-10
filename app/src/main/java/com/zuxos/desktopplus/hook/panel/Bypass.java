@@ -21,13 +21,23 @@ public final class Bypass {
     private static final String MANAGER = "android.hardware.battery.ZuiBatteryManager";
 
     /**
-     * Read-only trace while the owner's report is looked into: bypass holds with both USB cables
-     * in, then at some point the battery charges again. Whether ZUI says it is on - asked once
-     * when the tray starts, then kept from the switch - and the last battery status seen.
+     * Read-only trace while the owner's report is looked into: bypass holds, but under load the
+     * battery gives current and at some point charges again. Whether ZUI says it is on - asked
+     * once when the tray starts, then kept from the switch.
      */
     private static boolean sHeld;
     private static boolean sAsked;
-    private static int sLastStatus = -1;
+    /** What the battery was last seen doing while bypass is on: one of the three below. */
+    private static String sFlow;
+
+    private static final String CHARGING = "charging";
+    private static final String RESTING = "resting";
+    private static final String GIVING = "giving";
+
+    /** The skin sensor and the charger's cooling device the thermal-engine uses, found once. */
+    private static String sSkin;
+    private static String sCooling;
+    private static boolean sFound;
 
     /** What the system logged around the moment, read as root: the battery, port and game tags. */
     private static final String AROUND = "logcat -d -t 400 -b main,system 2>/dev/null"
@@ -60,6 +70,7 @@ public final class Bypass {
                     + "; battery " + battery(ctx, null));
             sHeld = on && done;
             sAsked = true;
+            sFlow = null;
             if (sHeld) {
                 Context app = ctx.getApplicationContext();
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
@@ -75,30 +86,90 @@ public final class Bypass {
 
     /**
      * Each battery broadcast: while bypass is on, logs once when it has gone off, and each time
-     * the battery goes back to charging (status 2; bypass reads 4, not charging), with what the
-     * system logged around that moment. Nothing is asked while bypass is off.
+     * the battery changes between charging, resting and giving - read from its current, since ZUI
+     * keeps the status at "not charging" through it - with the input, the skin temperature and
+     * the thermal-engine's charger level. Nothing is read while bypass is off.
      */
     public static void batteryChanged(Context ctx, android.content.Intent intent) {
         if (!sAsked) {
             sAsked = true;
             sHeld = Boolean.TRUE.equals(on(ctx));
         }
-        int status = intent.getIntExtra("status", -1);
-        int last = sLastStatus;
-        sLastStatus = status;
         if (!sHeld) {
+            sFlow = null;
             return;
         }
         if (!Boolean.TRUE.equals(on(ctx))) {
             sHeld = false;
-            L.i("bypass charging: turned off without the taskbar; battery " + battery(ctx, intent));
+            sFlow = null;
+            L.i("bypass charging: turned off without the taskbar; battery " + battery(ctx, intent)
+                    + "; " + thermal());
             around();
             return;
         }
-        if (status == android.os.BatteryManager.BATTERY_STATUS_CHARGING && last != status) {
-            L.i("bypass charging: on, but the battery charges again (status " + last + " -> "
-                    + status + "); battery " + battery(ctx, intent));
+        String flow = flow(ctx);
+        if (flow == null || flow.equals(sFlow)) {
+            return;
+        }
+        String was = sFlow;
+        sFlow = flow;
+        L.i("bypass charging: on, battery " + (was == null ? "" : was + " -> ") + flow + "; battery "
+                + battery(ctx, intent) + "; input " + read("/sys/class/power_supply/usb/voltage_now")
+                + " uV " + read("/sys/class/power_supply/usb/current_now") + " uA; " + thermal());
+        if (CHARGING.equals(flow) && was != null) {
             around();
+        }
+    }
+
+    /** The battery's current as a flow: into it, out of it, or neither, with some slack. */
+    private static String flow(Context ctx) {
+        try {
+            android.os.BatteryManager bm = ctx.getSystemService(android.os.BatteryManager.class);
+            int ma = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                    / 1000;
+            // This tablet's sign: positive is the battery giving current.
+            return ma < -150 ? CHARGING : ma > 500 ? GIVING : RESTING;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * The skin temperature the thermal-engine watches for the charger (quiet-therm) and the level
+     * it holds the charger at (the "battery" cooling device).
+     */
+    private static String thermal() {
+        if (!sFound) {
+            sFound = true;
+            sSkin = byType("/sys/class/thermal", "thermal_zone", "quiet-therm", "temp");
+            sCooling = byType("/sys/class/thermal", "cooling_device", "battery", "cur_state");
+        }
+        return "skin " + (sSkin != null ? read(sSkin) : "?") + " mC, charger held at level "
+                + (sCooling != null ? read(sCooling) : "?");
+    }
+
+    /** The file {@code leaf} of the entry under {@code dir} whose type is {@code type}. */
+    private static String byType(String dir, String prefix, String type, String leaf) {
+        String[] names = new java.io.File(dir).list();
+        if (names == null) {
+            return null;
+        }
+        for (String name : names) {
+            if (name.startsWith(prefix) && type.equals(read(dir + "/" + name + "/type"))) {
+                return dir + "/" + name + "/" + leaf;
+            }
+        }
+        return null;
+    }
+
+    /** One line of a small system file, or "?" where it cannot be read. */
+    private static String read(String path) {
+        try (java.io.BufferedReader in = new java.io.BufferedReader(
+                new java.io.FileReader(path))) {
+            String line = in.readLine();
+            return line != null ? line.trim() : "?";
+        } catch (Throwable t) {
+            return "?";
         }
     }
 
